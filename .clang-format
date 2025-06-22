@@ -1,0 +1,32 @@
+BasedOnStyle: WebKit
+
+Language: Cpp
+ColumnLimit: 100
+Standard: Latest
+
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 1
+AlignAfterOpenBracket: DontAlign
+AlignEscapedNewlines: Left
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortBlocksOnASingleLine: Empty
+AllowShortLambdasOnASingleLine: Inline
+AllowShortIfStatementsOnASingleLine: Never
+AlwaysBreakTemplateDeclarations: Yes
+BreakBeforeBraces: Custom
+BraceWrapping:
+  AfterFunction: true
+BreakStringLiterals: true
+FixNamespaceComments: true
+IndentCaseLabels: true
+InsertNewlineAtEOF: true
+InsertBraces: true
+LineEnding: LF
+NamespaceIndentation: All
+PointerAlignment: Right
+SeparateDefinitionBlocks: Always
+SpaceAfterTemplateKeyword: false
+SpaceBeforeCpp11BracedList: false

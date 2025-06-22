@@ -1,0 +1,7 @@
+CompileFlags:
+  Add: [ "-std=c++23", "-Wall", "-Wextra", "-D_DEBUG" ]
+  Compiler: clang++
+
+Completion:
+  ArgumentLists: Delimiters
+  CodePatterns: None
