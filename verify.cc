@@ -31,7 +31,7 @@ void flatten_binary(Ast *ast, std::vector<Ast *> &flattened)
     }
 }
 
-void insert_implicit_cast(Ast *&expr, Type *to)
+void insert_cast(Ast *&expr, Type *to)
 {
     expr = new AstCast(expr, to, expr->location);
 }
@@ -99,8 +99,6 @@ bool expr_is_constexpr_int(Type *t, ExprConstness e)
 {
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
-
-enum class ForceSigned { No, Yes };
 
 Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constant = nullptr,
     ForceSigned force_signed = ForceSigned::No);
@@ -199,7 +197,9 @@ Type *get_expression_type(
             if (constness) {
                 *constness |= ExprConstness::SeenConstant;
             }
-            return get_integer_expression_type(static_cast<AstLiteral *>(ast)->u.u64, force_signed);
+            return static_cast<AstLiteral *>(ast)->literal_type;
+            // return get_integer_expression_type(static_cast<AstLiteral *>(ast)->u.u64,
+            // force_signed);
         }
         case AstType::Boolean:
             if (constness) {
@@ -246,7 +246,7 @@ bool is_auto_inferred(Type *type)
 void resolve_type(Compiler &cc, Scope *scope, Type *&type)
 {
     // If a type is unresolved, it's a) invalid, b) auto inferred, or c) declared later
-    // (possibly as an alias). b) is dealt with in resolve_var_decl.
+    // (possibly as an alias). b) is dealt with in verify_var_decl.
     if (type->has_flag(TypeFlags::UNRESOLVED)) {
         auto *resolved = find_type(scope, type->name);
         if (resolved) {
@@ -298,207 +298,6 @@ bool has_top_level_return(AstBlock *block)
     return false;
 }
 
-// Collects all operands (recursively) for binary operations matching `matching_operation`.
-void flatten_binary(Ast *ast, Operation matching_operation, std::vector<Ast *> &flattened)
-{
-    if (ast->type == AstType::Binary && ast->operation == matching_operation) {
-        flatten_binary(static_cast<AstBinary *>(ast)->left, matching_operation, flattened);
-        flatten_binary(static_cast<AstBinary *>(ast)->right, matching_operation, flattened);
-    } else {
-        flattened.push_back(ast);
-    }
-}
-
-Type *get_integer_expression_type(uint64_t u64, ForceSigned force_signed);
-
-Ast *partial_fold_associative(const std::vector<Ast *> &operands, Operation operation)
-{
-    std::vector<Ast *> non_constants;
-    uint64_t accumulator = operation == Operation::Multiply ? 1 : 0;
-
-    // FIXME - s64 hardcoded
-    // we should figure out the expr type beforehand and pass it in
-    for (auto *ast : operands) {
-        if (ast->type == AstType::Integer) {
-            if (operation == Operation::Add) {
-                accumulator += static_cast<AstLiteral *>(ast)->u.u64;
-            } else if (operation == Operation::Multiply) {
-                accumulator *= static_cast<AstLiteral *>(ast)->u.u64;
-            }
-            delete static_cast<AstLiteral *>(ast);
-        } else {
-            non_constants.push_back(ast);
-        }
-    }
-
-    auto *ret = non_constants[0];
-    for (size_t i = 1; i < non_constants.size(); ++i) {
-        ret = new AstBinary(operation, ret, non_constants[i], {});
-    }
-    return new AstBinary(operation, ret,
-        new AstLiteral(get_integer_expression_type(accumulator, ForceSigned::No), AstType::Integer,
-            accumulator, {}),
-        {});
-}
-
-Ast *try_fold_identities(AstBinary *binary, Ast *constant_ast, Ast *variable_ast, int64_t constant)
-{
-    if (binary->operation == Operation::Add) {
-        if (constant == 0) {
-            // x+0=x and 0+x=x
-            delete static_cast<AstLiteral *>(constant_ast);
-            delete static_cast<AstBinary *>(binary);
-            return variable_ast;
-        }
-    } else /* multiply */ {
-        if (constant == 0) {
-            // x*0=0 and 0*x=0
-            delete static_cast<AstIdentifier *>(variable_ast);
-            delete static_cast<AstBinary *>(binary);
-            return constant_ast;
-        }
-        if (constant == 1) {
-            // x*1=x and 1*x=x
-            delete static_cast<AstLiteral *>(constant_ast);
-            delete static_cast<AstBinary *>(binary);
-            return variable_ast;
-        }
-    }
-    return nullptr;
-}
-
-Ast *try_partial_fold_associative(
-    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, int64_t constant)
-{
-    if (auto *id = try_fold_identities(binary, constant_ast, variable_ast, constant)) {
-        return id;
-    }
-    if (binary->left->type != AstType::Binary && binary->right->type != AstType::Binary) {
-        // If this is a simple expression with no chance of further constants and
-        // try_fold_identities also failed, give up here.
-        return binary;
-    }
-    std::vector<Ast *> flattened;
-    flatten_binary(binary, binary->operation, flattened);
-    return partial_fold_associative(flattened, binary->operation);
-}
-
-Ast *try_constant_fold(Compiler &cc, Ast *ast);
-
-Ast *try_fold_unary(Compiler &cc, AstUnary *unary)
-{
-    if (unary->operation != Operation::Negate) {
-        return unary;
-    }
-
-    auto *leaf = try_constant_fold(cc, unary->operand);
-    if (leaf && leaf->type == AstType::Integer) {
-        auto lhs = static_cast<AstLiteral *>(leaf)->u.s64;
-        auto result = -lhs;
-        delete static_cast<AstLiteral *>(leaf);
-        delete static_cast<AstUnary *>(unary);
-        return new AstLiteral(s64_type(), AstType::Integer, result, {});
-    }
-
-    return unary;
-}
-
-Ast *try_fold_constants(Compiler &cc, AstBinary *binary, int64_t left_const, int64_t right_const)
-{
-    int64_t result;
-    switch (binary->operation) {
-        case Operation::Add:
-            result = left_const + right_const;
-            break;
-        case Operation::Subtract:
-            result = left_const - right_const;
-            break;
-        case Operation::Multiply:
-            result = left_const * right_const;
-            break;
-        case Operation::Divide:
-            if (right_const == 0) {
-                cc.diag_ast_warning(binary, "division by 0");
-                return binary;
-            }
-            result = left_const / right_const;
-            break;
-        case Operation::Modulo:
-            if (right_const == 0) {
-                cc.diag_ast_warning(binary, "modulo 0");
-                return binary;
-            }
-            result = left_const % right_const;
-            break;
-        default:
-            return binary; // Do nothing
-    }
-    auto loc = binary->location;
-    delete static_cast<AstLiteral *>(binary->left);
-    delete static_cast<AstLiteral *>(binary->right);
-    delete static_cast<AstBinary *>(binary);
-    return new AstLiteral(
-        get_integer_expression_type(result, ForceSigned::No), AstType::Integer, result, loc);
-}
-
-Ast *try_fold_binary(Compiler &cc, AstBinary *binary)
-{
-    // Figure out which parts of the expression are constant.
-    auto *left = try_constant_fold(cc, binary->left);
-    auto *right = try_constant_fold(cc, binary->right);
-    bool left_is_const = left->type == AstType::Integer;
-    bool right_is_const = right->type == AstType::Integer;
-    if (!left_is_const && !right_is_const) {
-        return binary;
-    }
-
-    int64_t left_const, right_const;
-    if (left_is_const) {
-        left_const = static_cast<AstLiteral *>(left)->u.s64;
-    }
-    if (right_is_const) {
-        right_const = static_cast<AstLiteral *>(right)->u.s64;
-    }
-
-    if (left_is_const && right_is_const) {
-        // Easy case: if both sides are constants, fold unless the operation is illegal.
-        return try_fold_constants(cc, binary, left_const, right_const);
-    }
-
-    // Only one side is a constant, and the operation is associative.
-    if (binary->operation == Operation::Multiply || binary->operation == Operation::Add) {
-        auto *constant_ast = left_is_const ? left : right;
-        auto *variable_ast = left_is_const ? right : left;
-        auto constant = left_is_const ? left_const : right_const;
-        return try_partial_fold_associative(binary, constant_ast, variable_ast, constant);
-    }
-
-    // TODO - non-associative folding
-
-    if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {
-        if (right_is_const && right_const == 0) {
-            const char *type = binary->operation == Operation::Divide ? "division by" : "modulo";
-            cc.diag_ast_warning(binary, "{} 0", type);
-        }
-    }
-
-    return binary;
-}
-
-Ast *try_constant_fold(Compiler &cc, Ast *ast)
-{
-    if (!ast) {
-        return nullptr;
-    }
-    if (ast->type == AstType::Unary) {
-        return try_fold_unary(cc, static_cast<AstUnary *>(ast));
-    }
-    if (ast->type == AstType::Binary) {
-        return try_fold_binary(cc, static_cast<AstBinary *>(ast));
-    }
-    return ast;
-}
-
 enum class WarnDiscardedReturn { No, Yes };
 
 void verify_expr(Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded,
@@ -520,7 +319,7 @@ TypeError maybe_cast_integer(Type *wanted_type, Type *type, Ast *&expr, ExprCons
         return TypeError::SignednessMismatch;
     }
     dbgln("casting {} to {}", type->name, wanted_type->name);
-    insert_implicit_cast(expr, wanted_type);
+    insert_cast(expr, wanted_type);
     return TypeError::None;
 }
 
@@ -612,7 +411,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 dbgln("encountered cast");
             }
             break;
-        // ast = try_constant_fold(cc, ast);
+            ast = try_constant_fold(cc, ast, expected);
         case AstType::Binary: {
             auto binary = static_cast<AstBinary *>(ast);
             switch (binary->operation) {
@@ -628,7 +427,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 default:
                     verify_binary(cc, binary, expected, warn_discarded);
             }
-            // ast = try_constant_fold(cc, binary);
+            ast = try_constant_fold(cc, binary, expected);
             break;
         }
         case AstType::Identifier:

@@ -104,6 +104,11 @@ void print_types(Scope *scope)
     }
 }
 
+static std::string var_type_name(Variable *var)
+{
+    return var->type->name.empty() ? "<auto>" : var->type->name;
+}
+
 static void print_var_decl(AstVariableDecl *var_decl)
 {
     auto *type = var_decl->var.type;
@@ -130,7 +135,7 @@ static void print_node(Ast *ast, std::string_view indent)
             std::print("{} ({})", extract_constant(literal), literal->literal_type->name);
         } else if (ast->type == AstType::Identifier) {
             auto *ident = static_cast<AstIdentifier *>(ast);
-            std::print("{} ({})", ident->string, ident->var->type->name);
+            std::print("{} ({})", ident->string, var_type_name(ident->var));
         } else {
             std::print("[{}]", to_string(ast->type));
         }

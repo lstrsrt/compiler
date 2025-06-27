@@ -620,13 +620,10 @@ struct AstFunctionDecl : Ast {
 
 Ast *parse_stmt(Compiler &, AstFunctionDecl *);
 
-enum class SearchParents {
-    No,
-    Yes,
-};
-
 void free_ast(Ast *);
 void free_ast(std::vector<Ast *> &);
+
+Ast *try_constant_fold(Compiler &, Ast *, Type *expected);
 
 struct Scope {
     Scope *parent;
@@ -664,6 +661,8 @@ inline void free_scopes()
     }
 }
 
+enum class SearchParents { No, Yes };
+
 AstVariableDecl *find_variable(Scope *, std::string_view name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
@@ -678,7 +677,15 @@ enum class ErrorOnShadowing { No, Yes };
 void diagnose_redeclaration_or_shadowing(
     Compiler &, Scope *, std::string_view name, std::string_view type, ErrorOnShadowing);
 
+//
+// Verification
+//
+
 void verify_main(Compiler &, AstFunctionDecl *);
+
+enum class ForceSigned { No, Yes };
+
+Type *get_integer_expression_type(uint64_t u64, ForceSigned force_signed);
 
 bool has_top_level_return(AstBlock *block);
 

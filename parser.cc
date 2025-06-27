@@ -298,10 +298,7 @@ AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, As
     return nullptr;
 }
 
-enum class AllowInitExpr {
-    No,
-    Yes,
-};
+enum class AllowInitExpr { No, Yes };
 
 AstVariableDecl *parse_var_decl(Compiler &, AllowInitExpr = AllowInitExpr::Yes);
 
