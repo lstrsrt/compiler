@@ -232,7 +232,6 @@ void skip_comments(Compiler &cc)
                 continue;
             }
             advance_column(lexer);
-            ;
             if (lexer.out_of_bounds()) {
                 cc.diag_error_at(
                     loc, "unterminated comment starting at ({},{})", loc.line, loc.column + 1);

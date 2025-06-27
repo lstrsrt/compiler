@@ -257,6 +257,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(VariableDecl)  \
     __ENUMERATE_OPERATION(FunctionDecl)  \
     __ENUMERATE_OPERATION(If)            \
+    __ENUMERATE_OPERATION(Cast)          \
     __ENUMERATE_OPERATION(PushArg)       \
     __ENUMERATE_OPERATION(Branch)        \
     __ENUMERATE_OPERATION(CondBranch)
@@ -320,25 +321,56 @@ struct Ast {
 #endif
 };
 
-struct AstInteger : Ast {
-    int64_t number;
+struct Type;
 
-    explicit AstInteger(int64_t _number, SourceLocation _location)
-        : Ast(AstType::Integer, Operation::None, _location)
-        , number(_number)
+struct AstLiteral : Ast {
+    Type *literal_type = nullptr;
+
+    union {
+        uint32_t u32;
+        uint64_t u64;
+        int32_t s32;
+        int64_t s64;
+        bool boolean;
+    } u;
+
+    explicit AstLiteral(Type *_type, AstType _ast_type, uint64_t _literal, SourceLocation _location)
+        : Ast(_ast_type, Operation::None, _location)
+        , literal_type(_type)
     {
+        u.u64 = _literal;
+    }
+
+    explicit AstLiteral(Type *_type, AstType _ast_type, uint32_t _literal, SourceLocation _location)
+        : Ast(_ast_type, Operation::None, _location)
+        , literal_type(_type)
+    {
+        u.u32 = _literal;
+    }
+
+    explicit AstLiteral(Type *_type, AstType _ast_type, int32_t _literal, SourceLocation _location)
+        : Ast(_ast_type, Operation::None, _location)
+        , literal_type(_type)
+    {
+        u.s32 = _literal;
+    }
+
+    explicit AstLiteral(Type *_type, AstType _ast_type, int64_t _literal, SourceLocation _location)
+        : Ast(_ast_type, Operation::None, _location)
+        , literal_type(_type)
+    {
+        u.s64 = _literal;
+    }
+
+    explicit AstLiteral(Type *_type, AstType _ast_type, bool _literal, SourceLocation _location)
+        : Ast(_ast_type, Operation::None, _location)
+        , literal_type(_type)
+    {
+        u.boolean = _literal;
     }
 };
 
-struct AstBoolean : Ast {
-    bool boolean;
-
-    explicit AstBoolean(bool _boolean, SourceLocation _location)
-        : Ast(AstType::Boolean, Operation::None, _location)
-        , boolean(_boolean)
-    {
-    }
-};
+std::string extract_constant(AstLiteral *);
 
 struct Variable;
 
@@ -372,6 +404,19 @@ struct AstBinary : Ast {
         : Ast(AstType::Binary, _op, _location)
         , left(_left)
         , right(_right)
+    {
+    }
+};
+
+struct AstCast : Ast {
+    Ast *expr;
+    Type *cast_type;
+
+    explicit AstCast(Ast *_expr, Type *_cast_type, SourceLocation _location)
+        : Ast(AstType::Unary, Operation::Cast, _location)
+        , expr(_expr)
+        , cast_type(_cast_type)
+
     {
     }
 };
@@ -483,7 +528,11 @@ struct Type {
     }
 };
 
+Type *void_type();
+Type *u32_type();
+Type *u64_type();
 Type *s32_type();
+Type *s64_type();
 Type *bool_type();
 
 Type *get_unaliased_type(Type *);
@@ -637,14 +686,15 @@ bool has_top_level_return(AstBlock *block);
 // IR
 //
 
-#define ENUMERATE_IR_ARG_TYPES()       \
-    __ENUMERATE_IR_ARG_TYPE(Empty)     \
-    __ENUMERATE_IR_ARG_TYPE(Vreg)      \
-    __ENUMERATE_IR_ARG_TYPE(Constant)  \
-    __ENUMERATE_IR_ARG_TYPE(Variable)  \
-    __ENUMERATE_IR_ARG_TYPE(Parameter) \
-    __ENUMERATE_IR_ARG_TYPE(Function)  \
-    __ENUMERATE_IR_ARG_TYPE(BasicBlock)
+#define ENUMERATE_IR_ARG_TYPES()        \
+    __ENUMERATE_IR_ARG_TYPE(Empty)      \
+    __ENUMERATE_IR_ARG_TYPE(Vreg)       \
+    __ENUMERATE_IR_ARG_TYPE(Constant)   \
+    __ENUMERATE_IR_ARG_TYPE(Variable)   \
+    __ENUMERATE_IR_ARG_TYPE(Parameter)  \
+    __ENUMERATE_IR_ARG_TYPE(Function)   \
+    __ENUMERATE_IR_ARG_TYPE(BasicBlock) \
+    __ENUMERATE_IR_ARG_TYPE(Type)
 
 enum class IRArgType {
 #define __ENUMERATE_IR_ARG_TYPE(type) type,
@@ -655,21 +705,15 @@ enum class IRArgType {
 struct BasicBlock;
 
 struct IRArg {
-    IRArgType type;
+    IRArgType arg_type;
 
     union {
-        union {
-            int64_t i64;
-            uint64_t u64;
-            int32_t s32;
-            int64_t s64;
-            bool boolean;
-        } constant;
-
         Variable *variable = nullptr;
+        AstLiteral *constant;
         AstFunctionDecl *function;
         ssize_t vreg;
         BasicBlock *basic_block;
+        Type *type;
     };
 };
 

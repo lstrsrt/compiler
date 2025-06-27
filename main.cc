@@ -38,7 +38,7 @@ int main(int argc, char **argv)
     }*/
 #endif
     auto frontend = timer.elapsed();
-    generate_ir(cc, main);
+    // generate_ir(cc, main);
 #ifdef _DEBUG
     dbgln("{}initial ir:{}", cyan, default_clr);
     for (const auto *fn : cc.ir_builder.functions) {

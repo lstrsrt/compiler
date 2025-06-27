@@ -81,10 +81,10 @@ void emit_epilogue()
 
 uint64_t get_key(IRArg src)
 {
-    if (src.type == IRArgType::Vreg) {
+    if (src.arg_type == IRArgType::Vreg) {
         return src.vreg;
     }
-    if (src.type == IRArgType::Variable) {
+    if (src.arg_type == IRArgType::Variable) {
         return reinterpret_cast<uint64_t>(src.variable);
     }
     assert(!"get_key unhandled source type");
@@ -92,7 +92,7 @@ uint64_t get_key(IRArg src)
 
 void debug_stack_location(int location, IRArg src)
 {
-    if (src.type == IRArgType::Variable) {
+    if (src.arg_type == IRArgType::Variable) {
         emit(";; [rbp{:+}]: {}", location, src.variable->name);
     } else {
         emit(";; [rbp{:+}]: v{}", location, src.vreg);
@@ -110,9 +110,9 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
         return;
     }
 
-    if (src.type == IRArgType::Variable) {
+    if (src.arg_type == IRArgType::Variable) {
         offset += align_up(get_unaliased_type(src.variable->type)->size, 8);
-    } else if (src.type == IRArgType::Vreg) {
+    } else if (src.arg_type == IRArgType::Vreg) {
         offset += 8;
     }
 
@@ -134,10 +134,10 @@ int allocate_stack(IRFunction &ir_fn)
             if (ir->operation == Operation::None) {
                 continue;
             }
-            if (is_on_stack(ir->left.type)) {
+            if (is_on_stack(ir->left.arg_type)) {
                 extend_stack(stack_size, ir_fn, ir->left);
             }
-            if (ir->type == AstType::Binary && is_on_stack(ir->right.type)) {
+            if (ir->type == AstType::Binary && is_on_stack(ir->right.arg_type)) {
                 extend_stack(stack_size, ir_fn, ir->right);
             }
             if (ir->has_vreg_target()) {
@@ -162,16 +162,15 @@ constexpr std::string param_regs[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
 
 std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 {
-    if (src.type == IRArgType::Constant) {
-        // TODO - pick correct type
-        return std::to_string(src.constant.s64);
+    if (src.arg_type == IRArgType::Constant) {
+        return extract_constant(src.constant);
     }
     return stack_addr(ir_fn, get_key(src));
 }
 
 std::string extract_ir_arg(const IRFunction &ir_fn, IRArg arg)
 {
-    if (arg.type == IRArgType::Parameter) {
+    if (arg.arg_type == IRArgType::Parameter) {
         auto index = arg.variable->param_index;
         if (index < ssize(param_regs)) {
             return param_regs[index];
@@ -184,7 +183,7 @@ std::string extract_ir_arg(const IRFunction &ir_fn, IRArg arg)
 void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
     if (ir->operation == Operation::Return) {
-        if (ir->left.type != IRArgType::Empty) {
+        if (ir->left.arg_type != IRArgType::Empty) {
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
         }
         emit_epilogue();
@@ -229,6 +228,8 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             --reg_restores;
         }
         assert(reg_restores == 0);
+    } else if (ir->operation == Operation::Cast) {
+        emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
     }
 }
 
@@ -276,7 +277,7 @@ void emit_asm_binary(Compiler &, const IRFunction &ir_fn, IR *ir)
         case Operation::LessEquals: {
             constexpr std::array ops{ "sete", "setne", "setg", "setge", "setl", "setle" };
             auto op_index = static_cast<size_t>(
-                to_underlying(Operation::Equals) - to_underlying(ir->operation));
+                to_underlying(ir->operation) - to_underlying(Operation::Equals));
             assert(op_index < ops.size());
             emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));

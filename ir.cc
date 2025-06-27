@@ -68,7 +68,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
             args.push_back(push);
         }
         auto *fn = get_callee(cc, call);
-        ir->left = IRArg{ .type = IRArgType::Function, .function = fn };
+        ir->left = IRArg{ .arg_type = IRArgType::Function, .function = fn };
         if (fn->return_type->get_kind() != TypeFlags::Void) {
             ir->target = ++ir_fn->temp_regs;
         }
@@ -80,8 +80,15 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
         generate_ir(cc, ir, ir->left, static_cast<AstUnary *>(ast)->operand);
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, bb);
+    } else if (ast->operation == Operation::Cast) {
+        auto *cast = static_cast<AstCast *>(ast);
+        ir->left.arg_type = IRArgType::Type;
+        ir->left.type = cast->cast_type;
+        generate_ir(cc, ir, ir->right, cast->expr);
+        ir->target = ++ir_fn->temp_regs;
+        add_ir(ir, bb);
     }
-    return IRArg{ .type = IRArgType::Vreg, .vreg = ir->target };
+    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir->target };
 }
 
 IRArg generate_ir_binary(Compiler &cc, Ast *ast)
@@ -96,7 +103,7 @@ IRArg generate_ir_binary(Compiler &cc, Ast *ast)
     ir->type = ast->type;
     ir->target = ++ir_fn->temp_regs;
     add_ir(ir, bb);
-    return IRArg{ .type = IRArgType::Vreg, .vreg = ir->target };
+    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir->target };
 }
 
 IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
@@ -107,7 +114,7 @@ IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
     if (var_decl->init_expr) {
         auto ir = new IR;
         ir->ast = ast;
-        ir->left = IRArg{ .type = IRArgType::Variable, .variable = &var_decl->var };
+        ir->left = IRArg{ .arg_type = IRArgType::Variable, .variable = &var_decl->var };
         generate_ir(cc, ir, ir->right, var_decl->init_expr);
         // Transform into an assignment; we don't care (yet?)
         ir->operation = Operation::Assign;
@@ -115,7 +122,7 @@ IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, bb);
     }
-    return IRArg{ .type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
+    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
 }
 
 void generate_ir_return(Compiler &cc, Ast *ast)
@@ -193,8 +200,8 @@ void generate_ir_cond_branch(Compiler &cc, IR *cond, BasicBlock *bb1, BasicBlock
     ir->operation = Operation::CondBranch;
     ir->type = AstType::Binary;
     ir->cond_vreg = cond->target;
-    ir->left = IRArg{ .type = IRArgType::BasicBlock, .basic_block = bb1 };
-    ir->right = IRArg{ .type = IRArgType::BasicBlock, .basic_block = bb2 };
+    ir->left = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb1 };
+    ir->right = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb2 };
     add_ir(ir, bb);
 }
 
@@ -211,7 +218,6 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     auto false_block = add_block(ir_fn);
     // The if body has to be in true_block.
     ir_fn->current_block = true_block;
-    // verify_ast(cc, if_stmt->body, current_function);
     for (auto *stmt : if_stmt->body->stmts) {
         generate_ir_impl(cc, stmt);
     }
@@ -229,15 +235,14 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
     auto *ir_fn = cc.ir_builder.current_function;
     switch (ast->type) {
         case AstType::Integer:
-            return IRArg{ .type = IRArgType::Constant,
-                .constant = { static_cast<AstInteger *>(ast)->number } };
+            [[fallthrough]];
         case AstType::Boolean:
-            return IRArg{ .type = IRArgType::Constant,
-                .constant = { static_cast<AstBoolean *>(ast)->boolean } };
+            return IRArg{ .arg_type = IRArgType::Constant,
+                .constant = static_cast<AstLiteral *>(ast) };
         case AstType::Identifier: {
             auto *var = static_cast<AstIdentifier *>(ast)->var;
             auto src_type = var->is_parameter() ? IRArgType::Parameter : IRArgType::Variable;
-            return IRArg{ .type = src_type, .variable = var };
+            return IRArg{ .arg_type = src_type, .variable = var };
         }
         case AstType::Unary:
             return generate_ir_unary(cc, ast);
@@ -260,7 +265,7 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
             }
         }
     }
-    return IRArg{ .type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
+    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
 }
 
 void free_ir(IRFunction *);

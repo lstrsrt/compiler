@@ -104,16 +104,33 @@ void print_types(Scope *scope)
     }
 }
 
+static void print_var_decl(AstVariableDecl *var_decl)
+{
+    auto *type = var_decl->var.type;
+    if (type->name.empty()) {
+        std::print("{}: <auto>", var_decl->var.name);
+    } else {
+        const auto flags_str = type_flags_to_string(type->flags);
+        std::print("{}: {} {}", var_decl->var.name, type->name, flags_str);
+        if (type->has_flag(TypeFlags::ALIAS)) {
+            std::print("-> {}", get_unaliased(type)->name);
+        } else if (!type->has_flag(TypeFlags::UNRESOLVED)) {
+            std::print("size {}", type->size);
+        }
+    }
+    std::print("]\n");
+}
+
 static void print_node(Ast *ast, std::string_view indent)
 {
     if (ast->operation == Operation::None) {
-        std::print("{}Node: ", indent);
-        if (ast->type == AstType::Integer) {
-            std::print("{}", static_cast<AstInteger *>(ast)->number);
-        } else if (ast->type == AstType::Boolean) {
-            std::print("{}", static_cast<AstBoolean *>(ast)->boolean);
+        std::print("{}", indent);
+        if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
+            auto *literal = static_cast<AstLiteral *>(ast);
+            std::print("{} ({})", extract_constant(literal), literal->literal_type->name);
         } else if (ast->type == AstType::Identifier) {
-            std::print("{}", static_cast<AstIdentifier *>(ast)->string);
+            auto *ident = static_cast<AstIdentifier *>(ast);
+            std::print("{} ({})", ident->string, ident->var->type->name);
         } else {
             std::print("[{}]", to_string(ast->type));
         }
@@ -121,7 +138,7 @@ static void print_node(Ast *ast, std::string_view indent)
         return;
     }
 
-    std::print("{}Node: [{}", indent, to_string(ast->operation));
+    std::print("{}[{}", indent, to_string(ast->operation));
     if (ast->operation == Operation::Call) {
         auto call = static_cast<AstCall *>(ast);
         std::println(" {} ({} args)]", call->name, call->args.size());
@@ -129,24 +146,15 @@ static void print_node(Ast *ast, std::string_view indent)
         auto fn_decl = static_cast<AstFunctionDecl *>(ast);
         std::println(" {} -> {}]", fn_decl->name, fn_decl->return_type->name);
         for (size_t i = 0; i < fn_decl->params.size(); i++) {
-            const auto *p = fn_decl->params[i];
-            std::println("{}Param {}: {} {}", indent, i + 1, p->var.type->name, p->var.name);
+            std::print("{}[Param: ", indent);
+            auto *p = fn_decl->params[i];
+            print_var_decl(p);
         }
     } else if (ast->operation == Operation::VariableDecl) {
-        auto *var_decl = static_cast<AstVariableDecl *>(ast);
-        auto *type = var_decl->var.type;
-        if (type->name.empty()) {
-            std::print(" {}: <auto>", var_decl->var.name);
-        } else {
-            const auto flags_str = type_flags_to_string(type->flags);
-            std::print(" {}: {} {}", var_decl->var.name, type->name, flags_str);
-            if (type->has_flag(TypeFlags::ALIAS)) {
-                std::print("-> {}", get_unaliased(type)->name);
-            } else if (!type->has_flag(TypeFlags::UNRESOLVED)) {
-                std::print("size {}", type->size);
-            }
-        }
-        std::print("]\n");
+        std::print(" ");
+        print_var_decl(static_cast<AstVariableDecl *>(ast));
+    } else if (ast->operation == Operation::Cast) {
+        std::println(" {}]", static_cast<AstCast *>(ast)->cast_type->name);
     } else {
         std::println("]");
     }
@@ -177,8 +185,10 @@ void print_ast(Ast *ast, std::string indent)
                 for (Ast *arg : call->args) {
                     print_ast(arg, indent);
                 }
-            } else {
+            } else if (ast->operation == Operation::Negate) {
                 print_ast(static_cast<AstUnary *>(ast)->operand, indent);
+            } else if (ast->operation == Operation::Cast) {
+                print_ast(static_cast<AstCast *>(ast)->expr, indent);
             }
             break;
         }
@@ -231,11 +241,11 @@ std::string to_string(IRArgType type)
 
 std::string get_ir_arg_value(const IRArg &src)
 {
-    switch (src.type) {
+    switch (src.arg_type) {
         case IRArgType::Empty:
             return "";
         case IRArgType::Constant:
-            return std::to_string(src.constant.u64); // TODO
+            return extract_constant(src.constant);
         case IRArgType::Vreg:
             return std::to_string(src.vreg);
         case IRArgType::Parameter:
@@ -245,7 +255,9 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::Function:
             return src.function->name;
         case IRArgType::BasicBlock:
-            return "BB_" + std::to_string(src.basic_block->index);
+            return std::to_string(src.basic_block->index);
+        case IRArgType::Type:
+            return src.type->name;
         default:
             TODO();
     }
@@ -256,9 +268,9 @@ void print_ir(IR *ir)
 {
     std::string target = ir->has_vreg_target() ? std::format("v{} = ", ir->target) : "";
     std::print("    {}{} {} <{}>", target, to_string(ir->operation), get_ir_arg_value(ir->left),
-        to_string(ir->left.type));
-    if (ir->type == AstType::Binary) {
-        std::print(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.type));
+        to_string(ir->left.arg_type));
+    if (ir->type == AstType::Binary || ir->operation == Operation::Cast) {
+        std::print(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
     }
     std::print("\n");
 }

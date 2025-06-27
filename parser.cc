@@ -1,16 +1,34 @@
 #include "compiler.hh"
 
-#include <cmath> // std::pow
-
 Type *void_type()
 {
     static Type *s_type = new Type{ .name = "void", .flags = TypeFlags::Void, .size = 0 };
     return s_type;
 }
 
+Type *u32_type()
+{
+    static Type *s_type
+        = new Type{ .name = "u32", .flags = TypeFlags::Integer | TypeFlags::UNSIGNED, .size = 4 };
+    return s_type;
+}
+
+Type *u64_type()
+{
+    static Type *s_type
+        = new Type{ .name = "u64", .flags = TypeFlags::Integer | TypeFlags::UNSIGNED, .size = 8 };
+    return s_type;
+}
+
 Type *s32_type()
 {
     static Type *s_type = new Type{ .name = "s32", .flags = TypeFlags::Integer, .size = 4 };
+    return s_type;
+}
+
+Type *s64_type()
+{
+    static Type *s_type = new Type{ .name = "s64", .flags = TypeFlags::Integer, .size = 8 };
     return s_type;
 }
 
@@ -105,8 +123,8 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
     return new AstCall(function, std::move(args), location);
 }
 
-// TODO - negative numbers, floats
-bool string_to_number(std::string_view str, int64_t &result)
+// TODO - floats
+bool string_to_number(std::string_view str, uint64_t &result)
 {
     result = 0;
     int base = 10;
@@ -126,17 +144,16 @@ bool string_to_number(std::string_view str, int64_t &result)
 
     for (size_t i = 0; i < str.length(); i++) {
         char c = str[i];
-        size_t pos = str.length() - (i + 1);
         int digit = 0;
         if (is_digit(c)) {
             digit = c - '0';
         } else if (is_alpha(c) && base > 10) {
             digit = to_upper(c) - 'A' + 10;
+        } else if (c == '_') {
+            continue;
         }
         if (digit < base) {
-            if (digit > 0) {
-                result += std::pow(base, pos) * digit;
-            }
+            result = result * base + digit;
             continue;
         }
         return false;
@@ -172,12 +189,21 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     }
 
     if (token.kind == TokenKind::Number) {
-        int64_t number;
+        uint64_t number;
         if (!string_to_number(token.string, number)) {
             cc.diag_error_at(token.location, "bad number: conversion error");
         }
         consume(cc.lexer, token);
-        return new AstInteger(number, token.location);
+        if (number > std::numeric_limits<int64_t>::max()) {
+            return new AstLiteral(u64_type(), AstType::Integer, number, token.location);
+        }
+        if (number > std::numeric_limits<uint32_t>::max()) {
+            return new AstLiteral(s64_type(), AstType::Integer, number, token.location);
+        }
+        if (number > std::numeric_limits<int32_t>::max()) {
+            return new AstLiteral(u32_type(), AstType::Integer, number, token.location);
+        }
+        return new AstLiteral(s32_type(), AstType::Integer, number, token.location);
     }
 
     if (token.kind == TokenKind::Identifier) {
@@ -191,6 +217,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             return call;
         }
         auto *var_decl = find_variable(current_scope, token.string);
+        // TODO - probably always want to error if !var_decl
         if (allow_var_decl == AllowVarDecl::No && !var_decl) {
             cc.lexer.column = prev_col;
             cc.diag_error_at(
@@ -209,7 +236,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             }
         }
         consume(cc.lexer, token);
-        return new AstBoolean(is_true, token.location);
+        return new AstLiteral(bool_type(), AstType::Boolean, is_true, token.location);
     }
 
     return nullptr;
@@ -250,17 +277,13 @@ AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, As
     } else if (op.length() == 2) {
         if (op == "==") {
             operation = Operation::Equals;
-        }
-        if (op == "!=") {
+        } else if (op == "!=") {
             operation = Operation::NotEquals;
-        }
-        if (op == ">=") {
+        } else if (op == ">=") {
             operation = Operation::GreaterEquals;
-        }
-        if (op == "<=") {
+        } else if (op == "<=") {
             operation = Operation::LessEquals;
-        }
-        if (op == ":=") {
+        } else if (op == ":=") {
             operation = Operation::VariableDecl;
         }
     }
@@ -446,8 +469,10 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
     auto token = lex(cc);
     if (allow_init_expr == AllowInitExpr::Yes && token.string == ":=") {
         consume(cc.lexer, token);
-        auto *type = unresolved_type();
-        return new AstVariableDecl(type, name.string, parse_expr(cc), loc);
+        if (auto *init_expr = parse_expr(cc)) {
+            return new AstVariableDecl(unresolved_type(), name.string, init_expr, loc);
+        }
+        cc.diag_error_at(loc, "auto inferred variable must have an initializer expression");
     } else if (token.string == ":") {
         consume(cc.lexer, token);
         auto *type = parse_type(cc);
@@ -456,6 +481,9 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
         if (allow_init_expr == AllowInitExpr::Yes && token.string == "=") {
             consume(cc.lexer, token);
             maybe_expr = parse_expr(cc);
+            if (!maybe_expr) {
+                cc.diag_error_at(token.location, "missing initializer expression");
+            }
         }
         return new AstVariableDecl(type, name.string, maybe_expr, loc);
     }
@@ -475,7 +503,6 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     if (expr->operation == Operation::Assign) {
         cc.diag_ast_error(expr, "assignments are not allowed in if statements");
     } else if (expr->operation == Operation::VariableDecl) {
-        // TODO: x := y = z should not be allowed
         current_scope->add_variable(cc, static_cast<AstVariableDecl *>(expr));
     }
     enter_new_scope();
@@ -567,6 +594,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
             // TODO - this is not in the right location, should be at the start of the expression
             cc.diag_ast_warning(maybe_expr, "expression has no effect");
             // Simply eliminate it, we don't need this in the IR.
+            // FIXME - should still be typechecked? maybe set a flag and then delete later?
             free_ast(maybe_expr);
             maybe_expr = nullptr;
         }
@@ -575,6 +603,25 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
         cc.lexer.ignore_newlines = true;
     }
     return maybe_expr;
+}
+
+std::string extract_constant(AstLiteral *literal)
+{
+    auto *type = literal->literal_type;
+    if (type->get_kind() == TypeFlags::Integer) {
+        if (type->has_flag(TypeFlags::UNSIGNED)) {
+            if (type->size == 8) {
+                return std::to_string(literal->u.u64);
+            }
+            return std::to_string(literal->u.u32);
+        }
+        if (type->size == 8) {
+            return std::to_string(literal->u.s64);
+        }
+        return std::to_string(literal->u.s32);
+    }
+    assert(type->get_kind() == TypeFlags::Boolean);
+    return std::to_string(literal->u.boolean);
 }
 
 void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string_view name,
@@ -640,20 +687,18 @@ void Compiler::add_default_types()
 {
     auto *global_scope = g_scopes[0];
     global_scope->types["void"] = void_type();
-    global_scope->types["u32"]
-        = new Type{ .name = "u32", .flags = TypeFlags::Integer | TypeFlags::UNSIGNED, .size = 4 };
-    global_scope->types["u64"]
-        = new Type{ .name = "u64", .flags = TypeFlags::Integer | TypeFlags::UNSIGNED, .size = 8 };
+    global_scope->types["u32"] = u32_type();
+    global_scope->types["u64"] = u64_type();
     global_scope->types["s32"] = s32_type();
-    global_scope->types["s64"] = new Type{ .name = "s64", .flags = TypeFlags::Integer, .size = 8 };
+    global_scope->types["s64"] = s64_type();
     global_scope->types["bool"] = bool_type();
 }
 
 void Compiler::free_types()
 {
     for (auto *scope : g_scopes) {
-        for (auto &type : scope->types) {
-            delete type.second;
+        for (auto &[name, ptr] : scope->types) {
+            delete ptr;
         }
     }
 }
@@ -714,10 +759,10 @@ void free_ast(Ast *ast)
             delete static_cast<AstBlock *>(ast);
             break;
         case AstType::Integer:
-            delete static_cast<AstInteger *>(ast);
-            break;
+            [[fallthrough]];
         case AstType::Boolean:
-            delete static_cast<AstBoolean *>(ast);
+            delete static_cast<AstLiteral *>(ast);
+            break;
             break;
         case AstType::Identifier:
             delete static_cast<AstIdentifier *>(ast);
