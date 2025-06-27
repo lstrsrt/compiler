@@ -48,19 +48,19 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     switch (err) {
         case TypeError::None:
             return;
-        // FIXME - these don't always make sense
-        /*case AssignmentError::SizeMismatch: {
-            cc.diag_ast_error(
-                ast, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
+        case TypeError::SizeMismatch: {
+            cc.diag_ast_error(ast,
+                "incompatible sizes for types `{}` ({} bytes) and `{}` ({} bytes)", rhs_type->name,
+                rhs_type->size, lhs_type->name, lhs_type->size);
             break;
         }
-        case AssignmentError::SignednessMismatch: {
+        case TypeError::SignednessMismatch: {
             const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             cc.diag_ast_error(ast, "incompatible {} expression applied to {} variable of type `{}`",
                 rhs_str, lhs_str, lhs_type->name);
             break;
-        }*/
+        }
         default:
             cc.diag_ast_error(
                 ast, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
@@ -100,8 +100,10 @@ bool expr_is_constexpr_int(Type *t, ExprConstness e)
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
 
-Type *get_expression_type(
-    Compiler &cc, Ast *ast, ExprConstness *constant = nullptr, bool as_signed = false);
+enum class ForceSigned { No, Yes };
+
+Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constant = nullptr,
+    ForceSigned force_signed = ForceSigned::No);
 
 TypeError maybe_cast_integer(Type *wanted_type, Type *type, Ast *&expr, ExprConstness constness);
 
@@ -120,11 +122,11 @@ Type *get_common_integer_type(Type *t1, Type *t2)
     return t2;
 }
 
-Type *get_integer_expression_type(uint64_t u64, bool as_signed)
+Type *get_integer_expression_type(uint64_t u64, ForceSigned force_signed)
 {
     // TODO - warn on overflow (or warn in string_to_number/parser)
     // TODO - just default to 64 bit numbers?
-    if (as_signed) {
+    if (force_signed == ForceSigned::Yes) {
         if (u64 > std::numeric_limits<int64_t>::max()) {
             // TODO - test me
             // cc.diag_ast_error(literal, "overflow");
@@ -185,7 +187,8 @@ Type *get_binary_expression_type(
     return ret;
 }
 
-Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness, bool as_signed)
+Type *get_expression_type(
+    Compiler &cc, Ast *ast, ExprConstness *constness, ForceSigned force_signed)
 {
     if (!ast) {
         return nullptr;
@@ -196,7 +199,7 @@ Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness, bool
             if (constness) {
                 *constness |= ExprConstness::SeenConstant;
             }
-            return get_integer_expression_type(static_cast<AstLiteral *>(ast)->u.u64, as_signed);
+            return get_integer_expression_type(static_cast<AstLiteral *>(ast)->u.u64, force_signed);
         }
         case AstType::Boolean:
             if (constness) {
@@ -221,7 +224,7 @@ Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness, bool
             }
             if (ast->operation == Operation::Negate) {
                 return get_expression_type(
-                    cc, static_cast<AstUnary *>(ast)->operand, constness, true);
+                    cc, static_cast<AstUnary *>(ast)->operand, constness, ForceSigned::Yes);
             }
             if (ast->operation == Operation::Cast) {
                 return static_cast<AstCast *>(ast)->cast_type;
@@ -306,7 +309,7 @@ void flatten_binary(Ast *ast, Operation matching_operation, std::vector<Ast *> &
     }
 }
 
-Type *get_integer_expression_type(uint64_t u64, bool as_signed);
+Type *get_integer_expression_type(uint64_t u64, ForceSigned force_signed);
 
 Ast *partial_fold_associative(const std::vector<Ast *> &operands, Operation operation)
 {
@@ -333,8 +336,8 @@ Ast *partial_fold_associative(const std::vector<Ast *> &operands, Operation oper
         ret = new AstBinary(operation, ret, non_constants[i], {});
     }
     return new AstBinary(operation, ret,
-        new AstLiteral(
-            get_integer_expression_type(accumulator, false), AstType::Integer, accumulator, {}),
+        new AstLiteral(get_integer_expression_type(accumulator, ForceSigned::No), AstType::Integer,
+            accumulator, {}),
         {});
 }
 
@@ -435,7 +438,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, int64_t left_const, int
     delete static_cast<AstLiteral *>(binary->right);
     delete static_cast<AstBinary *>(binary);
     return new AstLiteral(
-        get_integer_expression_type(result, false), AstType::Integer, result, loc);
+        get_integer_expression_type(result, ForceSigned::No), AstType::Integer, result, loc);
 }
 
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary)
@@ -499,7 +502,7 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast)
 enum class WarnDiscardedReturn { No, Yes };
 
 void verify_expr(Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded,
-    Type *expected = nullptr, bool as_signed = false);
+    Type *expected = nullptr, ForceSigned force_signed = ForceSigned::No);
 
 TypeError maybe_cast_integer(Type *wanted_type, Type *type, Ast *&expr, ExprConstness constness)
 {
@@ -544,8 +547,8 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
 void verify_negate(
     Compiler &cc, AstUnary *unary, WarnDiscardedReturn warn_discarded, Type *expected)
 {
-    verify_expr(cc, unary->operand, warn_discarded, expected, true);
-    auto *type = get_expression_type(cc, unary->operand, nullptr, true);
+    verify_expr(cc, unary->operand, warn_discarded, expected, ForceSigned::Yes);
+    auto *type = get_expression_type(cc, unary->operand, nullptr, ForceSigned::Yes);
     // Must be a signed integer
     if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
         cc.diag_ast_error(unary, "negate of unsupported type `{}`", type->name);
@@ -570,8 +573,6 @@ Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
         exp = get_common_integer_type(lhs, rhs);
     } else if (expr_is_fully_constant(rhs_constness)) {
         exp = lhs;
-    } else if (expr_is_fully_constant(lhs_constness)) {
-        exp = rhs;
     }
     return exp;
 }
@@ -583,15 +584,16 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     verify_expr(cc, cmp->right, warn_discarded, exp);
 }
 
-void verify_expr(
-    Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected, bool as_signed)
+void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected,
+    ForceSigned force_signed)
 {
     Type *type;
     switch (ast->type) {
         case AstType::Integer:
             if (expected) {
                 ExprConstness constness{};
-                if (type = get_expression_type(cc, ast, &constness, as_signed); type != expected) {
+                if (type = get_expression_type(cc, ast, &constness, force_signed);
+                    type != expected) {
                     if (auto err = maybe_cast_integer(expected, type, ast, constness);
                         err != TypeError::None) {
                         type_error(cc, ast, expected, type, err);
@@ -636,7 +638,7 @@ void verify_expr(
     }
     if (expected) {
         ExprConstness constness{};
-        if (type = get_expression_type(cc, ast, &constness, as_signed); type != expected) {
+        if (type = get_expression_type(cc, ast, &constness, force_signed); type != expected) {
             type_error(cc, ast, expected, type, TypeError::Unspecified);
         }
     }
