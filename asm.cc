@@ -335,9 +335,14 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
             emit_asm(cc, ir_fn, ir);
         }
     }
-    if (is_main && !has_top_level_return(ir_fn.ast->body)) {
-        emit("xor eax, eax");
-        emit_syscall_exit();
+    if (!has_top_level_return(ir_fn.ast->body)) {
+        if (is_main) {
+            emit("xor eax, eax");
+            emit_syscall_exit();
+        } else {
+            emit_epilogue();
+            emit("ret");
+        }
     }
 }
 
