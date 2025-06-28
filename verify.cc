@@ -1,5 +1,11 @@
 #include "compiler.hh"
 
+#define verification_error(ast, msg, ...) \
+    cc.diag_error_at(ast->location, ErrorType::VerificationError, msg __VA_OPT__(, __VA_ARGS__))
+
+#define verification_type_error(type, msg, ...) \
+    cc.diag_error_at(type->location, ErrorType::TypeError, msg __VA_OPT__(, __VA_ARGS__))
+
 Type *get_unaliased_type(Type *type)
 {
     auto *tmp = type;
@@ -15,7 +21,7 @@ AstFunctionDecl *get_callee(Compiler &cc, AstCall *call)
         // Cache it so the next lookup takes the fast path
         call->fn = find_function(call->scope, call->name);
         if (!call->fn) {
-            cc.diag_ast_error(call, "function `{}` is not declared", call->name);
+            verification_error(call, "function `{}` is not declared", call->name);
         }
     }
     return call->fn;
@@ -49,7 +55,7 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
         case TypeError::None:
             return;
         case TypeError::SizeMismatch: {
-            cc.diag_ast_error(ast,
+            verification_type_error(lhs_type,
                 "incompatible sizes for types `{}` ({} bytes) and `{}` ({} bytes)", rhs_type->name,
                 rhs_type->size, lhs_type->name, lhs_type->size);
             break;
@@ -57,13 +63,14 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
         case TypeError::SignednessMismatch: {
             const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
-            cc.diag_ast_error(ast, "incompatible {} expression applied to {} variable of type `{}`",
-                rhs_str, lhs_str, lhs_type->name);
+            verification_type_error(lhs_type,
+                "incompatible {} expression applied to {} variable of type `{}`", rhs_str, lhs_str,
+                lhs_type->name);
             break;
         }
         default:
-            cc.diag_ast_error(
-                ast, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
+            verification_type_error(
+                lhs_type, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
             break;
     }
 }
@@ -253,7 +260,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
             type = resolved;
         } else {
             // a)
-            cc.diag_type_error(type, "type `{}` is not declared in this scope", type->name);
+            verification_type_error(type, "type `{}` is not declared in this scope", type->name);
         }
     } else if (type->has_flag(TypeFlags::ALIAS) && type->real->has_flag(TypeFlags::UNRESOLVED)) {
         // c), alias
@@ -262,7 +269,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
             delete type->real;
             type->real = resolved;
         } else {
-            cc.diag_type_error(type,
+            verification_type_error(type,
                 "invalid alias `{}`: underlying type `{}` is not declared in this scope",
                 type->name, type->real->name);
         }
@@ -275,7 +282,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         auto *fast = type->real;
         while (fast && fast->real) {
             if (slow == fast) {
-                cc.diag_type_error(type->real, "circular alias: `{}`", type->real->name);
+                verification_type_error(type->real, "circular alias: `{}`", type->real->name);
             }
             slow = slow->real;
             fast = fast->real->real;
@@ -329,8 +336,8 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
 {
     auto *fn = get_callee(cc, call);
     if (call->args.size() != fn->params.size()) {
-        cc.diag_ast_error(call, "function `{}` takes {} arguments but was called with {}", fn->name,
-            fn->params.size(), call->args.size());
+        verification_error(call, "function `{}` takes {} arguments but was called with {}",
+            fn->name, fn->params.size(), call->args.size());
     }
     for (size_t i = 0; i < call->args.size(); ++i) {
         auto *&arg = call->args[i];
@@ -352,7 +359,7 @@ void verify_negate(
     auto *type = get_expression_type(cc, unary->operand, nullptr, ForceSigned::Yes);
     // Must be a signed integer
     if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
-        cc.diag_ast_error(unary, "negate of unsupported type `{}`", type->name);
+        verification_error(unary, "negate of unsupported type `{}`", type->name);
     }
 }
 
@@ -479,13 +486,13 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
     }
     auto *type = get_unaliased_type(var.type);
     if (!type || type->has_flag(TypeFlags::UNRESOLVED)) {
-        cc.diag_ast_error(var_decl, "unable to resolve type `{}`", var.type->name);
+        verification_error(var_decl, "unable to resolve type `{}`", var.type->name);
     }
     if (type->get_kind() == TypeFlags::Void) {
         std::string alias_str = var.type->has_flag(TypeFlags::ALIAS)
             ? std::format(" (through alias {})", var.type->name)
             : "";
-        cc.diag_ast_error(var_decl, "variable `{}` declared void{}", var.name, alias_str);
+        verification_error(var_decl, "variable `{}` declared void{}", var.name, alias_str);
     }
     // Update this scope's variables table.
     // Why? Because if this variable is assigned to another auto inferred variable,
@@ -508,7 +515,7 @@ void verify_return(
                     return;
                 }
             }
-            cc.diag_ast_error(return_stmt->expr,
+            verification_error(return_stmt->expr,
                 "void function `{}` must not return a value (got type `{}`)",
                 current_function->name, get_expression_type(cc, return_stmt->expr)->name);
         }
@@ -516,7 +523,7 @@ void verify_return(
     }
 
     if (!return_stmt->expr) {
-        cc.diag_ast_error(return_stmt, "function `{}` must return value of type `{}`",
+        verification_error(return_stmt, "function `{}` must return value of type `{}`",
             current_function->name, current_function->return_type->name);
     }
 
@@ -551,7 +558,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
             // block, but that could be handled...
             if (!fn->returns_void()
                 && (fn->return_stmts.empty() || !has_top_level_return(fn->body))) {
-                cc.diag_ast_error(
+                verification_error(
                     fn, "function `{}` is missing a top level return statement", fn->name);
             }
         } else if (ast->operation == Operation::If) {
@@ -568,18 +575,8 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
     verify_expr(cc, ast, WarnDiscardedReturn::Yes);
 }
 
-void resolve_types(Compiler &cc, Scope *scope)
-{
-    for (auto &[name, ptr] : scope->types) {
-        resolve_type(cc, scope, ptr);
-    }
-}
-
 void verify_main(Compiler &cc, AstFunctionDecl *main)
 {
-    for (auto *scope : g_scopes) {
-        resolve_types(cc, scope);
-    }
     for (auto *ast : main->body->stmts) {
         verify_ast(cc, ast, main);
     }

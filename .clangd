@@ -1,5 +1,5 @@
 CompileFlags:
-  Add: [ "-std=c++23", "-Wall", "-Wextra", "-D_DEBUG" ]
+  Add: [ "-std=c++23", "-Wall", "-Wextra", "-Wno-unused-const-variable", "-D_DEBUG" ]
   Compiler: clang++
 
 Completion:

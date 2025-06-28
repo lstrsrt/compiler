@@ -1,5 +1,11 @@
 #include "compiler.hh"
 
+#define parser_ast_error(ast, msg, ...) \
+    cc.diag_error_at(ast->location, ErrorType::ParseError, msg __VA_OPT__(, __VA_ARGS__))
+
+#define parser_error(loc, msg, ...) \
+    cc.diag_error_at(loc, ErrorType::ParseError, msg __VA_OPT__(, __VA_ARGS__))
+
 Type *void_type()
 {
     static Type *s_type
@@ -188,7 +194,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             // Double negate isn't allowed
             if (arg->operation == Operation::Negate) {
                 cc.lexer.column = prev_col;
-                cc.diag_ast_error(arg, "only one unary minus is allowed");
+                parser_ast_error(arg, "only one unary minus is allowed");
             }
             return new AstUnary(Operation::Negate, arg, token.location);
         }
@@ -197,7 +203,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     if (token.kind == TokenKind::Number) {
         uint64_t number;
         if (!string_to_number(token.string, number)) {
-            cc.diag_error_at(token.location, "bad number: conversion error");
+            parser_error(token.location, "bad number: conversion error");
         }
         consume(cc.lexer, token);
         if (number > std::numeric_limits<int64_t>::max()) {
@@ -226,7 +232,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         // TODO - probably always want to error if !var_decl
         if (allow_var_decl == AllowVarDecl::No && !var_decl) {
             cc.lexer.column = prev_col;
-            cc.diag_error_at(
+            parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
         }
         return new AstIdentifier(token.string, var_decl ? &var_decl->var : nullptr, token.location);
@@ -296,11 +302,11 @@ AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, As
     if (operation != Operation::None) {
         if (!lhs || !rhs) {
             const char *side = lhs ? "right-hand" : "left-hand";
-            cc.diag_error_at(operation_token.location, "binary operation missing {} operand", side);
+            parser_error(operation_token.location, "binary operation missing {} operand", side);
         }
         return new AstBinary(operation, lhs, rhs, cc.lexer.location());
     }
-    cc.diag_error_at(operation_token.location, "unexpected operator `{}` in binary operation", op);
+    parser_error(operation_token.location, "unexpected operator `{}` in binary operation", op);
     return nullptr;
 }
 
@@ -353,7 +359,7 @@ Type *parse_type(Compiler &cc)
 {
     auto token = lex(cc);
     if (token.kind != TokenKind::Identifier) {
-        cc.diag_error_at(
+        parser_error(
             token.location, "expected a type name, got `{}`", make_printable(token.string));
     }
     consume(cc.lexer, token);
@@ -373,7 +379,7 @@ Token parse_identifier(Compiler &cc)
 {
     auto token = lex(cc);
     if (token.kind != TokenKind::Identifier) {
-        cc.diag_error_at(
+        parser_error(
             token.location, "expected an identifier, got `{}`", make_printable(token.string));
     }
     consume(cc.lexer, token);
@@ -427,7 +433,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     auto token = lex(cc); // Name
     auto location = token.location;
     if (token.kind != TokenKind::Identifier) {
-        cc.diag_error_at(token.location, "invalid function name {}", token.string);
+        parser_error(token.location, "invalid function name {}", token.string);
     }
 
     auto name = token.string;
@@ -475,7 +481,7 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
         if (auto *init_expr = parse_expr(cc)) {
             return new AstVariableDecl(unresolved_type(), name.string, init_expr, loc);
         }
-        cc.diag_error_at(loc, "auto inferred variable must have an initializer expression");
+        parser_error(loc, "auto inferred variable must have an initializer expression");
     } else if (token.string == ":") {
         consume(cc.lexer, token);
         auto *type = parse_type(cc);
@@ -485,7 +491,7 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
             consume(cc.lexer, token);
             maybe_expr = parse_expr(cc);
             if (!maybe_expr) {
-                cc.diag_error_at(token.location, "missing initializer expression");
+                parser_error(token.location, "missing initializer expression");
             }
         }
         return new AstVariableDecl(type, name.string, maybe_expr, loc);
@@ -500,11 +506,11 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::Yes);
     if (!expr) {
-        cc.diag_error_at(loc, "if statement must have a condition");
+        parser_error(loc, "if statement must have a condition");
     }
 
     if (expr->operation == Operation::Assign) {
-        cc.diag_ast_error(expr, "assignments are not allowed in if statements");
+        parser_ast_error(expr, "assignments are not allowed in if statements");
     } else if (expr->operation == Operation::VariableDecl) {
         current_scope->add_variable(cc, static_cast<AstVariableDecl *>(expr));
     }
@@ -515,9 +521,33 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     return new AstIf(expr, body, loc);
 }
 
+void set_test_attributes(Compiler &cc, const Token &token)
+{
+    cc.tester.test_type = TestType::Error;
+    // clang-format off
+            static const std::unordered_map<std::string, ErrorType> map{
+                { "#lexer_error", ErrorType::LexError },
+                { "#parser_error", ErrorType::ParseError },
+                { "#verify_error", ErrorType::VerificationError },
+                { "#type_error", ErrorType::TypeError }
+            };
+    // clang-format on
+    cc.tester.error_type = map.at(std::string(token.string));
+}
+
 Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
 {
     auto token = lex(cc);
+    while (token.kind == TokenKind::Attribute) {
+#if TESTING
+        if (token.string.ends_with("_error")) {
+            set_test_attributes(cc, token);
+        }
+#endif
+        consume(cc.lexer, token);
+        token = lex(cc);
+    }
+
     if (token.kind == TokenKind::Keyword) {
         if (token.string == "if") {
             consume(cc.lexer, token);
@@ -540,7 +570,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
             cc.lexer.ignore_newlines = false;
             auto *ret = new AstReturn(parse_expr(cc), token.location);
             if (ret->expr && ret->expr->operation == Operation::Assign) {
-                cc.diag_ast_error(ret, "assignments are not allowed in return statements");
+                parser_ast_error(ret, "assignments are not allowed in return statements");
             }
             if (current_function) {
                 current_function->return_stmts.push_back(ret);
@@ -648,7 +678,7 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
 
         if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
             const char *same_scope_str = result_scope == scope ? " in the same scope" : "";
-            cc.diag_error_at(location,
+            parser_error(location,
                 "{} `{}` cannot be redeclared as a {}{}. this is the existing "
                 "declaration: ",
                 existing_str, name, type, same_scope_str);

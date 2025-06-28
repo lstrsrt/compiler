@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <print>
 #include <string>
 #include <unordered_map>
@@ -16,8 +17,29 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#define TESTING 1
+namespace fs = std::filesystem;
+
+constexpr std::string cyan = "\033[36;1m";
+constexpr std::string default_clr = "\033[0m";
+constexpr std::string default_bold = default_clr + "\033[1m";
+constexpr std::string green = "\033[32;1m";
+constexpr std::string red = "\033[31;1m";
+
+#define TESTING 0
 #define AST_ALLOC_PARANOID 0
+
+enum class TestType {
+    CanCompile,
+    ReturnsValue,
+    Error,
+};
+
+enum class ErrorType {
+    LexError,
+    ParseError,
+    VerificationError,
+    TypeError,
+};
 
 //
 // Utils
@@ -110,6 +132,7 @@ enum class TokenKind {
     Number,
     Operator,
     Identifier,
+    Attribute,
     Keyword,
 };
 
@@ -655,7 +678,9 @@ inline void enter_new_scope()
 
 inline void leave_scope()
 {
-    current_scope = current_scope->parent;
+    if (current_scope) {
+        current_scope = current_scope->parent;
+    }
 }
 
 inline void free_scopes()
@@ -784,53 +809,67 @@ void emit_asm(Compiler &);
 // Main context
 //
 
+struct TestingException : std::runtime_error {
+    TestingException(const char *const msg, ErrorType _type) throw()
+        : std::runtime_error(msg)
+        , type(_type)
+    {
+    }
+
+    ErrorType type;
+};
+
+struct Tester {
+    TestType test_type = TestType::CanCompile;
+    ErrorType error_type;
+};
+
 struct Compiler {
     Lexer lexer;
     IRBuilder ir_builder;
+    Tester tester;
 
     void initialize();
     void add_default_types();
     void free_types();
     void free_ir();
-    void cleanup();
+    void cleanup(AstFunctionDecl *root);
 
-    [[noreturn]] void diag_error_at(
-        SourceLocation location, std::string_view fmt, auto &&...args) const
+    [[noreturn]] void diag_error_at([[maybe_unused]] SourceLocation location,
+        [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args) const
     {
+        const auto msg = std::vformat(fmt, std::make_format_args(args...));
+#if !TESTING
         std::println("\033[31;1merror:\033[0m {}({},{}):", lexer.input.filename, location.line,
             location.column);
-        const auto msg = std::vformat(fmt, std::make_format_args(args...));
         std::println("{}", msg);
         lexer.print_diag_line(location);
-#ifdef _DEBUG
+#if _DEBUG
         __builtin_trap();
 #else
         exit(1);
 #endif
-    }
-
-    [[noreturn]] void diag_type_error(Type *type, std::string_view fmt, auto &&...args) const
-    {
-        diag_error_at(type->location, fmt, args...);
-    }
-
-    [[noreturn]] void diag_ast_error(Ast *ast, std::string_view fmt, auto &&...args) const
-    {
-        diag_error_at(ast->location, fmt, args...);
+#else
+        throw TestingException(msg.c_str(), type);
+#endif
     }
 
     [[noreturn]] void diag_lexer_error(std::string_view fmt, auto &&...args) const
     {
-        diag_error_at(lexer.location(), fmt, args...);
+        diag_error_at(lexer.location(), ErrorType::LexError, fmt, args...);
     }
 
-    void diag_warning_at(SourceLocation location, std::string_view fmt, auto &&...args) const
+    void diag_warning_at([[maybe_unused]] SourceLocation location,
+        [[maybe_unused]] std::string_view fmt, [[maybe_unused]] auto &&...args) const
     {
+        // TODO - maybe test warnings too?
+#if !TESTING
         std::println("\033[93;1mwarning:\033[0m {}({},{}):", lexer.input.filename, location.line,
             location.column + 1);
         const auto msg = std::vformat(fmt, std::make_format_args(args...));
         std::println("{}", msg);
         lexer.print_diag_line(location);
+#endif
     }
 
     void diag_ast_warning(Ast *ast, std::string_view fmt, auto &&...args) const
@@ -838,6 +877,14 @@ struct Compiler {
         diag_warning_at(ast->location, fmt, args...);
     }
 };
+
+void compiler_main(Compiler &, AstFunctionDecl *root);
+
+//
+// Testing
+//
+
+void run_tests(const fs::path &);
 
 //
 // Diagnostics

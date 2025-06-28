@@ -168,6 +168,23 @@ Token lex_identifier_or_keyword(Lexer &lexer)
     return Token{ .string = str, .kind = TokenKind::Identifier, .location = loc };
 }
 
+Token lex_attribute(Compiler &cc)
+{
+    Lexer &lexer = cc.lexer;
+    const auto loc = lexer.location();
+    const auto start = lexer.position;
+    const auto count = lexer.count_while(is_valid_char_in_identifier, 1);
+    const auto str = lexer.string.substr(start, count);
+    constexpr const char *attributes[]{ "#lexer_error", "#parser_error", "#verify_error",
+        "#type_error" };
+    for (auto *attr : attributes) {
+        if (attr == str) {
+            return Token{ .string = str, .kind = TokenKind::Attribute, .location = loc };
+        }
+    }
+    cc.diag_lexer_error("unknown attribute");
+}
+
 void skip_whitespace(Lexer &lexer)
 {
     if (lexer.ignore_newlines) {
@@ -233,8 +250,8 @@ void skip_comments(Compiler &cc)
             }
             advance_column(lexer);
             if (lexer.out_of_bounds()) {
-                cc.diag_error_at(
-                    loc, "unterminated comment starting at ({},{})", loc.line, loc.column + 1);
+                cc.diag_error_at(loc, ErrorType::LexError,
+                    "unterminated comment starting at ({},{})", loc.line, loc.column + 1);
             }
         }
     }
@@ -308,6 +325,9 @@ Token lex(Compiler &cc)
     // FIXME - handle CRLF
     if (c == '\n') {
         return Token{ .string = "\n", .kind = TokenKind::Newline, .location = lexer.location() };
+    }
+    if (c == '#') {
+        return lex_attribute(cc);
     }
     if (is_start_of_operator(c)) {
         return lex_operator(lexer);

@@ -173,7 +173,8 @@ IR *generate_ir_cmp(Compiler &cc, Ast *ast)
             TODO();
             break;
         default:
-            cc.diag_ast_error(ast, "illegal expression in if statement");
+            TODO();
+            break;
     }
     ir->target = ++ir_fn->temp_regs;
     add_ir(ir, bb);
