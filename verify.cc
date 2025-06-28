@@ -198,8 +198,6 @@ Type *get_expression_type(
                 *constness |= ExprConstness::SeenConstant;
             }
             return static_cast<AstLiteral *>(ast)->literal_type;
-            // return get_integer_expression_type(static_cast<AstLiteral *>(ast)->u.u64,
-            // force_signed);
         }
         case AstType::Boolean:
             if (constness) {
@@ -303,8 +301,13 @@ enum class WarnDiscardedReturn { No, Yes };
 void verify_expr(Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded,
     Type *expected = nullptr, ForceSigned force_signed = ForceSigned::No);
 
-TypeError maybe_cast_integer(Type *wanted_type, Type *type, Ast *&expr, ExprConstness constness)
+TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
 {
+    Type *wanted_type = get_unaliased_type(wanted);
+    if (wanted_type == type) {
+        return TypeError::None;
+    }
+
     if (type->size > wanted_type->size) {
         return TypeError::SizeMismatch;
     }
@@ -318,7 +321,6 @@ TypeError maybe_cast_integer(Type *wanted_type, Type *type, Ast *&expr, ExprCons
     if (expr_is_fully_constant(constness) && expr->operation == Operation::Negate) {
         return TypeError::SignednessMismatch;
     }
-    dbgln("casting {} to {}", type->name, wanted_type->name);
     insert_cast(expr, wanted_type);
     return TypeError::None;
 }
@@ -366,7 +368,6 @@ Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
     ExprConstness lhs_constness{}, rhs_constness{};
     auto *lhs = get_expression_type(cc, ast->left, &lhs_constness);
     auto *rhs = get_expression_type(cc, ast->right, &rhs_constness);
-    dbgln("lhs: {} rhs: {}", lhs->name, rhs->name);
     Type *exp = rhs;
     if (expr_is_fully_constant(lhs_constness) && expr_is_fully_constant(rhs_constness)) {
         exp = get_common_integer_type(lhs, rhs);
@@ -374,6 +375,19 @@ Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
         exp = lhs;
     }
     return exp;
+}
+
+bool types_match(Type *t1, Type *t2)
+{
+    if (t1->has_flag(TypeFlags::ALIAS)) {
+        if (t2->has_flag(TypeFlags::ALIAS)) {
+            return get_unaliased_type(t1) == get_unaliased_type(t2);
+        }
+        return get_unaliased_type(t1) == t2;
+    } else if (t2->has_flag(TypeFlags::ALIAS)) {
+        return t1 == get_unaliased_type(t2);
+    }
+    return t1 == t2;
 }
 
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
@@ -392,7 +406,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (expected) {
                 ExprConstness constness{};
                 if (type = get_expression_type(cc, ast, &constness, force_signed);
-                    type != expected) {
+                    !types_match(type, expected)) {
                     if (auto err = maybe_cast_integer(expected, type, ast, constness);
                         err != TypeError::None) {
                         type_error(cc, ast, expected, type, err);
@@ -437,7 +451,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     }
     if (expected) {
         ExprConstness constness{};
-        if (type = get_expression_type(cc, ast, &constness, force_signed); type != expected) {
+        if (type = get_expression_type(cc, ast, &constness, force_signed);
+            !types_match(type, expected)) {
             type_error(cc, ast, expected, type, TypeError::Unspecified);
         }
     }
@@ -455,13 +470,13 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
         verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
     } else if (var_decl->init_expr) {
         // x: T = y
+        resolve_type(cc, var_decl->scope, var.type);
         verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
     } else {
         // x: T
         // var.type is already set and there is nothing to verify.
-        ;
+        resolve_type(cc, var_decl->scope, var.type);
     }
-    resolve_type(cc, var_decl->scope, var.type);
     auto *type = get_unaliased_type(var.type);
     if (!type || type->has_flag(TypeFlags::UNRESOLVED)) {
         cc.diag_ast_error(var_decl, "unable to resolve type `{}`", var.type->name);

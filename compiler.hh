@@ -467,9 +467,10 @@ enum class TypeFlags {
     //
     UNRESOLVED = (1 << 4),
     ALIAS = (1 << 5),
+    BUILTIN = (1 << 6),
 
     // Integer flags
-    UNSIGNED = (1 << 6),
+    UNSIGNED = (1 << 7),
 };
 
 constexpr TypeFlags operator|(const TypeFlags lhs, const TypeFlags rhs)
@@ -766,6 +767,8 @@ struct IRBuilder {
 void generate_ir(Compiler &, AstFunctionDecl *);
 void optimize_ir(Compiler &);
 
+void free_ir(IRFunction *);
+
 //
 // Backend
 //
@@ -780,9 +783,11 @@ struct Compiler {
     Lexer lexer;
     IRBuilder ir_builder;
 
+    void initialize();
     void add_default_types();
     void free_types();
     void free_ir();
+    void cleanup();
 
     [[noreturn]] void diag_error_at(
         SourceLocation location, std::string_view fmt, auto &&...args) const

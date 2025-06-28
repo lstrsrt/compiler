@@ -268,8 +268,6 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
     return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
 }
 
-void free_ir(IRFunction *);
-
 void generate_ir(Compiler &cc, AstFunctionDecl *main)
 {
     new_ir_function(cc.ir_builder, main);
@@ -307,12 +305,4 @@ void free_ir(IRFunction *fn)
         delete bb;
     }
     delete fn;
-}
-
-void Compiler::free_ir()
-{
-    for (auto *fn : ir_builder.functions) {
-        ::free_ir(fn);
-    }
-    ir_builder.functions.clear();
 }

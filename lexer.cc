@@ -349,17 +349,21 @@ void InputFile::open(std::string_view name)
 
 void InputFile::close()
 {
-    munmap(const_cast<char *>(map), file_size);
-    ::close(file_handle);
-    filename = {};
-    file_handle = -1;
-    file_size = 0;
+    if (file_handle != -1) {
+        munmap(const_cast<char *>(map), file_size);
+        ::close(file_handle);
+        filename = {};
+        file_handle = -1;
+        file_size = 0;
+    }
 }
 
 void Lexer::set_input(std::string_view filename)
 {
     input.open(filename);
-    string = input.map;
+    if (input.file_handle != -1) {
+        string = input.map;
+    }
 }
 
 void Lexer::free_input()

@@ -2,39 +2,45 @@
 
 Type *void_type()
 {
-    static Type *s_type = new Type{ .name = "void", .flags = TypeFlags::Void, .size = 0 };
+    static Type *s_type
+        = new Type{ .name = "void", .flags = TypeFlags::Void | TypeFlags::BUILTIN, .size = 0 };
     return s_type;
 }
 
 Type *u32_type()
 {
-    static Type *s_type
-        = new Type{ .name = "u32", .flags = TypeFlags::Integer | TypeFlags::UNSIGNED, .size = 4 };
+    static Type *s_type = new Type{ .name = "u32",
+        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
+        .size = 4 };
     return s_type;
 }
 
 Type *u64_type()
 {
-    static Type *s_type
-        = new Type{ .name = "u64", .flags = TypeFlags::Integer | TypeFlags::UNSIGNED, .size = 8 };
+    static Type *s_type = new Type{ .name = "u64",
+        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
+        .size = 8 };
     return s_type;
 }
 
 Type *s32_type()
 {
-    static Type *s_type = new Type{ .name = "s32", .flags = TypeFlags::Integer, .size = 4 };
+    static Type *s_type
+        = new Type{ .name = "s32", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 4 };
     return s_type;
 }
 
 Type *s64_type()
 {
-    static Type *s_type = new Type{ .name = "s64", .flags = TypeFlags::Integer, .size = 8 };
+    static Type *s_type
+        = new Type{ .name = "s64", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 8 };
     return s_type;
 }
 
 Type *bool_type()
 {
-    static Type *s_type = new Type{ .name = "bool", .flags = TypeFlags::Boolean, .size = 1 };
+    static Type *s_type
+        = new Type{ .name = "bool", .flags = TypeFlags::Boolean | TypeFlags::BUILTIN, .size = 1 };
     return s_type;
 }
 
@@ -604,7 +610,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
 
 std::string extract_constant(AstLiteral *literal)
 {
-    auto *type = literal->literal_type;
+    auto *type = get_unaliased_type(literal->literal_type);
     if (type->get_kind() == TypeFlags::Integer) {
         if (type->has_flag(TypeFlags::UNSIGNED)) {
             if (type->size == 8) {
@@ -676,28 +682,6 @@ void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLo
     types[alias] = new Type{
         .name = std::string(alias), .flags = TypeFlags::ALIAS, .real = type, .location = location
     };
-}
-
-// TODO - move me
-// can we have builtin types somewhere else so lookup during verification stage is faster?
-void Compiler::add_default_types()
-{
-    auto *global_scope = g_scopes[0];
-    global_scope->types["void"] = void_type();
-    global_scope->types["u32"] = u32_type();
-    global_scope->types["u64"] = u64_type();
-    global_scope->types["s32"] = s32_type();
-    global_scope->types["s64"] = s64_type();
-    global_scope->types["bool"] = bool_type();
-}
-
-void Compiler::free_types()
-{
-    for (auto *scope : g_scopes) {
-        for (auto &[name, ptr] : scope->types) {
-            delete ptr;
-        }
-    }
 }
 
 void free_ast(std::vector<Ast *> &ast_vec)
