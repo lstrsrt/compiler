@@ -1,0 +1,8 @@
+x: ulong
+y := x
+z := 0
+a: uint
+b := a
+
+alias ulong: u64
+alias uint: u32

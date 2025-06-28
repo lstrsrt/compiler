@@ -1,0 +1,14 @@
+fn one_arg(x: u32) {
+}
+
+fn two_args(x: u32, y: u32) -> u32 {
+    return x
+}
+
+fn three_args(x: u32, y: u32, z: u32) {
+}
+
+one_arg(1)
+two_args(1, 2)
+three_args(1, 2, 3)
+one_arg(1)
