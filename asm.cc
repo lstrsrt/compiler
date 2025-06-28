@@ -1,6 +1,6 @@
 #include "compiler.hh"
 
-// #define ONLY_PRINT_ASM
+#define ONLY_PRINT_ASM
 
 #ifdef ONLY_PRINT_ASM
 struct OutputFile {
@@ -51,7 +51,9 @@ OutputFile output_file;
 void __emit(std::string_view fmt, auto &&...args)
 {
     auto str = std::vformat(fmt, std::make_format_args(args...));
+#if !TESTING && defined(_DEBUG)
     dbg("{}", str);
+#endif
     output_file.write(str);
 }
 

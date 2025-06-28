@@ -16,6 +16,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#define TESTING 1
+#define AST_ALLOC_PARANOID 0
+
 //
 // Utils
 //
@@ -297,7 +300,7 @@ struct Ast {
     {
     }
 
-#if 0
+#if AST_ALLOC_PARANOID
     static void *operator new(size_t size)
     {
         auto p = malloc(size);
@@ -660,6 +663,8 @@ inline void free_scopes()
     for (auto *scope : g_scopes) {
         delete scope;
     }
+    g_scopes.clear();
+    current_scope = nullptr;
 }
 
 enum class SearchParents { No, Yes };
