@@ -5,6 +5,7 @@
 size_t current_test;
 size_t passed_tests;
 size_t total_tests;
+bool printed_result;
 
 void run_tests(const fs::path &path)
 {
@@ -35,6 +36,7 @@ void run_tests(const fs::path &path)
         cc.lexer.set_input(file.path().string());
         auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
         try {
+            ++current_test;
             compiler_main(cc, main);
             cc.cleanup(main, false);
         } catch (TestingException &te) {
@@ -70,7 +72,10 @@ void run_tests(const fs::path &path)
         run_tests(dir.path());
     }
 
-    auto color = (passed_tests == total_tests) ? Green : Red;
-    std::println("{}passed {}{}{}/{} tests{}", DefaultBold, color, passed_tests, DefaultBold,
-        total_tests, Default);
+    if (!printed_result && current_test == total_tests) {
+        auto color = (passed_tests == total_tests) ? Green : Red;
+        std::println("{}passed {}{}/{}{} tests{}", DefaultBold, color, passed_tests, total_tests,
+            DefaultBold, Default);
+        printed_result = true;
+    }
 }

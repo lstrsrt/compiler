@@ -1,55 +1,52 @@
 #include "compiler.hh"
 
-#if !TESTING && defined(_DEBUG)
-#define DEBUG_SPAM 1
-#else
-#define DEBUG_SPAM 0
-#endif
-
 void compiler_main(Compiler &cc, AstFunctionDecl *main)
 {
     using namespace colors;
+
     Timer timer;
     cc.initialize();
-    dbgln("compiling {}{}{}", DefaultBold, cc.lexer.input.filename, Default);
+
+    bool testing = opts.testing;
+
+    if (testing) {
+        std::println("compiling {}{}{}", DefaultBold, cc.lexer.input.filename, Default);
+    }
+
     while (!cc.lexer.out_of_bounds()) {
         if (auto *ast = parse_stmt(cc, main)) {
             main->body->stmts.push_back(ast);
         }
     }
 
-#if DEBUG_SPAM
-    dbgln("{}pre inference tree:{}", Cyan, Default);
-    print_ast(main);
-#endif
+    if (!testing) {
+        dbgln("{}pre inference tree:{}", Cyan, Default);
+        print_ast(main);
+    };
 
     verify_main(cc, main);
 
-#if DEBUG_SPAM
-    dbgln("{}post inference tree:{}", Cyan, Default);
-    print_ast(main);
-    /*dbgln("{}types:{}", Cyan, Default);
-    for (auto *scope : g_scopes) {
-        print_types(scope);
-    }*/
-#endif
+    if (!testing) {
+        dbgln("{}post inference tree:{}", Cyan, Default);
+        print_ast(main);
+    }
 
     [[maybe_unused]] auto frontend = timer.elapsed();
     timer.reset();
 
     generate_ir(cc, main);
 
-#if DEBUG_SPAM
-    dbgln("{}initial ir:{}", Cyan, Default);
-    for (const auto *fn : cc.ir_builder.functions) {
-        dbgln("{}:", fn->ast->name);
-        print_ir(*fn);
+    if (!testing) {
+        dbgln("{}initial ir:{}", Cyan, Default);
+        for (const auto *fn : cc.ir_builder.functions) {
+            dbgln("{}:", fn->ast->name);
+            print_ir(*fn);
+        }
     }
-#endif
 
-#if DEBUG_SPAM
-    dbgln("{}assembly:{}", Cyan, Default);
-#endif
+    if (!testing) {
+        dbgln("{}assembly:{}", Cyan, Default);
+    }
 
     emit_asm(cc);
     [[maybe_unused]] auto backend = timer.elapsed();
@@ -73,12 +70,12 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
     }
 #endif
 
-#if !TESTING
-    std::println("{}elapsed time:{}", Cyan, Default);
-    std::println("frontend:    {}{:>6}{}", Green, frontend, Default);
-    std::println("backend:     {}{:>6}{}", Green, backend, Default);
-    std::println("total:       {}{:>6}{}", Green, frontend + backend, Default);
-#endif
+    if (!testing) {
+        std::println("{}elapsed time:{}", Cyan, Default);
+        std::println("frontend:    {}{:>6}{}", Green, frontend, Default);
+        std::println("backend:     {}{:>6}{}", Green, backend, Default);
+        std::println("total:       {}{:>6}{}", Green, frontend + backend, Default);
+    }
 }
 
 void Compiler::initialize()

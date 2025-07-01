@@ -51,9 +51,9 @@ OutputFile output_file;
 void __emit(std::string_view fmt, auto &&...args)
 {
     auto str = std::vformat(fmt, std::make_format_args(args...));
-#if !TESTING && defined(_DEBUG)
-    dbg("{}", str);
-#endif
+    if (!opts.testing) {
+        dbg("{}", str);
+    }
     output_file.write(str);
 }
 
@@ -336,11 +336,6 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
         }
         emit("ret");
     }
-}
-
-constexpr bool is_control(char c)
-{
-    return (c >= 0 && c <= 31) || c == 127;
 }
 
 std::string escape_string(const std::string &s)

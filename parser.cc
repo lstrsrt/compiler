@@ -553,11 +553,9 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
 {
     auto token = lex(cc);
     while (token.kind == TokenKind::Attribute) {
-#if TESTING
-        if (token.string.ends_with("_error")) {
+        if (opts.testing && token.string.ends_with("_error")) {
             set_test_attributes(cc, token);
         }
-#endif
         consume(cc.lexer, token);
         token = lex(cc);
     }

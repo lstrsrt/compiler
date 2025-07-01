@@ -5,8 +5,8 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
-#include <map>
 #include <print>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -28,7 +28,6 @@ namespace colors {
     constexpr std::string Red = "\033[31;1m";
 } // namespace colors
 
-#define TESTING 0
 #define AST_ALLOC_PARANOID 0
 
 enum class TestType {
@@ -94,6 +93,41 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 #define TODO() todo(__func__)
 
+using hash_t = uint32_t;
+
+inline constexpr hash_t fnv1a_hash(const char *s, size_t len)
+{
+    constexpr hash_t basis = 0x811c9dc5, prime = 0x1000193;
+    auto hash = basis;
+    for (size_t i = 0; i < len; ++i) {
+        hash ^= s[i];
+        hash *= prime;
+    }
+    return hash;
+}
+
+inline constexpr hash_t fnv1a_hash(const char *s)
+{
+    return fnv1a_hash(s, strlen(s));
+}
+
+inline constexpr hash_t fnv1a_hash(std::string_view s)
+{
+    return fnv1a_hash(s.data(), s.length());
+}
+
+struct ArgumentParser {
+    std::span<char *> arguments;
+};
+
+struct Options {
+    bool testing = false;
+};
+
+inline Options opts;
+
+void process_cmdline(ArgumentParser &);
+
 //
 // Lexer
 //
@@ -121,6 +155,11 @@ inline constexpr bool is_alpha(char c)
 inline constexpr bool is_space(char c)
 {
     return c == ' ' || c == '\t' || c == '\f' || c == '\v';
+}
+
+inline constexpr bool is_control(char c)
+{
+    return (c >= 0 && c <= 31) || c == 127;
 }
 
 inline constexpr char to_upper(char c)
@@ -883,19 +922,19 @@ struct Compiler {
         [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args) const
     {
         const auto msg = std::vformat(fmt, std::make_format_args(args...));
-#if !TESTING
-        std::println("\033[31;1merror:\033[0m {}({},{}):", lexer.input.filename, location.line,
-            location.column);
-        std::println("{}", msg);
-        lexer.print_diag_line(location);
+        if (!opts.testing) {
+            std::println("\033[31;1merror:\033[0m {}({},{}):", lexer.input.filename, location.line,
+                location.column);
+            std::println("{}", msg);
+            lexer.print_diag_line(location);
 #if _DEBUG
-        __builtin_trap();
+            __builtin_trap();
 #else
-        exit(1);
+            exit(1);
 #endif
-#else
-        throw TestingException(msg.c_str(), type);
-#endif
+        } else {
+            throw TestingException(msg.c_str(), type);
+        }
     }
 
     [[noreturn]] void diag_lexer_error(std::string_view fmt, auto &&...args) const
@@ -907,13 +946,13 @@ struct Compiler {
         [[maybe_unused]] std::string_view fmt, [[maybe_unused]] auto &&...args) const
     {
         // TODO - maybe test warnings too?
-#if !TESTING
-        std::println("\033[93;1mwarning:\033[0m {}({},{}):", lexer.input.filename, location.line,
-            location.column + 1);
-        const auto msg = std::vformat(fmt, std::make_format_args(args...));
-        std::println("{}", msg);
-        lexer.print_diag_line(location);
-#endif
+        if (!opts.testing) {
+            std::println("\033[93;1mwarning:\033[0m {}({},{}):", lexer.input.filename,
+                location.line, location.column + 1);
+            const auto msg = std::vformat(fmt, std::make_format_args(args...));
+            std::println("{}", msg);
+            lexer.print_diag_line(location);
+        }
     }
 
     void diag_ast_warning(Ast *ast, std::string_view fmt, auto &&...args) const
