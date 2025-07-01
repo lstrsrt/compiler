@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <map>
 #include <print>
 #include <string>
 #include <unordered_map>
@@ -19,11 +20,13 @@
 
 namespace fs = std::filesystem;
 
-constexpr std::string cyan = "\033[36;1m";
-constexpr std::string default_clr = "\033[0m";
-constexpr std::string default_bold = default_clr + "\033[1m";
-constexpr std::string green = "\033[32;1m";
-constexpr std::string red = "\033[31;1m";
+namespace colors {
+    constexpr std::string Cyan = "\033[36;1m";
+    constexpr std::string Default = "\033[0m";
+    constexpr std::string DefaultBold = Default + "\033[1m";
+    constexpr std::string Green = "\033[32;1m";
+    constexpr std::string Red = "\033[31;1m";
+} // namespace colors
 
 #define TESTING 0
 #define AST_ALLOC_PARANOID 0
@@ -81,7 +84,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 [[noreturn]] inline void todo(const char *func)
 {
-    std::println("TODO: {}", func);
+    std::println("\nTODO: {}", func);
 #ifdef _DEBUG
     __builtin_trap();
 #else
@@ -130,6 +133,7 @@ enum class TokenKind {
     Unknown,
     Newline,
     Number,
+    String,
     Operator,
     Identifier,
     Attribute,
@@ -151,6 +155,9 @@ struct Token {
     std::string_view string{}; // use for AstIdentifier?
     TokenKind kind = TokenKind::Empty;
     SourceLocation location{};
+
+    std::unique_ptr<std::string> real_string{};
+    size_t real_length{};
 };
 
 struct InputFile {
@@ -236,8 +243,14 @@ inline void advance_line(Lexer &lexer, size_t count = 1)
 
 inline void consume(Lexer &lexer, const Token &tk)
 {
-    assert(tk.kind != TokenKind::Newline);
+    assert(tk.kind != TokenKind::Newline && tk.kind != TokenKind::String);
     advance_column(lexer, tk.string.length());
+}
+
+inline void consume_string(Lexer &lexer, const Token &tk)
+{
+    assert(tk.kind == TokenKind::String);
+    advance_column(lexer, tk.real_length);
 }
 
 void consume_expected(Compiler &, const std::string &exp, const Token &);
@@ -251,6 +264,7 @@ void consume_newline_or_eof(Compiler &, const Token &);
 #define ENUMERATE_AST_TYPES()        \
     __ENUMERATE_AST_TYPE(Integer)    \
     __ENUMERATE_AST_TYPE(Boolean)    \
+    __ENUMERATE_AST_TYPE(String)     \
     __ENUMERATE_AST_TYPE(Identifier) \
     __ENUMERATE_AST_TYPE(Unary)      \
     __ENUMERATE_AST_TYPE(Binary)     \
@@ -297,7 +311,7 @@ enum class Operation {
 struct Scope;
 inline Scope *current_scope;
 
-// inline size_t ast_alloc_count, ast_free_count;
+inline size_t ast_alloc_count, ast_free_count;
 
 struct AstAllocMark {
     void *p;
@@ -307,7 +321,7 @@ struct AstAllocMark {
     bool deleted;
 };
 
-// inline std::vector<AstAllocMark> marks;
+inline std::vector<AstAllocMark> marks;
 
 struct Ast {
     Scope *scope;
@@ -396,7 +410,17 @@ struct AstLiteral : Ast {
     }
 };
 
-std::string extract_constant(AstLiteral *);
+struct AstString : Ast {
+    std::string string;
+
+    explicit AstString(std::string_view _string, SourceLocation _location)
+        : Ast(AstType::String, Operation::None, _location)
+        , string(_string)
+    {
+    }
+};
+
+std::string extract_integer_constant(AstLiteral *);
 
 struct Variable;
 
@@ -418,18 +442,6 @@ struct AstUnary : Ast {
     explicit AstUnary(Operation _op, Ast *_operand, SourceLocation _location)
         : Ast(AstType::Unary, _op, _location)
         , operand(_operand)
-    {
-    }
-};
-
-struct AstBinary : Ast {
-    Ast *left;
-    Ast *right;
-
-    explicit AstBinary(Operation _op, Ast *_left, Ast *_right, SourceLocation _location)
-        : Ast(AstType::Binary, _op, _location)
-        , left(_left)
-        , right(_right)
     {
     }
 };
@@ -465,6 +477,18 @@ struct AstCall : Ast {
 
 AstFunctionDecl *get_callee(Compiler &, AstCall *);
 
+struct AstBinary : Ast {
+    Ast *left;
+    Ast *right;
+
+    explicit AstBinary(Operation _op, Ast *_left, Ast *_right, SourceLocation _location)
+        : Ast(AstType::Binary, _op, _location)
+        , left(_left)
+        , right(_right)
+    {
+    }
+};
+
 struct AstReturn : Ast {
     Ast *expr;
 
@@ -482,9 +506,9 @@ enum class TypeFlags {
     Void,
     Integer,
     Boolean,
+    String,
     // Float,
     // Char, // should this be considered separate from Integer?
-    // String,
     // Struct,
     KindMask = 0b1111,
 
@@ -561,6 +585,7 @@ Type *u64_type();
 Type *s32_type();
 Type *s64_type();
 Type *bool_type();
+Type *string_type();
 
 Type *get_unaliased_type(Type *);
 
@@ -716,9 +741,9 @@ void verify_main(Compiler &, AstFunctionDecl *);
 
 enum class ForceSigned { No, Yes };
 
-Type *get_integer_expression_type(uint64_t u64, ForceSigned force_signed);
-
-bool has_top_level_return(AstBlock *block);
+Type *get_integer_expression_type(uint64_t, ForceSigned);
+bool has_top_level_return(AstBlock *);
+bool types_match(Type *t1, Type *t2);
 
 //
 // IR
@@ -728,6 +753,7 @@ bool has_top_level_return(AstBlock *block);
     __ENUMERATE_IR_ARG_TYPE(Empty)      \
     __ENUMERATE_IR_ARG_TYPE(Vreg)       \
     __ENUMERATE_IR_ARG_TYPE(Constant)   \
+    __ENUMERATE_IR_ARG_TYPE(String)     \
     __ENUMERATE_IR_ARG_TYPE(Variable)   \
     __ENUMERATE_IR_ARG_TYPE(Parameter)  \
     __ENUMERATE_IR_ARG_TYPE(Function)   \
@@ -744,10 +770,12 @@ struct BasicBlock;
 
 struct IRArg {
     IRArgType arg_type;
+    size_t string_index = 0;
 
     union {
         Variable *variable = nullptr;
         AstLiteral *constant;
+        AstString *string;
         AstFunctionDecl *function;
         ssize_t vreg;
         BasicBlock *basic_block;
@@ -789,10 +817,20 @@ struct IRFunction {
     ssize_t temp_regs = 0;
 };
 
+inline std::vector<std::string> string_map;
+
 struct IRBuilder {
     std::vector<IRFunction *> functions;
     IRFunction *current_function;
 };
+
+// x := "abc"
+// y := "def"
+//
+// mov [rbp-8], str0
+// mov [rbp-16], str1
+// str0: db "abc", 0
+// str1: db "def", 0
 
 void generate_ir(Compiler &, AstFunctionDecl *);
 void optimize_ir(Compiler &);
@@ -806,8 +844,10 @@ void free_ir(IRFunction *);
 void emit_asm(Compiler &);
 
 //
-// Main context
+// Testing
 //
+
+void run_tests(const fs::path &);
 
 struct TestingException : std::runtime_error {
     TestingException(const char *const msg, ErrorType _type) throw()
@@ -824,6 +864,10 @@ struct Tester {
     ErrorType error_type;
 };
 
+//
+// Main context
+//
+
 struct Compiler {
     Lexer lexer;
     IRBuilder ir_builder;
@@ -831,9 +875,9 @@ struct Compiler {
 
     void initialize();
     void add_default_types();
-    void free_types();
+    void free_types(bool skip_builtin);
     void free_ir();
-    void cleanup(AstFunctionDecl *root);
+    void cleanup(AstFunctionDecl *root, bool last);
 
     [[noreturn]] void diag_error_at([[maybe_unused]] SourceLocation location,
         [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args) const
@@ -879,12 +923,6 @@ struct Compiler {
 };
 
 void compiler_main(Compiler &, AstFunctionDecl *root);
-
-//
-// Testing
-//
-
-void run_tests(const fs::path &);
 
 //
 // Diagnostics

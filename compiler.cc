@@ -8,9 +8,10 @@
 
 void compiler_main(Compiler &cc, AstFunctionDecl *main)
 {
+    using namespace colors;
     Timer timer;
     cc.initialize();
-    dbgln("compiling {}{}{}", default_bold, cc.lexer.input.filename, default_clr);
+    dbgln("compiling {}{}{}", DefaultBold, cc.lexer.input.filename, Default);
     while (!cc.lexer.out_of_bounds()) {
         if (auto *ast = parse_stmt(cc, main)) {
             main->body->stmts.push_back(ast);
@@ -18,16 +19,16 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
     }
 
 #if DEBUG_SPAM
-    dbgln("{}pre inference tree:{}", cyan, default_clr);
+    dbgln("{}pre inference tree:{}", Cyan, Default);
     print_ast(main);
 #endif
 
     verify_main(cc, main);
 
 #if DEBUG_SPAM
-    dbgln("{}post inference tree:{}", cyan, default_clr);
+    dbgln("{}post inference tree:{}", Cyan, Default);
     print_ast(main);
-    /*dbgln("{}types:{}", cyan, default_clr);
+    /*dbgln("{}types:{}", Cyan, Default);
     for (auto *scope : g_scopes) {
         print_types(scope);
     }*/
@@ -39,7 +40,7 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
     generate_ir(cc, main);
 
 #if DEBUG_SPAM
-    dbgln("{}initial ir:{}", cyan, default_clr);
+    dbgln("{}initial ir:{}", Cyan, Default);
     for (const auto *fn : cc.ir_builder.functions) {
         dbgln("{}:", fn->ast->name);
         print_ir(*fn);
@@ -47,21 +48,20 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
 #endif
 
 #if DEBUG_SPAM
-    dbgln("{}assembly:{}", cyan, default_clr);
+    dbgln("{}assembly:{}", Cyan, Default);
 #endif
 
     emit_asm(cc);
     [[maybe_unused]] auto backend = timer.elapsed();
 
     cc.lexer.free_input();
-    cc.cleanup(main);
 
 #if AST_ALLOC_PARANOID
     dbgln("=== alloced: {}", ast_alloc_count);
     dbgln("=== freed:   {}", ast_free_count);
     for (const auto &mark : marks) {
-        const std::string &clr = mark.deleted ? green : red;
-        dbgln("{}{}{} ({})", clr, mark.p, default_clr, mark.size);
+        const std::string &clr = mark.deleted ? Green : Red;
+        dbgln("{}{}{} ({})", clr, mark.p, Default, mark.size);
         if (!mark.deleted) {
             dbgln("alloced from:");
             char **syms = ::backtrace_symbols(mark.trace.data(), mark.frames);
@@ -74,10 +74,10 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
 #endif
 
 #if !TESTING
-    std::println("{}elapsed time:{}", cyan, default_clr);
-    std::println("frontend:    {}{:>6}{}", green, frontend, default_clr);
-    std::println("backend:     {}{:>6}{}", green, backend, default_clr);
-    std::println("total:       {}{:>6}{}", green, frontend + backend, default_clr);
+    std::println("{}elapsed time:{}", Cyan, Default);
+    std::println("frontend:    {}{:>6}{}", Green, frontend, Default);
+    std::println("backend:     {}{:>6}{}", Green, backend, Default);
+    std::println("total:       {}{:>6}{}", Green, frontend + backend, Default);
 #endif
 }
 
@@ -97,13 +97,14 @@ void Compiler::add_default_types()
     global_scope->types["s32"] = s32_type();
     global_scope->types["s64"] = s64_type();
     global_scope->types["bool"] = bool_type();
+    global_scope->types["string"] = string_type();
 }
 
-void Compiler::free_types()
+void Compiler::free_types(bool skip_builtin)
 {
     for (auto *scope : g_scopes) {
         for (auto &[name, ptr] : scope->types) {
-            if (!ptr->has_flag(TypeFlags::BUILTIN)) {
+            if (!skip_builtin || !ptr->has_flag(TypeFlags::BUILTIN)) {
                 delete ptr;
             }
         }
@@ -118,11 +119,11 @@ void Compiler::free_ir()
     ir_builder.functions.clear();
 }
 
-void Compiler::cleanup(AstFunctionDecl *root)
+void Compiler::cleanup(AstFunctionDecl *root, bool last)
 {
     free_ast(root);
     leave_scope();
-    free_types();
+    free_types(!last);
     free_ir();
     free_scopes();
 }

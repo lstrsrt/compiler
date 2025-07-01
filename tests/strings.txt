@@ -1,0 +1,10 @@
+fn f() -> string {
+    x := "\t\n\na\nb\nc\r\n"
+    return x
+}
+fn g() -> string {
+    return "bob"
+}
+
+x := f()
+y := g()

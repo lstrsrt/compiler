@@ -20,5 +20,6 @@ int main(int argc, char **argv)
     // TODO - give main argc and argv
     auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
     compiler_main(cc, main);
+    cc.cleanup(main, true);
 #endif
 }

@@ -8,6 +8,8 @@ size_t total_tests;
 
 void run_tests(const fs::path &path)
 {
+    using namespace colors;
+
     if (!fs::exists(path) || !fs::is_directory(path)) {
         return;
     }
@@ -34,19 +36,20 @@ void run_tests(const fs::path &path)
         auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
         try {
             compiler_main(cc, main);
+            cc.cleanup(main, false);
         } catch (TestingException &te) {
             if (cc.tester.test_type == TestType::Error) {
                 if (te.type != cc.tester.error_type) {
-                    std::println("{}testing error{}: non-matching exception {}{}{}", red,
-                        default_clr, default_bold, to_underlying(te.type), default_clr);
+                    std::println("{}testing error{}: non-matching exception {}{}{}", Red, Default,
+                        DefaultBold, to_underlying(te.type), Default);
                 } else {
                     ++passed_tests;
                 }
             } else {
-                std::println("{}testing error{}: failed compilation", red, default_clr);
+                std::println("{}testing error{}: failed compilation", Red, Default);
             }
             cc.lexer.free_input();
-            cc.cleanup(main);
+            cc.cleanup(main, false);
             continue;
         } catch (std::exception &e) {
             std::println("unexpected exception: {}", e.what());
@@ -54,7 +57,7 @@ void run_tests(const fs::path &path)
         }
 
         if (cc.tester.test_type == TestType::Error) {
-            std::println("{}testing error{}: should have failed compilation", red, default_clr);
+            std::println("{}testing error{}: should have failed compilation", Red, Default);
         } else if (cc.tester.test_type == TestType::CanCompile) {
             ++passed_tests;
         } else {
@@ -67,5 +70,7 @@ void run_tests(const fs::path &path)
         run_tests(dir.path());
     }
 
-    std::println("passed {}/{} tests", passed_tests, total_tests);
+    auto color = (passed_tests == total_tests) ? Green : Red;
+    std::println("{}passed {}{}{}/{} tests{}", DefaultBold, color, passed_tests, DefaultBold,
+        total_tests, Default);
 }

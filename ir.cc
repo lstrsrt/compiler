@@ -240,6 +240,11 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
         case AstType::Boolean:
             return IRArg{ .arg_type = IRArgType::Constant,
                 .constant = static_cast<AstLiteral *>(ast) };
+        case AstType::String:
+            string_map.push_back(static_cast<AstString *>(ast)->string);
+            return IRArg{ .arg_type = IRArgType::String,
+                .string_index = string_map.size(),
+                .string = static_cast<AstString *>(ast) };
         case AstType::Identifier: {
             auto *var = static_cast<AstIdentifier *>(ast)->var;
             auto src_type = var->is_parameter() ? IRArgType::Parameter : IRArgType::Variable;

@@ -50,6 +50,15 @@ Type *bool_type()
     return s_type;
 }
 
+Type *string_type()
+{
+    // TODO - this is null terminated for now.
+    // in the future, use an explicit length member instead.
+    static Type *s_type
+        = new Type{ .name = "string", .flags = TypeFlags::String | TypeFlags::BUILTIN, .size = 8 };
+    return s_type;
+}
+
 Type *unresolved_type()
 {
     static Type s_type{ .flags = TypeFlags::UNRESOLVED };
@@ -216,6 +225,11 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             return new AstLiteral(u32_type(), AstType::Integer, number, token.location);
         }
         return new AstLiteral(s32_type(), AstType::Integer, number, token.location);
+    }
+
+    if (token.kind == TokenKind::String) {
+        consume_string(cc.lexer, token);
+        return new AstString(*token.real_string, token.location);
     }
 
     if (token.kind == TokenKind::Identifier) {
@@ -638,7 +652,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
     return maybe_expr;
 }
 
-std::string extract_constant(AstLiteral *literal)
+std::string extract_integer_constant(AstLiteral *literal)
 {
     auto *type = get_unaliased_type(literal->literal_type);
     if (type->get_kind() == TypeFlags::Integer) {
@@ -653,8 +667,10 @@ std::string extract_constant(AstLiteral *literal)
         }
         return std::to_string(literal->u.s32);
     }
-    assert(type->get_kind() == TypeFlags::Boolean);
-    return std::to_string(literal->u.boolean);
+    if (type->get_kind() == TypeFlags::Boolean) {
+        return std::to_string(literal->u.boolean);
+    }
+    TODO();
 }
 
 void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string_view name,
@@ -736,9 +752,12 @@ void free_ast(Ast *ast)
             if (ast->operation == Operation::Call) {
                 free_ast(static_cast<AstCall *>(ast)->args);
                 delete static_cast<AstCall *>(ast);
-            } else {
+            } else if (ast->operation == Operation::Negate) {
                 free_ast(static_cast<AstUnary *>(ast)->operand);
                 delete static_cast<AstUnary *>(ast);
+            } else if (ast->operation == Operation::Cast) {
+                free_ast(static_cast<AstCast *>(ast)->expr);
+                delete static_cast<AstCast *>(ast);
             }
             break;
         case AstType::Binary:
@@ -774,6 +793,8 @@ void free_ast(Ast *ast)
         case AstType::Boolean:
             delete static_cast<AstLiteral *>(ast);
             break;
+        case AstType::String:
+            delete static_cast<AstString *>(ast);
             break;
         case AstType::Identifier:
             delete static_cast<AstIdentifier *>(ast);

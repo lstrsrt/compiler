@@ -1,6 +1,6 @@
 #include "compiler.hh"
 
-#define ONLY_PRINT_ASM
+// #define ONLY_PRINT_ASM
 
 #ifdef ONLY_PRINT_ASM
 struct OutputFile {
@@ -58,13 +58,6 @@ void __emit(std::string_view fmt, auto &&...args)
 }
 
 #define emit(_s_, ...) __emit("    " _s_ "\n" __VA_OPT__(, __VA_ARGS__))
-
-void emit_syscall_exit()
-{
-    emit("mov edi, eax\n"
-         "    mov eax, 60\n"
-         "    syscall");
-}
 
 void emit_prologue(int stack_size)
 {
@@ -165,7 +158,7 @@ constexpr std::string param_regs[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
 std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 {
     if (src.arg_type == IRArgType::Constant) {
-        return extract_constant(src.constant);
+        return extract_integer_constant(src.constant);
     }
     return stack_addr(ir_fn, get_key(src));
 }
@@ -179,6 +172,9 @@ std::string extract_ir_arg(const IRFunction &ir_fn, IRArg arg)
         }
         return std::format("[rbp+{}]", (index - ssize(param_regs) + 2) * 8);
     }
+    if (arg.arg_type == IRArgType::String) {
+        return std::format("str_{}", arg.string_index - 1);
+    }
     return stack_addr_or_const(ir_fn, arg);
 }
 
@@ -189,8 +185,8 @@ void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
         }
         emit_epilogue();
-        if (ir_fn.ast->name == "_start") {
-            emit_syscall_exit();
+        if (ir_fn.ast->name == "main") {
+            emit("ret");
         } else {
             emit("ret");
         }
@@ -321,10 +317,6 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
     bool is_main = ir_fn.ast->name == "main";
-    // HACK
-    if (is_main) {
-        ir_fn.ast->name = "_start";
-    }
     __emit("\nglobal {0}\n"
            "{0}:\n",
         ir_fn.ast->name);
@@ -338,14 +330,49 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
         }
     }
     if (!has_top_level_return(ir_fn.ast->body)) {
+        emit_epilogue();
         if (is_main) {
             emit("xor eax, eax");
-            emit_syscall_exit();
+        }
+        emit("ret");
+    }
+}
+
+constexpr bool is_control(char c)
+{
+    return (c >= 0 && c <= 31) || c == 127;
+}
+
+std::string escape_string(const std::string &s)
+{
+    std::string ret;
+    bool did_escape = false;
+    bool in_string = false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (is_control(s[i])) {
+            if (in_string) {
+                ret += "\", ";
+                in_string = false;
+            } else if (did_escape) {
+                ret += ", ";
+            }
+            ret += std::format("{}", static_cast<int>(s[i]));
+            did_escape = true;
         } else {
-            emit_epilogue();
-            emit("ret");
+            if (did_escape) {
+                ret += ", \"";
+                did_escape = false;
+            } else if (!in_string) {
+                ret += "\"";
+            }
+            ret += s[i];
+            in_string = true;
         }
     }
+    if (!did_escape) {
+        ret += "\"";
+    }
+    return ret;
 }
 
 void emit_asm(Compiler &cc)
@@ -354,6 +381,10 @@ void emit_asm(Compiler &cc)
     __emit("section .text\n");
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
+    }
+    __emit("\nsection .rodata\n");
+    for (size_t i = 0; i < string_map.size(); ++i) {
+        __emit("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
     }
     output_file.close();
 }

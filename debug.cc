@@ -54,6 +54,8 @@ std::string type_kind_to_string(TypeFlags flags)
             return "Boolean";
         case TypeFlags::Void:
             return "Void";
+        case TypeFlags::String:
+            return "String";
         default:
             TODO();
     }
@@ -132,7 +134,11 @@ static void print_node(Ast *ast, std::string_view indent)
         std::print("{}", indent);
         if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
             auto *literal = static_cast<AstLiteral *>(ast);
-            std::print("{} ({})", extract_constant(literal), literal->literal_type->name);
+            std::print("{} ({})", extract_integer_constant(literal), literal->literal_type->name);
+        } else if (ast->type == AstType::String) {
+            auto *string = static_cast<AstString *>(ast);
+            // TODO - print escaped?
+            std::print("{} (string)", string->string);
         } else if (ast->type == AstType::Identifier) {
             auto *ident = static_cast<AstIdentifier *>(ast);
             std::print("{} ({})", ident->string, var_type_name(ident->var));
@@ -224,8 +230,11 @@ void print_ast(Ast *ast, std::string indent)
         // Leaf nodes are fully handled in print_node
         case AstType::Integer:
         case AstType::Boolean:
+        case AstType::String:
         case AstType::Identifier:
             break;
+        default:
+            TODO();
     }
 }
 
@@ -250,7 +259,9 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::Empty:
             return "";
         case IRArgType::Constant:
-            return extract_constant(src.constant);
+            return extract_integer_constant(src.constant);
+        case IRArgType::String:
+            return src.string->string;
         case IRArgType::Vreg:
             return std::to_string(src.vreg);
         case IRArgType::Parameter:

@@ -3,8 +3,8 @@
 #define verification_error(ast, msg, ...) \
     cc.diag_error_at(ast->location, ErrorType::VerificationError, msg __VA_OPT__(, __VA_ARGS__))
 
-#define verification_type_error(type, msg, ...) \
-    cc.diag_error_at(type->location, ErrorType::TypeError, msg __VA_OPT__(, __VA_ARGS__))
+#define verification_type_error(location, msg, ...) \
+    cc.diag_error_at(location, ErrorType::TypeError, msg __VA_OPT__(, __VA_ARGS__))
 
 Type *get_unaliased_type(Type *type)
 {
@@ -37,7 +37,7 @@ void flatten_binary(Ast *ast, std::vector<Ast *> &flattened)
     }
 }
 
-void insert_cast(Ast *&expr, Type *to)
+void insert_cast(Ast *expr, Type *to)
 {
     expr = new AstCast(expr, to, expr->location);
 }
@@ -55,7 +55,7 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
         case TypeError::None:
             return;
         case TypeError::SizeMismatch: {
-            verification_type_error(lhs_type,
+            verification_type_error(ast->location,
                 "incompatible sizes for types `{}` ({} bytes) and `{}` ({} bytes)", rhs_type->name,
                 rhs_type->size, lhs_type->name, lhs_type->size);
             break;
@@ -63,14 +63,14 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
         case TypeError::SignednessMismatch: {
             const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
-            verification_type_error(lhs_type,
+            verification_type_error(ast->location,
                 "incompatible {} expression applied to {} variable of type `{}`", rhs_str, lhs_str,
                 lhs_type->name);
             break;
         }
         default:
             verification_type_error(
-                lhs_type, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
+                ast->location, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
             break;
     }
 }
@@ -211,6 +211,11 @@ Type *get_expression_type(
                 *constness |= ExprConstness::SeenConstant;
             }
             return bool_type();
+        case AstType::String:
+            if (constness) {
+                *constness |= ExprConstness::SeenConstant;
+            }
+            return string_type();
         case AstType::Identifier:
             if (constness) {
                 *constness |= ExprConstness::SeenNonConstant;
@@ -260,7 +265,8 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
             type = resolved;
         } else {
             // a)
-            verification_type_error(type, "type `{}` is not declared in this scope", type->name);
+            verification_type_error(
+                type->location, "type `{}` is not declared in this scope", type->name);
         }
     } else if (type->has_flag(TypeFlags::ALIAS) && type->real->has_flag(TypeFlags::UNRESOLVED)) {
         // c), alias
@@ -269,7 +275,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
             delete type->real;
             type->real = resolved;
         } else {
-            verification_type_error(type,
+            verification_type_error(type->location,
                 "invalid alias `{}`: underlying type `{}` is not declared in this scope",
                 type->name, type->real->name);
         }
@@ -282,7 +288,8 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         auto *fast = type->real;
         while (fast && fast->real) {
             if (slow == fast) {
-                verification_type_error(type->real, "circular alias: `{}`", type->real->name);
+                verification_type_error(
+                    type->real->location, "circular alias: `{}`", type->real->name);
             }
             slow = slow->real;
             fast = fast->real->real;
@@ -551,11 +558,6 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
                 resolve_type(cc, fn->scope, param->var.type);
             }
             verify_ast(cc, fn->body, fn);
-            // TODO - main function (top level scope) also needs to be checked for some of this
-            // stuff (e.g. consistent return types)
-            // TODO - can we just check if at least one return stmt has the same scope as
-            // `current_function`? probably not quite because it could be in an unconditional
-            // block, but that could be handled...
             if (!fn->returns_void()
                 && (fn->return_stmts.empty() || !has_top_level_return(fn->body))) {
                 verification_error(

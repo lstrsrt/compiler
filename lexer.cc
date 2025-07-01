@@ -185,6 +185,61 @@ Token lex_attribute(Compiler &cc)
     cc.diag_lexer_error("unknown attribute");
 }
 
+Token lex_string(Compiler &cc)
+{
+    Lexer &lexer = cc.lexer;
+    const auto loc = lexer.location();
+    auto str = std::make_unique<std::string>();
+    for (size_t i = 1; !lexer.out_of_bounds(i); ++i) {
+        char c = lexer.get(i);
+        if (c == '\\') {
+            switch (lexer.get(i + 1)) {
+                case 'a':
+                    str->push_back('\a');
+                    break;
+                case 'b':
+                    str->push_back('\b');
+                    break;
+                case 'e':
+                    TODO();
+                    break;
+                case 'f':
+                    str->push_back('\f');
+                    break;
+                case 'n':
+                    str->push_back('\n');
+                    break;
+                case 'r':
+                    str->push_back('\r');
+                    break;
+                case 't':
+                    str->push_back('\t');
+                    break;
+                case 'v':
+                    str->push_back('\v');
+                    break;
+                case '\\':
+                    str->push_back('\\');
+                    break;
+                case '"':
+                    str->push_back('\"');
+                    break;
+                default:
+                    // TODO - show warning
+            }
+            ++i;
+        } else if (c == '"') {
+            Token tk{ .kind = TokenKind::String, .location = loc, .real_length = i + 1 };
+            tk.real_string = std::move(str);
+            return tk;
+        } else {
+            str->push_back(c);
+        }
+    }
+    cc.diag_error_at(loc, ErrorType::LexError, "unterminated string starting at ({},{})", loc.line,
+        loc.column + 1);
+}
+
 void skip_whitespace(Lexer &lexer)
 {
     if (lexer.ignore_newlines) {
@@ -328,6 +383,9 @@ Token lex(Compiler &cc)
     }
     if (c == '#') {
         return lex_attribute(cc);
+    }
+    if (c == '"') {
+        return lex_string(cc);
     }
     if (is_start_of_operator(c)) {
         return lex_operator(lexer);
