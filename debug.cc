@@ -197,7 +197,7 @@ void print_ast(Ast *ast, std::string indent)
                     print_ast(arg, indent);
                 }
             } else if (ast->operation == Operation::Negate) {
-                print_ast(static_cast<AstUnary *>(ast)->operand, indent);
+                print_ast(static_cast<AstNegate *>(ast)->operand, indent);
             } else if (ast->operation == Operation::Cast) {
                 print_ast(static_cast<AstCast *>(ast)->expr, indent);
             }

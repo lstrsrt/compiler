@@ -205,7 +205,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
                 cc.lexer.column = prev_col;
                 parser_ast_error(arg, "only one unary minus is allowed");
             }
-            return new AstUnary(Operation::Negate, arg, token.location);
+            return new AstNegate(Operation::Negate, arg, token.location);
         }
     }
 
@@ -751,8 +751,8 @@ void free_ast(Ast *ast)
                 free_ast(static_cast<AstCall *>(ast)->args);
                 delete static_cast<AstCall *>(ast);
             } else if (ast->operation == Operation::Negate) {
-                free_ast(static_cast<AstUnary *>(ast)->operand);
-                delete static_cast<AstUnary *>(ast);
+                free_ast(static_cast<AstNegate *>(ast)->operand);
+                delete static_cast<AstNegate *>(ast);
             } else if (ast->operation == Operation::Cast) {
                 free_ast(static_cast<AstCast *>(ast)->expr);
                 delete static_cast<AstCast *>(ast);

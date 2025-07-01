@@ -475,10 +475,10 @@ struct AstIdentifier : Ast {
     }
 };
 
-struct AstUnary : Ast {
+struct AstNegate : Ast {
     Ast *operand;
 
-    explicit AstUnary(Operation _op, Ast *_operand, SourceLocation _location)
+    explicit AstNegate(Operation _op, Ast *_operand, SourceLocation _location)
         : Ast(AstType::Unary, _op, _location)
         , operand(_operand)
     {

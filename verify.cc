@@ -234,7 +234,7 @@ Type *get_expression_type(
             }
             if (ast->operation == Operation::Negate) {
                 return get_expression_type(
-                    cc, static_cast<AstUnary *>(ast)->operand, constness, ForceSigned::Yes);
+                    cc, static_cast<AstNegate *>(ast)->operand, constness, ForceSigned::Yes);
             }
             if (ast->operation == Operation::Cast) {
                 return static_cast<AstCast *>(ast)->cast_type;
@@ -360,7 +360,7 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
 }
 
 void verify_negate(
-    Compiler &cc, AstUnary *unary, WarnDiscardedReturn warn_discarded, Type *expected)
+    Compiler &cc, AstNegate *unary, WarnDiscardedReturn warn_discarded, Type *expected)
 {
     verify_expr(cc, unary->operand, warn_discarded, expected, ForceSigned::Yes);
     auto *type = get_expression_type(cc, unary->operand, nullptr, ForceSigned::Yes);
@@ -434,7 +434,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (ast->operation == Operation::Call) {
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
             } else if (ast->operation == Operation::Negate) {
-                verify_negate(cc, static_cast<AstUnary *>(ast), warn_discarded, expected);
+                verify_negate(cc, static_cast<AstNegate *>(ast), warn_discarded, expected);
             } else {
                 dbgln("encountered cast");
             }

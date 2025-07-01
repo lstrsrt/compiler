@@ -77,7 +77,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
         }
         add_ir(ir, bb);
     } else if (ast->operation == Operation::Negate) {
-        generate_ir(cc, ir, ir->left, static_cast<AstUnary *>(ast)->operand);
+        generate_ir(cc, ir, ir->left, static_cast<AstNegate *>(ast)->operand);
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, bb);
     } else if (ast->operation == Operation::Cast) {
@@ -151,7 +151,7 @@ IR *generate_ir_cmp(Compiler &cc, Ast *ast)
     ir->type = ast->type;
     switch (ast->type) {
         case AstType::Unary:
-            generate_ir(cc, ir, ir->left, static_cast<AstUnary *>(ast)->operand);
+            generate_ir(cc, ir, ir->left, static_cast<AstNegate *>(ast)->operand);
             break;
         case AstType::Binary:
             generate_ir(cc, ir, ir->left, static_cast<AstBinary *>(ast)->left);
