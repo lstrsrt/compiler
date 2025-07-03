@@ -189,32 +189,6 @@ Type *get_common_integer_type(Type *t1, Type *t2)
     return t2;
 }
 
-Type *get_integer_expression_type(uint64_t u64, ForceSigned force_signed)
-{
-    // TODO - warn on overflow (or warn in string_to_number/parser)
-    // TODO - just default to 64 bit numbers?
-    if (force_signed == ForceSigned::Yes) {
-        if (u64 > std::numeric_limits<int64_t>::max()) {
-            // TODO - test me
-            // cc.diag_ast_error(literal, "overflow");
-        }
-        if (u64 > std::numeric_limits<int32_t>::max()) {
-            return s64_type();
-        }
-        return s32_type();
-    }
-    if (u64 > std::numeric_limits<int64_t>::max()) {
-        return u64_type();
-    }
-    if (u64 > std::numeric_limits<uint32_t>::max()) {
-        return s64_type();
-    }
-    if (u64 > std::numeric_limits<int32_t>::max()) {
-        return u32_type();
-    }
-    return s32_type();
-}
-
 Type *get_binary_expression_type(
     Compiler &cc, AstBinary *binary, ExprConstness *constness = nullptr)
 {

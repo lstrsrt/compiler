@@ -89,29 +89,6 @@ Ast *try_partial_fold_associative(
 
 Ast *try_constant_fold(Compiler &, Ast *, Type *);
 
-Ast *try_fold_unary(Compiler &cc, Ast *unary, Type *expected)
-{
-    if (unary->operation == Operation::Cast) {
-        assert(static_cast<AstCast *>(unary)->cast_type == expected);
-        return static_cast<AstCast *>(unary)->expr;
-    }
-
-    if (unary->operation != Operation::Negate) {
-        return unary;
-    }
-
-    auto *leaf = try_constant_fold(cc, static_cast<AstNegate *>(unary)->operand, expected);
-    if (leaf && leaf->type == AstType::Integer) {
-        auto lhs = static_cast<AstLiteral *>(leaf)->u.s64;
-        auto result = -lhs;
-        delete static_cast<AstLiteral *>(leaf);
-        delete static_cast<AstNegate *>(unary);
-        return new AstLiteral(expected, AstType::Integer, result, {});
-    }
-
-    return unary;
-}
-
 Ast *try_fold_constants(
     Compiler &cc, AstBinary *binary, int64_t left_const, int64_t right_const, Type *expected)
 {
@@ -199,9 +176,6 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *expected)
 {
     if (!ast) {
         return nullptr;
-    }
-    if (ast->type == AstType::Unary) {
-        return try_fold_unary(cc, static_cast<AstNegate *>(ast), expected);
     }
     if (ast->type == AstType::Binary) {
         return try_fold_binary(cc, static_cast<AstBinary *>(ast), expected);

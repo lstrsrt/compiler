@@ -34,7 +34,7 @@ void new_ir_function(IRBuilder &irb, AstFunctionDecl *ast)
     add_block(fn);
 }
 
-void generate_ir(Compiler &cc, IR *ir, IRArg &arg, Ast *ast)
+void generate_ir(Compiler &cc, [[maybe_unused]] IR *ir, IRArg &arg, Ast *ast)
 {
     arg = generate_ir_impl(cc, ast);
     // FIXME wtf
@@ -293,7 +293,7 @@ void generate_ir(Compiler &cc, AstFunctionDecl *main)
     }
 }
 
-void optimize_ir(IRFunction &fn) { }
+void optimize_ir(IRFunction &) { }
 
 void optimize_ir(IRBuilder &irb)
 {

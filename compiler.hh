@@ -777,9 +777,6 @@ void diagnose_redeclaration_or_shadowing(
 
 void verify_main(Compiler &, AstFunctionDecl *);
 
-enum class ForceSigned { No, Yes };
-
-Type *get_integer_expression_type(uint64_t, ForceSigned);
 bool has_top_level_return(AstBlock *);
 bool types_match(Type *t1, Type *t2);
 
