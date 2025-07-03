@@ -367,13 +367,14 @@ AstBlock *parse_block(Compiler &cc, AstFunctionDecl *current_function = nullptr)
     cc.lexer.ignore_newlines = true;
     std::vector<Ast *> stmts{};
     for (;;) {
-        auto *stmt = parse_stmt(cc, current_function);
-        if (stmt) {
-            stmts.emplace_back(stmt);
-        }
-        if (lex(cc).string == "}") {
+        auto token = lex(cc);
+        if (token.kind == TokenKind::RBrace) {
+            consume(cc.lexer, token);
             break;
         }
+        auto *stmt = parse_stmt(cc, current_function);
+        assert(stmt);
+        stmts.emplace_back(stmt);
     }
     return new AstBlock(std::move(stmts));
 }
