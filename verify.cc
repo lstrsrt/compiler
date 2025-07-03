@@ -99,7 +99,7 @@ void flatten_binary(Ast *ast, std::vector<Ast *> &flattened)
     }
 }
 
-void insert_cast(Ast *expr, Type *to)
+void insert_cast(Ast *&expr, Type *to)
 {
     expr = new AstCast(expr, to, expr->location);
 }
@@ -137,7 +137,7 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     }
 }
 
-enum class ExprConstness { SeenConstant = 1 << 0, SeenNonConstant = 1 << 1 };
+enum class ExprConstness { SawConstant = 1 << 0, SawNonConstant = 1 << 1 };
 
 constexpr ExprConstness &operator|=(ExprConstness &lhs, const ExprConstness rhs)
 {
@@ -151,17 +151,17 @@ constexpr ExprConstness operator|(const ExprConstness lhs, const ExprConstness r
 
 bool expr_has_no_constants(ExprConstness e)
 {
-    return e == ExprConstness::SeenNonConstant;
+    return e == ExprConstness::SawNonConstant;
 }
 
 bool expr_is_fully_constant(ExprConstness e)
 {
-    return e == ExprConstness::SeenConstant;
+    return e == ExprConstness::SawConstant;
 }
 
 bool expr_is_partly_constant(ExprConstness e)
 {
-    return e == (ExprConstness::SeenConstant | ExprConstness::SeenNonConstant);
+    return e == (ExprConstness::SawConstant | ExprConstness::SawNonConstant);
 }
 
 bool expr_is_constexpr_int(Type *t, ExprConstness e)
@@ -169,10 +169,7 @@ bool expr_is_constexpr_int(Type *t, ExprConstness e)
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
 
-Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constant = nullptr,
-    ForceSigned force_signed = ForceSigned::No);
-
-TypeError maybe_cast_integer(Type *wanted_type, Type *type, Ast *&expr, ExprConstness constness);
+Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constant = nullptr);
 
 Type *get_common_integer_type(Type *t1, Type *t2)
 {
@@ -207,6 +204,7 @@ Type *get_binary_expression_type(
             break;
     }
 
+    bool seen_non_const = false;
     Type *current = nullptr;
     Type *ret = nullptr;
     std::vector<Ast *> operands;
@@ -215,10 +213,18 @@ Type *get_binary_expression_type(
     for (auto *ast : operands) {
         ExprConstness expr_constness{};
         current = get_expression_type(cc, ast, &expr_constness);
-        if (expr_is_constexpr_int(current, expr_constness)) {
-            ret = get_common_integer_type(current, ret);
-        } else {
+        if (!ret) {
+            // First time, just set it to whatever we got.
             ret = current;
+        } else if (!seen_non_const && expr_has_no_constants(expr_constness)) {
+            // If we got a non-constant, override the type unless it has already been overwritten.
+            seen_non_const = true;
+            ret = current;
+        } else if (expr_is_constexpr_int(current, expr_constness)) {
+            ret = get_common_integer_type(current, ret);
+        } else if (!types_match(ret, current)) {
+            verification_type_error(ast->location,
+                "invalid types `{}` and `{}` in binary operation", ret->name, current->name);
         }
         if (constness) {
             *constness |= expr_constness;
@@ -228,8 +234,7 @@ Type *get_binary_expression_type(
     return ret;
 }
 
-Type *get_expression_type(
-    Compiler &cc, Ast *ast, ExprConstness *constness, ForceSigned force_signed)
+Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
 {
     if (!ast) {
         return nullptr;
@@ -238,23 +243,23 @@ Type *get_expression_type(
     switch (ast->type) {
         case AstType::Integer: {
             if (constness) {
-                *constness |= ExprConstness::SeenConstant;
+                *constness |= ExprConstness::SawConstant;
             }
             return static_cast<AstLiteral *>(ast)->literal_type;
         }
         case AstType::Boolean:
             if (constness) {
-                *constness |= ExprConstness::SeenConstant;
+                *constness |= ExprConstness::SawConstant;
             }
             return bool_type();
         case AstType::String:
             if (constness) {
-                *constness |= ExprConstness::SeenConstant;
+                *constness |= ExprConstness::SawConstant;
             }
             return string_type();
         case AstType::Identifier:
             if (constness) {
-                *constness |= ExprConstness::SeenNonConstant;
+                *constness |= ExprConstness::SawNonConstant;
             }
             return static_cast<AstIdentifier *>(ast)->var->type;
         case AstType::Binary: {
@@ -263,14 +268,13 @@ Type *get_expression_type(
         case AstType::Unary:
             if (ast->operation == Operation::Call) {
                 if (constness) {
-                    *constness |= ExprConstness::SeenNonConstant;
+                    *constness |= ExprConstness::SawNonConstant;
                 }
                 auto *call = static_cast<AstCall *>(ast);
                 return get_callee(cc, call)->return_type;
             }
             if (ast->operation == Operation::Negate) {
-                return get_expression_type(
-                    cc, static_cast<AstNegate *>(ast)->operand, constness, ForceSigned::Yes);
+                return get_expression_type(cc, static_cast<AstNegate *>(ast)->operand, constness);
             }
             if (ast->operation == Operation::Cast) {
                 return static_cast<AstCast *>(ast)->cast_type;
@@ -348,8 +352,8 @@ bool has_top_level_return(AstBlock *block)
 
 enum class WarnDiscardedReturn { No, Yes };
 
-void verify_expr(Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded,
-    Type *expected = nullptr, ForceSigned force_signed = ForceSigned::No);
+void verify_expr(
+    Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded, Type *expected = nullptr);
 
 TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
 {
@@ -398,11 +402,13 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
 void verify_negate(
     Compiler &cc, AstNegate *unary, WarnDiscardedReturn warn_discarded, Type *expected)
 {
-    verify_expr(cc, unary->operand, warn_discarded, expected, ForceSigned::Yes);
-    auto *type = get_expression_type(cc, unary->operand, nullptr, ForceSigned::Yes);
+    verify_expr(cc, unary->operand, warn_discarded, expected);
+    ExprConstness constness{};
+    auto *type = get_expression_type(cc, unary->operand, &constness);
     // Must be a signed integer
-    if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
-        verification_error(unary, "negate of unsupported type `{}`", type->name);
+    if (!type->has_flag(TypeFlags::Integer)
+        || (!expr_is_constexpr_int(type, constness) && type->has_flag(TypeFlags::UNSIGNED))) {
+        verification_type_error(unary->location, "negate of unsupported type `{}`", type->name);
     }
 }
 
@@ -447,16 +453,14 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     verify_expr(cc, cmp->right, warn_discarded, exp);
 }
 
-void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected,
-    ForceSigned force_signed)
+void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
 {
     Type *type;
     switch (ast->type) {
         case AstType::Integer:
             if (expected) {
                 ExprConstness constness{};
-                if (type = get_expression_type(cc, ast, &constness, force_signed);
-                    !types_match(type, expected)) {
+                if (type = get_expression_type(cc, ast, &constness); !types_match(type, expected)) {
                     if (auto err = maybe_cast_integer(expected, type, ast, constness);
                         err != TypeError::None) {
                         type_error(cc, ast, expected, type, err);
@@ -471,11 +475,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
             } else if (ast->operation == Operation::Negate) {
                 verify_negate(cc, static_cast<AstNegate *>(ast), warn_discarded, expected);
-            } else {
-                dbgln("encountered cast");
             }
             break;
-            ast = try_constant_fold(cc, ast, expected);
         case AstType::Binary: {
             auto binary = static_cast<AstBinary *>(ast);
             switch (binary->operation) {
@@ -501,8 +502,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     }
     if (expected) {
         ExprConstness constness{};
-        if (type = get_expression_type(cc, ast, &constness, force_signed);
-            !types_match(type, expected)) {
+        if (type = get_expression_type(cc, ast, &constness);
+            !expr_is_constexpr_int(type, constness) && !types_match(type, expected)) {
             type_error(cc, ast, expected, type, TypeError::Unspecified);
         }
     }
@@ -609,8 +610,9 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
         for (auto *stmt : static_cast<AstBlock *>(ast)->stmts) {
             verify_ast(cc, stmt, current_function);
         }
+    } else {
+        verify_expr(cc, ast, WarnDiscardedReturn::Yes, get_expression_type(cc, ast));
     }
-    verify_expr(cc, ast, WarnDiscardedReturn::Yes);
 }
 
 void verify_main(Compiler &cc, AstFunctionDecl *main)
