@@ -16,7 +16,7 @@ using Precedence = int;
 namespace prec {
     constexpr Precedence Comma = 1, Assignment = 2, Comparison = 3, AdditiveArithmetic = 4,
                          MultiplicativeArithmetic = 5;
-    constexpr Precedence Lowest = Comma;
+    constexpr Precedence Lowest = Comma, Highest = MultiplicativeArithmetic;
 } // namespace prec
 
 struct OperatorInfo {
@@ -24,42 +24,35 @@ struct OperatorInfo {
     Associativity associativity;
 };
 
-OperatorInfo get_operator_info(std::string_view s)
+OperatorInfo get_operator_info(TokenKind kind)
 {
-    if (s.length() == 1) {
-        switch (s[0]) {
-            case '*':
-                [[fallthrough]];
-            case '/':
-                [[fallthrough]];
-            case '%':
-                return { prec::MultiplicativeArithmetic, Associativity::Left };
-            case '+':
-                [[fallthrough]];
-            case '-':
-                return { prec::AdditiveArithmetic, Associativity::Left };
-            case '>':
-                [[fallthrough]];
-            case '<':
-                return { prec::Comparison, Associativity::Left };
-            case ':':
-                [[fallthrough]];
-            case '=':
-                return { prec::Assignment, Associativity::Right };
-            case ',':
-                return { prec::Comma, Associativity::Left };
-        }
-    }
-    if (s.length() == 2) {
-        if (s == ":=") {
+    using enum TokenKind;
+    switch (kind) {
+        case Star:
+        case Slash:
+        case Percent:
+            return { prec::MultiplicativeArithmetic, Associativity::Left };
+        case Plus:
+        case Minus:
+            return { prec::AdditiveArithmetic, Associativity::Left };
+        case LAngle:
+        case RAngle:
+            return { prec::Comparison, Associativity::Left };
+        case ColonEquals:
+        case Equals:
             return { prec::Assignment, Associativity::Right };
-        }
-        // == != <= >=
-        return { prec::Comparison, Associativity::Left };
+        case Comma:
+            return { prec::Comma, Associativity::Left };
+        case EqualsEquals:
+        case ExclEquals:
+        case LAngleEquals:
+        case RAngleEquals:
+            return { prec::Comparison, Associativity::Left };
+        default:
+            // Invalid operators are handled in parse_atom.
+            // Return something big so we make it there.
+            return { prec::Highest, Associativity::Left };
     }
-
-    assert(!"get_operator_info unhandled operator");
-    return {};
 }
 
 enum class AllowVarDecl { No, Yes };
@@ -68,7 +61,7 @@ Ast *parse_expr(Compiler &, AllowVarDecl = AllowVarDecl::No, Precedence = prec::
 
 AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation location)
 {
-    if (lex(cc).string == ")") {
+    if (lex(cc).kind == TokenKind::RParen) {
         return new AstCall(function, {}, location); // Call without args
     }
 
@@ -76,7 +69,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
     for (;;) {
         args.emplace_back(parse_expr(cc, AllowVarDecl::No, prec::Comma + 1));
         auto token = lex(cc);
-        if (token.string != ",") {
+        if (token.kind != TokenKind::Comma) {
             break;
         }
         consume(cc.lexer, token);
@@ -129,15 +122,15 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 {
     auto token = lex(cc);
 
-    if (token.kind == TokenKind::Operator) {
-        if (token.string == "(") {
+    if (is_group(token.kind, TokenKind::GroupOperator)) {
+        if (token.kind == TokenKind::LParen) {
             consume(cc.lexer, token);
             auto ast = parse_expr(cc);
             token = lex(cc);
             consume_expected(cc, ")", token);
             return ast;
         }
-        if (token.string == "-") {
+        if (token.kind == TokenKind::Minus) {
             consume(cc.lexer, token);
             auto prev_col = cc.lexer.column;
             auto arg = parse_atom(cc, allow_var_decl);
@@ -148,9 +141,10 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             }
             return new AstNegate(Operation::Negate, arg, token.location);
         }
+        parser_error(token.location, "unexpected operator");
     }
 
-    if (token.kind == TokenKind::Number) {
+    if (is_group(token.kind, TokenKind::GroupNumber)) {
         uint64_t number;
         if (!string_to_number(token.string, number)) {
             parser_error(token.location, "bad number: conversion error");
@@ -168,16 +162,16 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         return new AstLiteral(s32_type(), AstType::Integer, number, token.location);
     }
 
-    if (token.kind == TokenKind::String) {
+    if (is_group(token.kind, TokenKind::GroupString)) {
         consume_string(cc.lexer, token);
         return new AstString(*token.real_string, token.location);
     }
 
-    if (token.kind == TokenKind::Identifier) {
+    if (is_group(token.kind, TokenKind::GroupIdentifier)) {
         auto prev_col = cc.lexer.column;
         consume(cc.lexer, token);
         auto next_token = lex(cc);
-        if (next_token.string == "(") {
+        if (next_token.kind == TokenKind::LParen) {
             consume(cc.lexer, next_token);
             auto *call = parse_call(cc, token.string, token.location);
             consume_expected(cc, ")", lex(cc));
@@ -193,11 +187,11 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         return new AstIdentifier(token.string, var_decl ? &var_decl->var : nullptr, token.location);
     }
 
-    if (token.kind == TokenKind::Keyword) {
-        bool is_false = token.string == "false";
+    if (is_group(token.kind, TokenKind::GroupKeyword)) {
+        bool is_false = token.kind == TokenKind::False;
         bool is_true = false;
         if (!is_false) {
-            is_true = token.string == "true";
+            is_true = token.kind == TokenKind::True;
             if (!is_true) {
                 return nullptr;
             }
@@ -211,58 +205,60 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 
 AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, Ast *rhs)
 {
-    Operation operation = Operation::None;
-    auto op = operation_token.string;
+    if (!lhs || !rhs) {
+        const char *side = lhs ? "right-hand" : "left-hand";
+        parser_error(operation_token.location, "binary operation missing {} operand", side);
+    }
 
-    if (op.length() == 1) {
-        switch (op[0]) {
-            case '+':
-                operation = Operation::Add;
-                break;
-            case '-':
-                operation = Operation::Subtract;
-                break;
-            case '*':
-                operation = Operation::Multiply;
-                break;
-            case '/':
-                operation = Operation::Divide;
-                break;
-            case '%':
-                operation = Operation::Modulo;
-                break;
-            case '<':
-                operation = Operation::Less;
-                break;
-            case '>':
-                operation = Operation::Greater;
-                break;
-            case '=':
-                operation = Operation::Assign;
-                break;
-        }
-    } else if (op.length() == 2) {
-        if (op == "==") {
-            operation = Operation::Equals;
-        } else if (op == "!=") {
+    Operation operation = Operation::None;
+
+    switch (operation_token.kind) {
+        case TokenKind::Plus:
+            operation = Operation::Add;
+            break;
+        case TokenKind::Minus:
+            operation = Operation::Subtract;
+            break;
+        case TokenKind::Star:
+            operation = Operation::Multiply;
+            break;
+        case TokenKind::Slash:
+            operation = Operation::Divide;
+            break;
+        case TokenKind::Percent:
+            operation = Operation::Modulo;
+            break;
+        case TokenKind::LAngle:
+            operation = Operation::Less;
+            break;
+        case TokenKind::RAngle:
+            operation = Operation::Greater;
+            break;
+        case TokenKind::Equals:
+            operation = Operation::Assign;
+            break;
+        case TokenKind::EqualsEquals:
+            operation = Operation::Equals; // Not a bug
+            break;
+        case TokenKind::ExclEquals:
             operation = Operation::NotEquals;
-        } else if (op == ">=") {
+            break;
+        case TokenKind::RAngleEquals:
             operation = Operation::GreaterEquals;
-        } else if (op == "<=") {
+            break;
+        case TokenKind::LAngleEquals:
             operation = Operation::LessEquals;
-        } else if (op == ":=") {
+            break;
+        case TokenKind::ColonEquals:
             operation = Operation::VariableDecl;
-        }
+            break;
+        default:
+            parser_error(operation_token.location, "unexpected operator `{}` in binary operation",
+                operation_token.string);
+            return nullptr;
     }
-    if (operation != Operation::None) {
-        if (!lhs || !rhs) {
-            const char *side = lhs ? "right-hand" : "left-hand";
-            parser_error(operation_token.location, "binary operation missing {} operand", side);
-        }
-        return new AstBinary(operation, lhs, rhs, cc.lexer.location());
-    }
-    parser_error(operation_token.location, "unexpected operator `{}` in binary operation", op);
-    return nullptr;
+
+    return new AstBinary(operation, lhs, rhs, operation_token.location);
 }
 
 enum class AllowInitExpr { No, Yes };
@@ -279,12 +275,12 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
 
     for (;;) {
         const auto token = lex(cc);
-        if (token.kind != TokenKind::Operator || token.string == ")" || token.string == "{"
-            || token.string == "}") {
+        if (!is_group(token.kind, TokenKind::GroupOperator) || token.kind == TokenKind::RParen
+            || token.kind == TokenKind::LBrace || token.kind == TokenKind::RBrace) {
             break;
         }
 
-        if (token.string == ":=") {
+        if (token.kind == TokenKind::ColonEquals) {
             if (allow_var_decl == AllowVarDecl::Yes) {
                 cc.lexer.column = prev_col;
                 cc.lexer.position = prev_pos;
@@ -294,8 +290,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
             }
         }
 
-        const auto &op = token.string;
-        const auto info = get_operator_info(op);
+        const auto info = get_operator_info(token.kind);
         if (info.precedence < min_precedence) {
             break;
         }
@@ -313,7 +308,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
 Type *parse_type(Compiler &cc)
 {
     auto token = lex(cc);
-    if (token.kind != TokenKind::Identifier) {
+    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(
             token.location, "expected a type name, got `{}`", make_printable(token.string));
     }
@@ -333,7 +328,7 @@ Type *parse_type(Compiler &cc)
 Token parse_identifier(Compiler &cc)
 {
     auto token = lex(cc);
-    if (token.kind != TokenKind::Identifier) {
+    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(
             token.location, "expected an identifier, got `{}`", make_printable(token.string));
     }
@@ -350,7 +345,7 @@ std::vector<AstVariableDecl *> parse_fn_params(Compiler &cc)
         var_decl->var.param_index = idx++;
         ret.push_back(var_decl);
         auto token = lex(cc);
-        if (token.string != ",") {
+        if (token.kind != TokenKind::Comma) {
             break;
         }
         consume(cc.lexer, token);
@@ -387,7 +382,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
 {
     auto token = lex(cc); // Name
     auto location = token.location;
-    if (token.kind != TokenKind::Identifier) {
+    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(token.location, "invalid function name {}", token.string);
     }
 
@@ -400,7 +395,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     // Function parameters already belong to new scope
     enter_new_scope();
     std::vector<AstVariableDecl *> params{};
-    if (token.string != ")") {
+    if (token.kind != TokenKind::RParen) {
         params = parse_fn_params(cc);
     }
     consume_expected(cc, ")", lex(cc));
@@ -409,7 +404,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     cc.lexer.ignore_newlines = true;
     token = lex(cc);
     cc.lexer.ignore_newlines = false;
-    if (token.string == "->") {
+    if (token.kind == TokenKind::Arrow) {
         consume(cc.lexer, token);
         ret_type = parse_type(cc);
         token = lex(cc); // {
@@ -421,7 +416,6 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     fn_decl->body = parse_block(cc, fn_decl);
     fn_decl->scope = current_scope->parent;
     leave_scope();
-    consume_expected(cc, "}", lex(cc));
 
     return fn_decl;
 }
@@ -431,18 +425,18 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
     auto loc = cc.lexer.location();
     auto name = parse_identifier(cc);
     auto token = lex(cc);
-    if (allow_init_expr == AllowInitExpr::Yes && token.string == ":=") {
+    if (allow_init_expr == AllowInitExpr::Yes && token.kind == TokenKind::ColonEquals) {
         consume(cc.lexer, token);
         if (auto *init_expr = parse_expr(cc)) {
             return new AstVariableDecl(unresolved_type(), name.string, init_expr, loc);
         }
         parser_error(loc, "auto inferred variable must have an initializer expression");
-    } else if (token.string == ":") {
+    } else if (token.kind == TokenKind::Colon) {
         consume(cc.lexer, token);
         auto *type = parse_type(cc);
         token = lex(cc);
         Ast *maybe_expr = nullptr;
-        if (allow_init_expr == AllowInitExpr::Yes && token.string == "=") {
+        if (allow_init_expr == AllowInitExpr::Yes && token.kind == TokenKind::Equals) {
             consume(cc.lexer, token);
             maybe_expr = parse_expr(cc);
             if (!maybe_expr) {
@@ -471,54 +465,81 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     }
     enter_new_scope();
     AstBlock *body = parse_block(cc, current_function);
-    consume_expected(cc, "}", lex(cc));
     leave_scope();
     return new AstIf(expr, body, loc);
 }
 
-void set_test_attributes(Compiler &cc, const Token &token)
+void parse_error_attribute(Compiler &cc)
 {
-    cc.tester.test_type = TestType::Error;
     // clang-format off
-            static const std::unordered_map<std::string, ErrorType> map{
-                { "#lexer_error", ErrorType::LexError },
-                { "#parser_error", ErrorType::ParseError },
-                { "#verify_error", ErrorType::VerificationError },
-                { "#type_error", ErrorType::TypeError }
-            };
+    static const std::unordered_map<std::string_view, ErrorType> error_attr_map{
+        { "lexer", ErrorType::LexError },
+        { "parser", ErrorType::ParseError },
+        { "verify", ErrorType::VerificationError },
+        { "type", ErrorType::TypeError }
+    };
     // clang-format on
-    cc.tester.error_type = map.at(std::string(token.string));
+    consume_expected(cc, "(", lex(cc));
+    auto token = lex(cc);
+    if (auto it = error_attr_map.find(token.string); it != error_attr_map.end()) {
+        cc.test_mode.error_type = it->second;
+    } else {
+        parser_error(token.location, "unknown attribute");
+    }
+    consume(cc.lexer, token);
+    consume_expected(cc, ")", lex(cc));
+    cc.test_mode.test_type = TestType::Error;
+    if (!opts.testing) {
+        // TODO - output a warning or skip?
+    }
+}
+
+void parse_attribute_list(Compiler &cc)
+{
+    auto token = lex(cc);
+    if (token.kind == TokenKind::RBrace) {
+        consume(cc.lexer, token);
+        return;
+    }
+    token = lex(cc);
+    switch (hash(token.string)) {
+        case hash("error"):
+            consume(cc.lexer, token);
+            parse_error_attribute(cc);
+            break;
+    }
+    consume_expected(cc, "}", lex(cc));
 }
 
 Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
 {
     auto token = lex(cc);
-    while (token.kind == TokenKind::Attribute) {
-        if (opts.testing && token.string.ends_with("_error")) {
-            set_test_attributes(cc, token);
-        }
+
+    if (token.kind == TokenKind::Hash) {
         consume(cc.lexer, token);
+        consume_expected(cc, "{", lex(cc));
+        parse_attribute_list(cc);
         token = lex(cc);
     }
 
-    if (token.kind == TokenKind::Keyword) {
-        if (token.string == "if") {
+    if (is_group(token.kind, TokenKind::GroupKeyword)) {
+        if (token.kind == TokenKind::If) {
             consume(cc.lexer, token);
             auto *if_stmt = parse_if(cc, current_function);
             return if_stmt;
         }
-        if (token.string == "fn") {
+        if (token.kind == TokenKind::Fn) {
             consume(cc.lexer, token);
             cc.lexer.ignore_newlines = false;
             auto *fn_decl = parse_fn_decl(cc);
             // Note we have to set it again because parse_fn_decl
-            // may recurse into here and some path can reset it
+            // may recurse into here and some paths can reset it
             cc.lexer.ignore_newlines = false;
             consume_newline_or_eof(cc, lex(cc));
             cc.lexer.ignore_newlines = true;
             return fn_decl;
         }
-        if (token.string == "return") {
+        if (token.kind == TokenKind::Return) {
             consume(cc.lexer, token);
             cc.lexer.ignore_newlines = false;
             auto *ret = new AstReturn(parse_expr(cc), token.location);
@@ -532,7 +553,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
             cc.lexer.ignore_newlines = true;
             return ret;
         }
-        if (token.string == "alias") {
+        if (token.kind == TokenKind::Alias) {
             consume(cc.lexer, token);
             auto alias = parse_identifier(cc);
             consume_expected(cc, ":", lex(cc));
@@ -544,12 +565,12 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
             return nullptr;
         }
         assert(!"unhandled keyword");
-    } else if (token.kind == TokenKind::Identifier) {
+    } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
         const auto prev_pos = cc.lexer.position;
         const auto prev_col = cc.lexer.column;
         consume(cc.lexer, token);
         const auto next_token = lex(cc);
-        if (next_token.string == ":" || next_token.string == ":=") {
+        if (next_token.kind == TokenKind::Colon || next_token.kind == TokenKind::ColonEquals) {
             cc.lexer.ignore_newlines = false;
             // FIXME - make the name be found by parse_var_decl
             cc.lexer.position = prev_pos;
@@ -564,10 +585,9 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
             cc.lexer.position = prev_pos;
             cc.lexer.column = prev_col;
         }
-    } else if (token.string == "{") {
+    } else if (token.kind == TokenKind::LBrace) {
         enter_new_scope();
         auto block = parse_block(cc, current_function);
-        consume_expected(cc, "}", lex(cc));
         leave_scope();
         return block;
     }

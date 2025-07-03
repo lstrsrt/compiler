@@ -165,16 +165,51 @@ inline constexpr char to_upper(char c)
     return is_lower(c) ? (c - ('a' - 'A')) : c;
 }
 
-enum class TokenKind {
-    Empty,
-    Unknown,
-    Newline,
-    Number,
-    String,
-    Operator,
-    Identifier,
-    Attribute,
-    Keyword,
+enum class TokenKind : uint32_t {
+    //
+    // Group
+    //
+    GroupEmpty = 1 << 16,
+    GroupNewline = 1 << 17,
+    GroupNumber = 1 << 18,
+    GroupIdentifier = 1 << 19,
+    GroupString = 1 << 20,
+    GroupOperator = 1 << 21,
+    GroupKeyword = 1 << 22,
+    group_mask = 0xffff'0000,
+
+    //
+    // Value
+    //
+    Plus = 1 | GroupOperator,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    LAngle,
+    RAngle,
+    Comma,
+    Equals,
+    Excl,
+    Colon,
+    Hash,
+    LAngleEquals,
+    RAngleEquals,
+    EqualsEquals,
+    ExclEquals,
+    ColonEquals,
+    Arrow,
+
+    Fn = 1 | GroupKeyword,
+    Return,
+    If,
+    Alias,
+    False,
+    True
 };
 
 struct SourceLocation {
@@ -183,16 +218,68 @@ struct SourceLocation {
     size_t position; // This is the actual offset in the file, equivalent to Lexer::position.
 };
 
+inline TokenKind get_group(TokenKind kind)
+{
+    return static_cast<TokenKind>(to_underlying(kind) & to_underlying(TokenKind::group_mask));
+}
+
+inline bool is_group(TokenKind kind, TokenKind cmp)
+{
+    return get_group(kind) == cmp;
+}
+
 struct Token {
     static constexpr Token make_empty()
     {
-        return Token{ .kind = TokenKind::Empty };
+        return Token{ .kind = TokenKind::GroupEmpty };
+    }
+
+    static constexpr Token make_newline(SourceLocation _location)
+    {
+        return Token{ .string = "\n",
+
+            .kind = TokenKind::GroupNewline,
+            .location = _location };
+    }
+
+    static constexpr Token make_number(std::string_view _string, SourceLocation _location)
+    {
+        return Token{ .string = _string, .kind = TokenKind::GroupNumber, .location = _location };
+    }
+
+    static constexpr Token make_string(
+        std::unique_ptr<std::string> &&_string, size_t length, SourceLocation _location)
+    {
+        return Token{ .kind = TokenKind::GroupString,
+            .location = _location,
+            .real_string = std::move(_string),
+            .real_length = length };
+    }
+
+    static constexpr Token make_operator(
+        std::string_view _string, TokenKind _kind, SourceLocation _location)
+    {
+        return Token{ .string = _string, .kind = _kind, .location = _location };
+    }
+
+    static constexpr Token make_identifier(std::string_view _string, SourceLocation _location)
+    {
+        return Token{
+            .string = _string, .kind = TokenKind::GroupIdentifier, .location = _location
+        };
+    }
+
+    static constexpr Token make_keyword(
+        std::string_view _string, TokenKind _kind2, SourceLocation _location)
+    {
+        return Token{ .string = _string, .kind = _kind2, .location = _location };
     }
 
     std::string_view string{}; // use for AstIdentifier?
-    TokenKind kind = TokenKind::Empty;
+    TokenKind kind = TokenKind::GroupEmpty;
     SourceLocation location{};
 
+    // For strings
     std::unique_ptr<std::string> real_string{};
     size_t real_length{};
 };
@@ -280,13 +367,14 @@ inline void advance_line(Lexer &lexer, size_t count = 1)
 
 inline void consume(Lexer &lexer, const Token &tk)
 {
-    assert(tk.kind != TokenKind::Newline && tk.kind != TokenKind::String);
+    assert(
+        !is_group(tk.kind, TokenKind::GroupNewline) && !is_group(tk.kind, TokenKind::GroupString));
     advance_column(lexer, tk.string.length());
 }
 
 inline void consume_string(Lexer &lexer, const Token &tk)
 {
-    assert(tk.kind == TokenKind::String);
+    assert(is_group(tk.kind, TokenKind::GroupString));
     advance_column(lexer, tk.real_length);
 }
 
@@ -547,7 +635,7 @@ enum class TypeFlags {
     // Float,
     // Char, // should this be considered separate from Integer?
     // Struct,
-    KindMask = 0b1111,
+    kind_mask = 0b1111,
 
     //
     // Flags: zero, one or multiple of these can be set
@@ -602,12 +690,12 @@ struct Type {
 
     TypeFlags get_kind() const
     {
-        return flags & TypeFlags::KindMask;
+        return flags & TypeFlags::kind_mask;
     }
 
     TypeFlags get_flags() const
     {
-        return flags & ~TypeFlags::KindMask;
+        return flags & ~TypeFlags::kind_mask;
     }
 
     bool has_flag(TypeFlags flag) const

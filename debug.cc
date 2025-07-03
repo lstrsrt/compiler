@@ -47,7 +47,7 @@ std::string to_string(Operation operation)
 
 std::string type_kind_to_string(TypeFlags flags)
 {
-    switch (flags & TypeFlags::KindMask) {
+    switch (flags & TypeFlags::kind_mask) {
         case TypeFlags::Integer:
             return "Integer";
         case TypeFlags::Boolean:

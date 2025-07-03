@@ -12,7 +12,7 @@ constexpr bool is_valid_char_in_identifier(char c)
 
 constexpr bool is_start_of_operator(char c)
 {
-    constexpr const char ops[]{ "+-*/%(){}<>=!,:" };
+    constexpr const char ops[]{ "+-*/%(){}<>=!,:#" };
     for (char x : ops) {
         if (c == x) {
             return true;
@@ -75,64 +75,87 @@ Token lex_number(Compiler &cc)
         cc.diag_lexer_error("this character is not a digit in this base");
     }
 
-    return Token{ .string = lexer.string.substr(start, count),
-        .kind = TokenKind::Number,
-        .location = lexer.location() };
+    return Token::make_number(lexer.string.substr(start, count), lexer.location());
 }
 
-const char *lex_operator_impl(Lexer &lexer)
+const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
 {
+    using enum TokenKind;
     const auto c = lexer.get();
     const auto c2 = lexer.get(1);
     if (c2 == '=') {
         switch (c) {
             case '<':
+                kind = LAngleEquals;
                 return "<=";
             case '>':
+                kind = RAngleEquals;
                 return ">=";
             case '=':
+                kind = EqualsEquals;
                 return "==";
             case '!':
+                kind = ExclEquals;
                 return "!=";
             case ':':
+                kind = ColonEquals;
                 return ":=";
         }
     } else if (c2 == '>') {
         if (c == '-') {
+            kind = Arrow;
             return "->";
         }
     }
     switch (c) {
         case '+':
+            kind = Plus;
             return "+";
         case '-':
+            kind = Minus;
             return "-";
         case '*':
+            kind = Star;
             return "*";
         case '/':
+            kind = Slash;
             return "/";
         case '%':
+            kind = Percent;
             return "%";
         case '(':
+            kind = LParen;
             return "(";
         case ')':
+            kind = RParen;
             return ")";
         case '{':
+            kind = LBrace;
             return "{";
         case '}':
+            kind = RBrace;
             return "}";
-        case ',':
-            return ",";
         case '<':
+            kind = LAngle;
             return "<";
         case '>':
+            kind = RAngle;
             return ">";
+        case ',':
+            kind = Comma;
+            return ",";
         case '=':
+            kind = Equals;
             return "=";
         case '!':
+            kind = Excl;
             return "!";
         case ':':
+            kind = Colon;
             return ":";
+        case '#':
+            kind = Hash;
+            return "#";
     }
     assert(!"lex_operator unhandled operator");
     return "";
@@ -140,20 +163,28 @@ const char *lex_operator_impl(Lexer &lexer)
 
 Token lex_operator(Lexer &lexer)
 {
-    return Token{ .string = lex_operator_impl(lexer),
-        .kind = TokenKind::Operator,
-        .location = lexer.location() };
+    TokenKind kind;
+    const auto str = lex_operator_impl(lexer, kind);
+    return Token::make_operator(str, kind, lexer.location());
 }
 
-bool is_keyword(std::string_view str)
+TokenKind get_keyword_or_identifier_kind(std::string_view str)
 {
-    constexpr const char *kws[]{ "fn", "return", "if", "alias", "false", "true" };
-    for (const char *kw : kws) {
-        if (str == kw) {
-            return true;
-        }
+    using enum TokenKind;
+    // clang-format off
+    static std::unordered_map<std::string_view, TokenKind> keyword_map{
+        { "fn", Fn },
+        { "return", Return },
+        { "if", If },
+        { "alias", Alias },
+        { "false", False },
+        { "true", True }
+    };
+    // clang-format on
+    if (auto it = keyword_map.find(str); it != keyword_map.end()) {
+        return it->second;
     }
-    return false;
+    return TokenKind::GroupIdentifier;
 }
 
 Token lex_identifier_or_keyword(Lexer &lexer)
@@ -162,27 +193,11 @@ Token lex_identifier_or_keyword(Lexer &lexer)
     const auto start = lexer.position;
     const auto count = lexer.count_while(is_valid_char_in_identifier);
     const auto str = lexer.string.substr(start, count);
-    if (is_keyword(str)) {
-        return Token{ .string = str, .kind = TokenKind::Keyword, .location = loc };
+    const auto kind = get_keyword_or_identifier_kind(str);
+    if (kind == TokenKind::GroupIdentifier) {
+        return Token::make_identifier(str, loc);
     }
-    return Token{ .string = str, .kind = TokenKind::Identifier, .location = loc };
-}
-
-Token lex_attribute(Compiler &cc)
-{
-    Lexer &lexer = cc.lexer;
-    const auto loc = lexer.location();
-    const auto start = lexer.position;
-    const auto count = lexer.count_while(is_valid_char_in_identifier, 1);
-    const auto str = lexer.string.substr(start, count);
-    constexpr const char *attributes[]{ "#lexer_error", "#parser_error", "#verify_error",
-        "#type_error" };
-    for (auto *attr : attributes) {
-        if (attr == str) {
-            return Token{ .string = str, .kind = TokenKind::Attribute, .location = loc };
-        }
-    }
-    cc.diag_lexer_error("unknown attribute");
+    return Token::make_keyword(str, kind, loc);
 }
 
 Token lex_string(Compiler &cc)
@@ -193,7 +208,12 @@ Token lex_string(Compiler &cc)
     for (size_t i = 1; !lexer.out_of_bounds(i); ++i) {
         char c = lexer.get(i);
         if (c == '\\') {
+            // TODO - string must be under x size?
             switch (lexer.get(i + 1)) {
+                case '0':
+                    // TODO other control chars
+                    str->push_back('\0');
+                    break;
                 case 'a':
                     str->push_back('\a');
                     break;
@@ -201,7 +221,7 @@ Token lex_string(Compiler &cc)
                     str->push_back('\b');
                     break;
                 case 'e':
-                    TODO();
+                    str->push_back('\e');
                     break;
                 case 'f':
                     str->push_back('\f');
@@ -229,9 +249,7 @@ Token lex_string(Compiler &cc)
             }
             ++i;
         } else if (c == '"') {
-            Token tk{ .kind = TokenKind::String, .location = loc, .real_length = i + 1 };
-            tk.real_string = std::move(str);
-            return tk;
+            return Token::make_string(std::move(str), i + 1, loc);
         } else {
             str->push_back(c);
         }
@@ -329,9 +347,9 @@ void consume_expected(Compiler &cc, const std::string &exp, const Token &tk)
 
 void consume_newline_or_eof(Compiler &cc, const Token &tk)
 {
-    if (tk.kind == TokenKind::Newline) {
+    if (is_group(tk.kind, TokenKind::GroupNewline)) {
         advance_line(cc.lexer);
-    } else if (tk.kind == TokenKind::Empty) {
+    } else if (is_group(tk.kind, TokenKind::GroupEmpty)) {
         consume(cc.lexer, tk);
     } else {
         const auto printable = make_printable(tk.string);
@@ -379,10 +397,7 @@ Token lex(Compiler &cc)
     const auto c = lexer.get();
     // FIXME - handle CRLF
     if (c == '\n') {
-        return Token{ .string = "\n", .kind = TokenKind::Newline, .location = lexer.location() };
-    }
-    if (c == '#') {
-        return lex_attribute(cc);
+        return Token::make_newline(lexer.location());
     }
     if (c == '"') {
         return lex_string(cc);
@@ -397,9 +412,7 @@ Token lex(Compiler &cc)
         return lex_number(cc);
     }
 
-    // TODO - do we want to also return the char?
-    // how do we get here?
-    return Token{ .kind = TokenKind::Unknown };
+    cc.diag_lexer_error("unknown character `{}`", c);
 }
 
 void InputFile::open(std::string_view name)
