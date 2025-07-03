@@ -1,0 +1,3 @@
+#{error(type)}
+y: u32 = 0
+x := -y

@@ -1,0 +1,2 @@
+#{error(type)}
+x := 123 + "abc"
