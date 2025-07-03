@@ -40,8 +40,8 @@ void run_tests(const fs::path &path)
             compiler_main(cc, main);
             cc.cleanup(main, false);
         } catch (TestingException &te) {
-            if (cc.tester.test_type == TestType::Error) {
-                if (te.type != cc.tester.error_type) {
+            if (cc.test_mode.test_type == TestType::Error) {
+                if (te.type != cc.test_mode.error_type) {
                     std::println("{}testing error{}: non-matching exception {}{}{}", Red, Default,
                         DefaultBold, to_underlying(te.type), Default);
                 } else {
@@ -58,9 +58,9 @@ void run_tests(const fs::path &path)
             continue;
         }
 
-        if (cc.tester.test_type == TestType::Error) {
+        if (cc.test_mode.test_type == TestType::Error) {
             std::println("{}testing error{}: should have failed compilation", Red, Default);
-        } else if (cc.tester.test_type == TestType::CanCompile) {
+        } else if (cc.test_mode.test_type == TestType::CanCompile) {
             ++passed_tests;
         } else {
             // TODO - actually run program and check return value

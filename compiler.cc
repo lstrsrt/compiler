@@ -31,6 +31,11 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
         print_ast(main);
     }
 
+    if (opts.check_only) {
+        std::println("{}program passed checks!{}", Green, Default);
+        return;
+    }
+
     [[maybe_unused]] auto frontend = timer.elapsed();
     timer.reset();
 
@@ -50,8 +55,6 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
 
     emit_asm(cc);
     [[maybe_unused]] auto backend = timer.elapsed();
-
-    cc.lexer.free_input();
 
 #if AST_ALLOC_PARANOID
     dbgln("=== alloced: {}", ast_alloc_count);

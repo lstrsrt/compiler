@@ -19,6 +19,8 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
+namespace ch = std::chrono;
+using namespace std::string_view_literals;
 
 namespace colors {
     constexpr std::string Cyan = "\033[36;1m";
@@ -65,15 +67,15 @@ struct Timer {
 
     void reset()
     {
-        start = std::chrono::system_clock::now();
+        start = ch::system_clock::now();
     }
 
     auto elapsed()
     {
-        return std::chrono::duration<double>(std::chrono::system_clock::now() - start);
+        return ch::duration<double>(ch::system_clock::now() - start);
     }
 
-    std::chrono::time_point<std::chrono::system_clock> start;
+    ch::time_point<ch::system_clock> start;
 };
 
 constexpr size_t align_up(size_t value, size_t alignment)
@@ -95,7 +97,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 using hash_t = uint32_t;
 
-inline constexpr hash_t fnv1a_hash(const char *s, size_t len)
+inline constexpr hash_t hash(const char *s, size_t len)
 {
     constexpr hash_t basis = 0x811c9dc5, prime = 0x1000193;
     auto hash = basis;
@@ -106,14 +108,9 @@ inline constexpr hash_t fnv1a_hash(const char *s, size_t len)
     return hash;
 }
 
-inline constexpr hash_t fnv1a_hash(const char *s)
+inline constexpr hash_t hash(std::string_view s)
 {
-    return fnv1a_hash(s, strlen(s));
-}
-
-inline constexpr hash_t fnv1a_hash(std::string_view s)
-{
-    return fnv1a_hash(s.data(), s.length());
+    return hash(s.data(), s.length());
 }
 
 struct ArgumentParser {
@@ -122,6 +119,7 @@ struct ArgumentParser {
 
 struct Options {
     bool testing = false;
+    bool check_only = false;
 };
 
 inline Options opts;
@@ -898,7 +896,7 @@ struct TestingException : std::runtime_error {
     ErrorType type;
 };
 
-struct Tester {
+struct TestMode {
     TestType test_type = TestType::CanCompile;
     ErrorType error_type;
 };
@@ -910,7 +908,7 @@ struct Tester {
 struct Compiler {
     Lexer lexer;
     IRBuilder ir_builder;
-    Tester tester;
+    TestMode test_mode;
 
     void initialize();
     void add_default_types();

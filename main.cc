@@ -1,14 +1,31 @@
 #include "compiler.hh"
 
+[[noreturn]] void usage(int errc)
+{
+    std::println("usage: compiler [switches...] <filename>");
+    exit(errc);
+}
+
 void process_cmdline(ArgumentParser &ap)
 {
-    using namespace std::string_view_literals;
-
-    for (std::string_view s : ap.arguments) {
-        switch (fnv1a_hash(s.data())) {
-            case fnv1a_hash("--test"sv):
+    for (size_t i = 1; i < ap.arguments.size(); ++i) {
+        switch (hash(ap.arguments[i])) {
+            case hash("--test"):
                 opts.testing = true;
                 break;
+            case hash("--check-only"):
+                opts.check_only = true;
+                break;
+            case hash("-h"):
+                [[fallthrough]];
+            case hash("--help"):
+                usage(0);
+                break;
+            default:
+                if (i < ap.arguments.size() - 1) {
+                    std::println(
+                        "{}unknown argument{} '{}'", colors::Red, colors::Default, ap.arguments[i]);
+                }
         }
     }
 }
@@ -16,8 +33,7 @@ void process_cmdline(ArgumentParser &ap)
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        std::println("USAGE: compiler [switches...] <filename>");
-        exit(1);
+        usage(1);
     }
 
     ArgumentParser arg_parser;
