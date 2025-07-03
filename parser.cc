@@ -599,11 +599,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
         if (maybe_expr->operation != Operation::Assign
             && maybe_expr->operation != Operation::Call) {
             // TODO - this is not in the right location, should be at the start of the expression
-            cc.diag_ast_warning(maybe_expr, "expression has no effect");
-            // Simply eliminate it, we don't need this in the IR.
-            // FIXME - should still be typechecked? maybe set a flag and then delete later?
-            free_ast(maybe_expr);
-            maybe_expr = nullptr;
+            cc.diag_ast_warning(maybe_expr, "expression result is unused");
         }
         cc.lexer.ignore_newlines = false;
         consume_newline_or_eof(cc, lex(cc));
