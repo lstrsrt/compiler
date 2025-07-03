@@ -6,6 +6,68 @@
 #define verification_type_error(location, msg, ...) \
     cc.diag_error_at(location, ErrorType::TypeError, msg __VA_OPT__(, __VA_ARGS__))
 
+Type *void_type()
+{
+    static Type s_type{ .name = "void", .flags = TypeFlags::Void | TypeFlags::BUILTIN, .size = 0 };
+    return &s_type;
+}
+
+Type *u32_type()
+{
+    static Type s_type{ .name = "u32",
+        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
+        .size = 4 };
+    return &s_type;
+}
+
+Type *u64_type()
+{
+    static Type s_type{ .name = "u64",
+        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
+        .size = 8 };
+    return &s_type;
+}
+
+Type *s32_type()
+{
+    static Type s_type{
+        .name = "s32", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 4
+    };
+    return &s_type;
+}
+
+Type *s64_type()
+{
+    static Type s_type{
+        .name = "s64", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 8
+    };
+    return &s_type;
+}
+
+Type *bool_type()
+{
+    static Type s_type{
+        .name = "bool", .flags = TypeFlags::Boolean | TypeFlags::BUILTIN, .size = 1
+    };
+    return &s_type;
+}
+
+Type *string_type()
+{
+    // TODO - this is null terminated for now.
+    // in the future, use an explicit length member instead.
+    static Type s_type{
+        .name = "string", .flags = TypeFlags::String | TypeFlags::BUILTIN, .size = 8
+    };
+    return &s_type;
+}
+
+Type *unresolved_type()
+{
+    static Type s_type{ .flags = TypeFlags::UNRESOLVED };
+    return &s_type;
+}
+
 Type *get_unaliased_type(Type *type)
 {
     auto *tmp = type;

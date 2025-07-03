@@ -623,6 +623,7 @@ Type *s32_type();
 Type *s64_type();
 Type *bool_type();
 Type *string_type();
+Type *unresolved_type();
 
 Type *get_unaliased_type(Type *);
 
@@ -861,14 +862,6 @@ struct IRBuilder {
     IRFunction *current_function;
 };
 
-// x := "abc"
-// y := "def"
-//
-// mov [rbp-8], str0
-// mov [rbp-16], str1
-// str0: db "abc", 0
-// str1: db "def", 0
-
 void generate_ir(Compiler &, AstFunctionDecl *);
 void optimize_ir(Compiler &);
 
@@ -912,9 +905,9 @@ struct Compiler {
 
     void initialize();
     void add_default_types();
-    void free_types(bool skip_builtin);
+    void free_types();
     void free_ir();
-    void cleanup(AstFunctionDecl *root, bool last);
+    void cleanup(AstFunctionDecl *root);
 
     [[noreturn]] void diag_error_at([[maybe_unused]] SourceLocation location,
         [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args) const

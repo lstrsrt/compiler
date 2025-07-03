@@ -46,14 +46,15 @@ int main(int argc, char **argv)
             std::println("not a directory");
             exit(1);
         }
-        run_tests(argv[2]);
+        run_tests(dir);
     } else {
         Compiler cc;
-        cc.lexer.set_input(argv[1]);
+        cc.lexer.set_input(arg_parser.arguments.back());
         // Top level scope is main
         // TODO - give main argc and argv
         auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
         compiler_main(cc, main);
-        cc.cleanup(main, true);
+        cc.cleanup(main);
+        cc.lexer.free_input();
     }
 }

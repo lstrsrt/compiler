@@ -100,11 +100,11 @@ void Compiler::add_default_types()
     global_scope->types["string"] = string_type();
 }
 
-void Compiler::free_types(bool skip_builtin)
+void Compiler::free_types()
 {
     for (auto *scope : g_scopes) {
         for (auto &[name, ptr] : scope->types) {
-            if (!skip_builtin || !ptr->has_flag(TypeFlags::BUILTIN)) {
+            if (!ptr->has_flag(TypeFlags::BUILTIN)) {
                 delete ptr;
             }
         }
@@ -119,11 +119,11 @@ void Compiler::free_ir()
     ir_builder.functions.clear();
 }
 
-void Compiler::cleanup(AstFunctionDecl *root, bool last)
+void Compiler::cleanup(AstFunctionDecl *root)
 {
     free_ast(root);
     leave_scope();
-    free_types(!last);
+    free_types();
     free_ir();
     free_scopes();
 }

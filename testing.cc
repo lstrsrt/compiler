@@ -38,7 +38,8 @@ void run_tests(const fs::path &path)
         try {
             ++current_test;
             compiler_main(cc, main);
-            cc.cleanup(main, false);
+            cc.cleanup(main);
+            cc.lexer.free_input();
         } catch (TestingException &te) {
             if (cc.test_mode.test_type == TestType::Error) {
                 if (te.type != cc.test_mode.error_type) {
@@ -50,8 +51,8 @@ void run_tests(const fs::path &path)
             } else {
                 std::println("{}testing error{}: failed compilation", Red, Default);
             }
+            cc.cleanup(main);
             cc.lexer.free_input();
-            cc.cleanup(main, false);
             continue;
         } catch (std::exception &e) {
             std::println("unexpected exception: {}", e.what());
