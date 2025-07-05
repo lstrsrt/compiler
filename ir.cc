@@ -284,7 +284,7 @@ void generate_ir(Compiler &cc, AstFunctionDecl *main)
     for (size_t i = 0; i < cc.ir_builder.functions.size(); ++i) {
         auto *fn = cc.ir_builder.functions[i];
         if (!fn->ast->call_count) {
-            cc.diag_ast_warning(fn->ast, "unused function");
+            diag_ast_warning(cc, fn->ast, "unused function");
             free_ir(fn);
             // Why
             auto [beg, end] = std::ranges::remove(cc.ir_builder.functions, fn);

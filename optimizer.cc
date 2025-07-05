@@ -1,4 +1,5 @@
 #include "compiler.hh"
+#include <limits>
 
 void flatten_binary(Ast *ast, Operation matching_operation, std::vector<Ast *> &flattened)
 {
@@ -16,8 +17,6 @@ Ast *partial_fold_associative(
     std::vector<Ast *> non_constants;
     uint64_t accumulator = operation == Operation::Multiply ? 1 : 0;
 
-    // FIXME - s64 hardcoded
-    // we should figure out the expr type beforehand and pass it in
     for (auto *ast : operands) {
         if (ast->type == AstType::Integer) {
             if (operation == Operation::Add) {
@@ -40,14 +39,14 @@ Ast *partial_fold_associative(
 }
 
 Ast *try_fold_identities(
-    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, int64_t constant, Type *expected)
+    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *expected)
 {
     if (binary->operation == Operation::Add) {
         if (constant == 0) {
             // x+0=x and 0+x=x
             delete static_cast<AstLiteral *>(constant_ast);
             delete static_cast<AstBinary *>(binary);
-            // TODO - delete var->type if not builtin
+            // TODO: delete var->type if not builtin
             static_cast<AstIdentifier *>(variable_ast)->var->type = expected;
             return variable_ast;
         }
@@ -63,7 +62,7 @@ Ast *try_fold_identities(
             // x*1=x and 1*x=x
             delete static_cast<AstLiteral *>(constant_ast);
             delete static_cast<AstBinary *>(binary);
-            // TODO - delete var->type if not builtin
+            // TODO: delete var->type if not builtin
             static_cast<AstIdentifier *>(variable_ast)->var->type = expected;
             return variable_ast;
         }
@@ -72,7 +71,7 @@ Ast *try_fold_identities(
 }
 
 Ast *try_partial_fold_associative(
-    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, int64_t constant, Type *expected)
+    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *expected)
 {
     if (auto *id = try_fold_identities(binary, constant_ast, variable_ast, constant, expected)) {
         return id;
@@ -87,52 +86,106 @@ Ast *try_partial_fold_associative(
     return partial_fold_associative(flattened, binary->operation, expected);
 }
 
-Ast *try_constant_fold(Compiler &, Ast *, Type *);
-
-Ast *try_fold_constants(
-    Compiler &cc, AstBinary *binary, int64_t left_const, int64_t right_const, Type *expected)
+uint64_t max_for_type(Type *t)
 {
-    int64_t result;
-    // TODO - warn if expr overflows expected type
+    bool is_unsigned = t->has_flag(TypeFlags::UNSIGNED);
+    switch (t->size) {
+        case 4:
+            return is_unsigned ? std::numeric_limits<uint32_t>::max()
+                               : std::numeric_limits<int32_t>::max();
+        case 8:
+            return is_unsigned ? std::numeric_limits<uint64_t>::max()
+                               : std::numeric_limits<int64_t>::max();
+    }
+    TODO();
+}
+
+Type *get_integer_type(uint64_t x)
+{
+    if (x > max_for_type(s64_type())) {
+        return u64_type();
+    }
+    if (x > max_for_type(u32_type())) {
+        return s64_type();
+    }
+    if (x > max_for_type(s32_type())) {
+        return u32_type();
+    }
+    return s32_type();
+}
+
+#define fold_and_warn_overflow(left_const, right_const, result, fn)                              \
+    {                                                                                            \
+        bool overflows_u64 = fn(left_const, right_const, &result);                               \
+        bool overflows_type = result > max_for_type(expected);                                   \
+        bool warn = false;                                                                       \
+        if (overflows_u64 || overflows_type) {                                                   \
+            if (overridable == TypeOverridable::Yes) {                                           \
+                if (overflows_u64) {                                                             \
+                    warn = true;                                                                 \
+                    expected = u64_type();                                                       \
+                } else if (overflows_type) {                                                     \
+                    expected = get_integer_type(result);                                         \
+                }                                                                                \
+            }                                                                                    \
+            if (overridable == TypeOverridable::No || warn) {                                    \
+                diag_warning_at(cc, binary->location, "constant expression overflows type `{}`", \
+                    expected->name);                                                             \
+            }                                                                                    \
+        }                                                                                        \
+    }
+
+Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, uint64_t right_const,
+    Type *&expected, TypeOverridable overridable)
+{
+    uint64_t result;
     switch (binary->operation) {
         case Operation::Add:
-            result = left_const + right_const;
+            fold_and_warn_overflow(left_const, right_const, result, __builtin_add_overflow);
             break;
-        case Operation::Subtract:
+        case Operation::Subtract: {
+            if (expected->has_flag(TypeFlags::UNSIGNED)) {
+                // `0 - 0xffff_ffff` resolves to `1` (of type unsigned int) in C/C++. Behavior here
+                // is to warn or to cast up to s64.
+                if (left_const < right_const) {
+                    if (expected->size < 8 && overridable == TypeOverridable::Yes) {
+                        expected = s64_type();
+                    } else {
+                        diag_warning_at(cc, binary->location,
+                            "constant expression underflows type `{}`", expected->name);
+                    }
+                }
+            }
+            // TODO - could underflow signed type too
             result = left_const - right_const;
             break;
+        }
         case Operation::Multiply:
-            result = left_const * right_const;
+            fold_and_warn_overflow(left_const, right_const, result, __builtin_mul_overflow);
             break;
         case Operation::Divide:
-            if (right_const == 0) {
-                cc.diag_ast_warning(binary, "division by 0");
-                return binary;
-            }
             result = left_const / right_const;
             break;
         case Operation::Modulo:
-            if (right_const == 0) {
-                cc.diag_ast_warning(binary, "modulo 0");
-                return binary;
-            }
             result = left_const % right_const;
             break;
         default:
             return binary; // Do nothing
     }
+
     auto loc = binary->location;
-    delete static_cast<AstLiteral *>(binary->left);
-    delete static_cast<AstLiteral *>(binary->right);
+    // TODO: fix double free (only happens when identity folding + constant folding)
+    // delete static_cast<AstLiteral *>(binary->left);
+    // delete static_cast<AstLiteral *>(binary->right);
     delete static_cast<AstBinary *>(binary);
     return new AstLiteral(expected, AstType::Integer, result, loc);
 }
 
-Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *expected)
+Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)
 {
     // Figure out which parts of the expression are constant.
-    auto *left = try_constant_fold(cc, binary->left, expected);
-    auto *right = try_constant_fold(cc, binary->right, expected);
+    auto *left = try_constant_fold(cc, binary->left, expected, overridable);
+    auto *right = try_constant_fold(cc, binary->right, expected, overridable);
     bool left_is_const = left->type == AstType::Integer;
     bool right_is_const = right->type == AstType::Integer;
     if (!left_is_const && !right_is_const) {
@@ -147,9 +200,16 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *expected)
         right_const = static_cast<AstLiteral *>(right)->u.u64;
     }
 
+    if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {
+        if (right_is_const && right_const == 0) {
+            diag_ast_warning(cc, binary, "trying to divide by 0");
+            return binary;
+        }
+    }
+
     if (left_is_const && right_is_const) {
         // Easy case: if both sides are constants, fold unless the operation is illegal.
-        return try_fold_constants(cc, binary, left_const, right_const, expected);
+        return try_fold_constants(cc, binary, left_const, right_const, expected, overridable);
     }
 
     // Only one side is a constant, and the operation is associative.
@@ -160,25 +220,26 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *expected)
         return try_partial_fold_associative(binary, constant_ast, variable_ast, constant, expected);
     }
 
-    // TODO - non-associative folding
-
-    if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {
-        if (right_is_const && right_const == 0) {
-            const char *type = binary->operation == Operation::Divide ? "division by" : "modulo";
-            cc.diag_ast_warning(binary, "{} 0", type);
-        }
-    }
+    // TODO: non-associative folding
 
     return binary;
 }
 
-Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *expected)
+Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable overridable)
 {
     if (!ast) {
         return nullptr;
     }
     if (ast->type == AstType::Binary) {
-        return try_fold_binary(cc, static_cast<AstBinary *>(ast), expected);
+        if (!(ast->flags & AstFlags::FOLDED)) {
+            ast->flags |= AstFlags::FOLDED;
+            return try_fold_binary(cc, static_cast<AstBinary *>(ast), expected, overridable);
+        }
+    }
+    if (ast->type == AstType::Unary) {
+        if (ast->operation == Operation::Cast) {
+            return static_cast<AstCast *>(ast)->expr;
+        }
     }
     return ast;
 }

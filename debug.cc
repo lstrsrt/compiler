@@ -1,49 +1,30 @@
 #include "compiler.hh"
 
-// FIXME - handle more cases
-std::string make_printable(std::string_view s)
-{
-    if (s.empty()) {
-        return "<eof>";
-    }
-    if (s == "\n") {
-        return "<new line>";
-    }
-    if (s == " ") {
-        return "<space>";
-    }
-    return std::string(s);
-}
-
-#define __ENUMERATE_AST_TYPE(type) \
-    case type:                     \
-        return #type;
-
 std::string to_string(AstType type)
 {
     using enum AstType;
     switch (type) {
+#define __ENUMERATE_AST_TYPE(type) \
+    case type:                     \
+        return #type;
         ENUMERATE_AST_TYPES()
+#undef __ENUMERATE_AST_TYPE
     }
     return "Unknown type";
 }
-
-#undef __ENUMERATE_AST_TYPE
-
-#define __ENUMERATE_OPERATION(operation) \
-    case operation:                      \
-        return #operation;
 
 std::string to_string(Operation operation)
 {
     using enum Operation;
     switch (operation) {
+#define __ENUMERATE_OPERATION(operation) \
+    case operation:                      \
+        return #operation;
         ENUMERATE_OPERATIONS()
+#undef __ENUMERATE_OPERATION
     }
     return "Unknown operation";
 }
-
-#undef __ENUMERATE_OPERATION
 
 std::string type_kind_to_string(TypeFlags flags)
 {
@@ -238,20 +219,18 @@ void print_ast(Ast *ast, std::string indent)
     }
 }
 
-#define __ENUMERATE_IR_ARG_TYPE(type) \
-    case type:                        \
-        return #type;
-
 std::string to_string(IRArgType type)
 {
     using enum IRArgType;
     switch (type) {
+#define __ENUMERATE_IR_ARG_TYPE(type) \
+    case type:                        \
+        return #type;
         ENUMERATE_IR_ARG_TYPES()
+#undef __ENUMERATE_IR_ARG_TYPE
     }
     return "Unknown source type";
 }
-
-#undef __ENUMERATE_IR_ARG_TYPE
 
 std::string get_ir_arg_value(const IRArg &src)
 {

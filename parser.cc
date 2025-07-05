@@ -1,10 +1,10 @@
 #include "compiler.hh"
 
 #define parser_ast_error(ast, msg, ...) \
-    cc.diag_error_at(ast->location, ErrorType::ParseError, msg __VA_OPT__(, __VA_ARGS__))
+    diag_error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
 
 #define parser_error(loc, msg, ...) \
-    cc.diag_error_at(loc, ErrorType::ParseError, msg __VA_OPT__(, __VA_ARGS__))
+    diag_error_at(cc, loc, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
 
 enum class Associativity {
     Right,
@@ -78,8 +78,10 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
     return new AstCall(function, std::move(args), location);
 }
 
-// TODO - floats
-bool string_to_number(std::string_view str, uint64_t &result)
+enum class IntConversionError { None, Overflow, EmptyString };
+
+// TODO: floats
+IntConversionError string_to_number(std::string_view str, uint64_t &result)
 {
     result = 0;
     int base = 10;
@@ -94,7 +96,7 @@ bool string_to_number(std::string_view str, uint64_t &result)
     }
 
     if (str.empty()) {
-        return false;
+        return IntConversionError::EmptyString;
     }
 
     for (size_t i = 0; i < str.length(); i++) {
@@ -107,14 +109,27 @@ bool string_to_number(std::string_view str, uint64_t &result)
         } else if (c == '_') {
             continue;
         }
-        if (digit < base) {
-            result = result * base + digit;
-            continue;
+        // Don't need to check that digit < base, the lexer has already verified it.
+        if (__builtin_mul_overflow(result, base, &result)) {
+            return IntConversionError::Overflow;
         }
-        return false;
+        result += digit;
     }
 
-    return true;
+    return IntConversionError::None;
+}
+
+void try_convert_string_to_u64(
+    Compiler &cc, SourceLocation loc, std::string_view str, uint64_t &result)
+{
+    switch (string_to_number(str, result)) {
+        case IntConversionError::None:
+            return;
+        case IntConversionError::Overflow:
+            parser_error(loc, "number too big for any type");
+        case IntConversionError::EmptyString:
+            parser_error(loc, "empty number string");
+    }
 }
 
 // This also handles unary operations.
@@ -127,7 +142,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             consume(cc.lexer, token);
             auto ast = parse_expr(cc);
             token = lex(cc);
-            consume_expected(cc, ")", token);
+            consume_expected(cc, TokenKind::RParen, token);
             return ast;
         }
         if (token.kind == TokenKind::Minus) {
@@ -146,9 +161,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 
     if (is_group(token.kind, TokenKind::GroupNumber)) {
         uint64_t number;
-        if (!string_to_number(token.string, number)) {
-            parser_error(token.location, "bad number: conversion error");
-        }
+        try_convert_string_to_u64(cc, token.location, token.string, number);
         consume(cc.lexer, token);
         if (number > std::numeric_limits<int64_t>::max()) {
             return new AstLiteral(u64_type(), AstType::Integer, number, token.location);
@@ -174,7 +187,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         if (next_token.kind == TokenKind::LParen) {
             consume(cc.lexer, next_token);
             auto *call = parse_call(cc, token.string, token.location);
-            consume_expected(cc, ")", lex(cc));
+            consume_expected(cc, TokenKind::RParen, lex(cc));
             return call;
         }
         auto *var_decl = find_variable(current_scope, token.string);
@@ -360,8 +373,8 @@ std::vector<AstVariableDecl *> parse_fn_params(Compiler &cc)
 
 AstBlock *parse_block(Compiler &cc, AstFunctionDecl *current_function = nullptr)
 {
-    // TODO - keep track of the last token so we don't have to call lex again
-    consume_expected(cc, "{", lex(cc));
+    // TODO: keep track of the last token so we don't have to call lex again
+    consume_expected(cc, TokenKind::LBrace, lex(cc));
     cc.lexer.ignore_newlines = false;
     consume_newline_or_eof(cc, lex(cc));
     cc.lexer.ignore_newlines = true;
@@ -390,7 +403,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     auto name = token.string;
     consume(cc.lexer, token);
 
-    consume_expected(cc, "(", lex(cc));
+    consume_expected(cc, TokenKind::LParen, lex(cc));
     token = lex(cc); // `)` or identifier
 
     // Function parameters already belong to new scope
@@ -399,7 +412,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     if (token.kind != TokenKind::RParen) {
         params = parse_fn_params(cc);
     }
-    consume_expected(cc, ")", lex(cc));
+    consume_expected(cc, TokenKind::RParen, lex(cc));
 
     auto *ret_type = void_type();
     cc.lexer.ignore_newlines = true;
@@ -474,13 +487,13 @@ void parse_error_attribute(Compiler &cc)
 {
     // clang-format off
     static const std::unordered_map<std::string_view, ErrorType> error_attr_map{
-        { "lexer", ErrorType::LexError },
-        { "parser", ErrorType::ParseError },
-        { "verify", ErrorType::VerificationError },
-        { "type", ErrorType::TypeError }
+        { "lexer", ErrorType::Lexer },
+        { "parser", ErrorType::Parser },
+        { "verify", ErrorType::Verification },
+        { "type", ErrorType::TypeCheck }
     };
     // clang-format on
-    consume_expected(cc, "(", lex(cc));
+    consume_expected(cc, TokenKind::LParen, lex(cc));
     auto token = lex(cc);
     if (auto it = error_attr_map.find(token.string); it != error_attr_map.end()) {
         cc.test_mode.error_type = it->second;
@@ -488,10 +501,10 @@ void parse_error_attribute(Compiler &cc)
         parser_error(token.location, "unknown attribute");
     }
     consume(cc.lexer, token);
-    consume_expected(cc, ")", lex(cc));
+    consume_expected(cc, TokenKind::RParen, lex(cc));
     cc.test_mode.test_type = TestType::Error;
     if (!opts.testing) {
-        // TODO - output a warning or skip?
+        // TODO: output a warning or skip?
     }
 }
 
@@ -508,8 +521,19 @@ void parse_attribute_list(Compiler &cc)
             consume(cc.lexer, token);
             parse_error_attribute(cc);
             break;
+        case hash("returns"):
+            consume(cc.lexer, token);
+            consume_expected(cc, TokenKind::LParen, lex(cc));
+            token = lex(cc);
+            if (is_group(token.kind, TokenKind::GroupNumber)) {
+                try_convert_string_to_u64(
+                    cc, token.location, token.string, cc.test_mode.return_value);
+            }
+            consume(cc.lexer, token);
+            cc.test_mode.test_type = TestType::ReturnsValue;
+            consume_expected(cc, TokenKind::RParen, lex(cc));
     }
-    consume_expected(cc, "}", lex(cc));
+    consume_expected(cc, TokenKind::RBrace, lex(cc));
 }
 
 Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
@@ -518,7 +542,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
 
     if (token.kind == TokenKind::Hash) {
         consume(cc.lexer, token);
-        consume_expected(cc, "{", lex(cc));
+        consume_expected(cc, TokenKind::LBrace, lex(cc));
         parse_attribute_list(cc);
         token = lex(cc);
     }
@@ -557,7 +581,7 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
         if (token.kind == TokenKind::Alias) {
             consume(cc.lexer, token);
             auto alias = parse_identifier(cc);
-            consume_expected(cc, ":", lex(cc));
+            consume_expected(cc, TokenKind::Colon, lex(cc));
             auto *type = parse_type(cc);
             current_scope->add_alias(cc, type, alias.string, alias.location);
             cc.lexer.ignore_newlines = false;
@@ -598,8 +622,8 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
     if (maybe_expr) {
         if (maybe_expr->operation != Operation::Assign
             && maybe_expr->operation != Operation::Call) {
-            // TODO - this is not in the right location, should be at the start of the expression
-            cc.diag_ast_warning(maybe_expr, "expression result is unused");
+            // TODO: this is not in the right location, should be at the start of the expression
+            diag_ast_warning(cc, maybe_expr, "expression result is unused");
         }
         cc.lexer.ignore_newlines = false;
         consume_newline_or_eof(cc, lex(cc));
@@ -655,7 +679,7 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
                 "declaration: ",
                 existing_str, name, type, same_scope_str);
         } else {
-            cc.diag_warning_at(location, "{} `{}` is shadowing this {} in an outer scope:", type,
+            diag_warning_at(cc, location, "{} `{}` is shadowing this {} in an outer scope:", type,
                 name, existing_str);
         }
     }

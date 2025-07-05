@@ -1,8 +1,14 @@
 #include "compiler.hh"
+#include <filesystem>
 
 [[noreturn]] void usage(int errc)
 {
     std::println("usage: compiler [switches...] <filename>");
+    std::println("COMMANDS:\n"
+                 "\t-h, --help: print this message");
+    std::println("OPTIONS:\n"
+                 "\t--check-only: do not compile input, only check validity\n"
+                 "\t--test: run in test mode");
     exit(errc);
 }
 
@@ -41,17 +47,21 @@ int main(int argc, char **argv)
     process_cmdline(arg_parser);
 
     if (opts.testing) {
-        auto dir = arg_parser.arguments.back();
-        if (!fs::exists(dir) || !fs::is_directory(dir)) {
-            std::println("not a directory");
+        auto dir_or_file = arg_parser.arguments.back();
+        if (!fs::exists(dir_or_file)) {
+            std::println("not found");
             exit(1);
         }
-        run_tests(dir);
+        if (fs::is_regular_file(dir_or_file)) {
+            run_test(dir_or_file);
+        } else if (fs::is_directory(dir_or_file)) {
+            run_tests(dir_or_file);
+        }
     } else {
         Compiler cc;
         cc.lexer.set_input(arg_parser.arguments.back());
         // Top level scope is main
-        // TODO - give main argc and argv
+        // TODO: give main argc and argv
         auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
         compiler_main(cc, main);
         cc.cleanup(main);

@@ -1,10 +1,10 @@
 #include "compiler.hh"
 
 #define verification_error(ast, msg, ...) \
-    cc.diag_error_at(ast->location, ErrorType::VerificationError, msg __VA_OPT__(, __VA_ARGS__))
+    diag_error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
 
 #define verification_type_error(location, msg, ...) \
-    cc.diag_error_at(location, ErrorType::TypeError, msg __VA_OPT__(, __VA_ARGS__))
+    diag_error_at(cc, location, ErrorType::TypeCheck, msg __VA_OPT__(, __VA_ARGS__))
 
 Type *void_type()
 {
@@ -169,7 +169,7 @@ bool expr_is_constexpr_int(Type *t, ExprConstness e)
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
 
-Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constant = nullptr);
+Type *get_expression_type(Compiler &, Ast *&, ExprConstness *, TypeOverridable);
 
 Type *get_common_integer_type(Type *t1, Type *t2)
 {
@@ -187,8 +187,10 @@ Type *get_common_integer_type(Type *t1, Type *t2)
 }
 
 Type *get_binary_expression_type(
-    Compiler &cc, AstBinary *binary, ExprConstness *constness = nullptr)
+    Compiler &cc, Ast *&ast, ExprConstness *constness, TypeOverridable overridable)
 {
+    auto *binary = static_cast<AstBinary *>(ast);
+
     switch (binary->operation) {
         case Operation::Assign:
             return void_type();
@@ -212,7 +214,7 @@ Type *get_binary_expression_type(
 
     for (auto *ast : operands) {
         ExprConstness expr_constness{};
-        current = get_expression_type(cc, ast, &expr_constness);
+        current = get_expression_type(cc, ast, &expr_constness, overridable);
         if (!ret) {
             // First time, just set it to whatever we got.
             ret = current;
@@ -231,10 +233,18 @@ Type *get_binary_expression_type(
         }
     }
 
+    if (!expr_has_no_constants(*constness)) {
+        // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
+        // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
+        // overflowing add.
+        ast = try_constant_fold(cc, ast, ret, overridable);
+    }
+
     return ret;
 }
 
-Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
+Type *get_expression_type(
+    Compiler &cc, Ast *&ast, ExprConstness *constness, TypeOverridable overridable)
 {
     if (!ast) {
         return nullptr;
@@ -263,7 +273,7 @@ Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
             }
             return static_cast<AstIdentifier *>(ast)->var->type;
         case AstType::Binary: {
-            return get_binary_expression_type(cc, static_cast<AstBinary *>(ast), constness);
+            return get_binary_expression_type(cc, ast, constness, overridable);
         }
         case AstType::Unary:
             if (ast->operation == Operation::Call) {
@@ -274,7 +284,8 @@ Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                 return get_callee(cc, call)->return_type;
             }
             if (ast->operation == Operation::Negate) {
-                return get_expression_type(cc, static_cast<AstNegate *>(ast)->operand, constness);
+                return get_expression_type(
+                    cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
             }
             if (ast->operation == Operation::Cast) {
                 return static_cast<AstCast *>(ast)->cast_type;
@@ -323,7 +334,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
 
     if (type->has_flag(TypeFlags::ALIAS)) {
         // Walk the alias chain and see if we end up with a circular definition
-        // TODO - can we do this faster/more efficiently?
+        // TODO: can we do this faster/more efficiently?
         auto *slow = type;
         auto *fast = type->real;
         while (fast && fast->real) {
@@ -367,7 +378,7 @@ TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness
     }
     // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
     // where y is a s64.
-    // TODO - This also means U32_MAX can be casted to an s32. Add size check for constant literals?
+    // TODO: This also means U32_MAX can be casted to an s32. Add size check for constant literals?
     if (expr_has_no_constants(constness)
         && (type->has_flag(TypeFlags::UNSIGNED) ^ wanted_type->has_flag(TypeFlags::UNSIGNED))) {
         return TypeError::SignednessMismatch;
@@ -392,10 +403,10 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
         verify_expr(cc, arg, WarnDiscardedReturn::No, wanted_type);
     }
     if (warn_discarded == WarnDiscardedReturn::Yes && !fn->returns_void()) {
-        cc.diag_ast_warning(
-            call, "discarded return value for non-void function call `{}`", fn->name);
+        diag_ast_warning(
+            cc, call, "discarded return value for non-void function call `{}`", fn->name);
     }
-    // FIXME - not entirely accurate (e.g. recursive calls)
+    // FIXME: not entirely accurate (e.g. recursive calls)
     ++fn->call_count;
 }
 
@@ -404,7 +415,8 @@ void verify_negate(
 {
     verify_expr(cc, unary->operand, warn_discarded, expected);
     ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness);
+    // TODO: probably not overridable??
+    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     // Must be a signed integer
     if (!type->has_flag(TypeFlags::Integer)
         || (!expr_is_constexpr_int(type, constness) && type->has_flag(TypeFlags::UNSIGNED))) {
@@ -422,8 +434,9 @@ void verify_binary(
 Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
 {
     ExprConstness lhs_constness{}, rhs_constness{};
-    auto *lhs = get_expression_type(cc, ast->left, &lhs_constness);
-    auto *rhs = get_expression_type(cc, ast->right, &rhs_constness);
+    // TODO: probably not overridable??
+    auto *lhs = get_expression_type(cc, ast->left, &lhs_constness, TypeOverridable::No);
+    auto *rhs = get_expression_type(cc, ast->right, &rhs_constness, TypeOverridable::No);
     Type *exp = rhs;
     if (expr_is_fully_constant(lhs_constness) && expr_is_fully_constant(rhs_constness)) {
         exp = get_common_integer_type(lhs, rhs);
@@ -460,7 +473,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
         case AstType::Integer:
             if (expected) {
                 ExprConstness constness{};
-                if (type = get_expression_type(cc, ast, &constness); !types_match(type, expected)) {
+                if (type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
+                    !types_match(type, expected)) {
                     if (auto err = maybe_cast_integer(expected, type, ast, constness);
                         err != TypeError::None) {
                         type_error(cc, ast, expected, type, err);
@@ -492,7 +506,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 default:
                     verify_binary(cc, binary, expected, warn_discarded);
             }
-            ast = try_constant_fold(cc, binary, expected);
+            ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             break;
         }
         case AstType::Identifier:
@@ -502,7 +516,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     }
     if (expected) {
         ExprConstness constness{};
-        if (type = get_expression_type(cc, ast, &constness);
+        if (type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
             !expr_is_constexpr_int(type, constness) && !types_match(type, expected)) {
             type_error(cc, ast, expected, type, TypeError::Unspecified);
         }
@@ -517,7 +531,8 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
         // var_decl->init_expr must not be null (checked by the parser).
         // The placeholder type for inferred types is not a heap variable, so var.type is not
         // deleted before reassigning.
-        var.type = get_expression_type(cc, var_decl->init_expr);
+        ExprConstness constness{};
+        var.type = get_expression_type(cc, var_decl->init_expr, &constness, TypeOverridable::Yes);
         verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
     } else if (var_decl->init_expr) {
         // x: T = y
@@ -559,9 +574,11 @@ void verify_return(
                     return;
                 }
             }
+            ExprConstness constness{};
             verification_error(return_stmt->expr,
                 "void function `{}` must not return a value (got type `{}`)",
-                current_function->name, get_expression_type(cc, return_stmt->expr)->name);
+                current_function->name,
+                get_expression_type(cc, return_stmt->expr, &constness, TypeOverridable::No)->name);
         }
         return;
     }
@@ -574,13 +591,14 @@ void verify_return(
     verify_expr(cc, return_stmt->expr, WarnDiscardedReturn::No, expected);
 }
 
-void verify_if(Compiler &cc, AstIf *if_stmt)
+void verify_if(Compiler &cc, AstIf *if_stmt, AstFunctionDecl *current_function)
 {
     if (if_stmt->expr->operation == Operation::VariableDecl) {
         verify_var_decl(cc, static_cast<AstVariableDecl *>(if_stmt->expr));
     } else {
         verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type());
     }
+    verify_ast(cc, if_stmt->body, current_function);
 }
 
 void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
@@ -601,7 +619,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
                     fn, "function `{}` is missing a top level return statement", fn->name);
             }
         } else if (ast->operation == Operation::If) {
-            verify_if(cc, static_cast<AstIf *>(ast));
+            verify_if(cc, static_cast<AstIf *>(ast), current_function);
         } else if (ast->operation == Operation::Return) {
             verify_return(
                 cc, static_cast<AstReturn *>(ast), current_function, current_function->return_type);
@@ -611,7 +629,9 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
             verify_ast(cc, stmt, current_function);
         }
     } else {
-        verify_expr(cc, ast, WarnDiscardedReturn::Yes, get_expression_type(cc, ast));
+        ExprConstness constness{};
+        verify_expr(cc, ast, WarnDiscardedReturn::Yes,
+            get_expression_type(cc, ast, &constness, TypeOverridable::Yes));
     }
 }
 

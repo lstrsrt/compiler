@@ -1,5 +1,8 @@
 #include "compiler.hh"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 // #define ONLY_PRINT_ASM
 
 #ifdef ONLY_PRINT_ASM

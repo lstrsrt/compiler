@@ -12,15 +12,11 @@
 #include <utility>
 #include <vector>
 
-#include <execinfo.h>
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 namespace fs = std::filesystem;
 namespace ch = std::chrono;
 using namespace std::string_view_literals;
+
+int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
 
 namespace colors {
     constexpr std::string Cyan = "\033[36;1m";
@@ -30,19 +26,42 @@ namespace colors {
     constexpr std::string Red = "\033[31;1m";
 } // namespace colors
 
+template<typename Fn>
+struct Defer {
+    Defer(Fn _fn)
+        : fn(std::move(_fn))
+    {
+    }
+
+    ~Defer()
+    {
+        fn();
+    }
+
+    Fn fn;
+};
+
 #define AST_ALLOC_PARANOID 0
+
+#if AST_ALLOC_PARANOID
+#include <execinfo.h>
+#endif
 
 enum class TestType {
     CanCompile,
     ReturnsValue,
     Error,
 };
+#define ENUMERATE_ERROR_TYPES()          \
+    __ENUMERATE_ERROR_TYPE(Lexer)        \
+    __ENUMERATE_ERROR_TYPE(Parser)       \
+    __ENUMERATE_ERROR_TYPE(Verification) \
+    __ENUMERATE_ERROR_TYPE(TypeCheck)
 
 enum class ErrorType {
-    LexError,
-    ParseError,
-    VerificationError,
-    TypeError,
+#define __ENUMERATE_ERROR_TYPE(type) type,
+    ENUMERATE_ERROR_TYPES()
+#undef __ENUMERATE_ERROR_TYPE
 };
 
 //
@@ -319,16 +338,6 @@ struct Lexer {
         return count;
     }
 
-    std::string_view get_line(ssize_t pos) const;
-
-    void print_diag_line(SourceLocation loc) const
-    {
-        const auto line_str = std::format("{} | ", loc.line);
-        std::println("{}{}", line_str, get_line(loc.position));
-        const std::string fill(loc.column + line_str.length(), '~');
-        std::println("{}^", fill);
-    }
-
     SourceLocation location() const
     {
         return { line, column, position };
@@ -345,12 +354,14 @@ struct Lexer {
     bool ignore_newlines = true;
 };
 
+std::string_view get_line(std::string_view, ssize_t pos);
+
 struct Compiler;
 
 Token lex(Compiler &);
 
-// TODO - might be useful to have an overload that expects TokenKinds
 void expect(Compiler &, const std::string &exp, const Token &);
+void expect(Compiler &, TokenKind, const Token &);
 
 inline void advance_column(Lexer &lexer, size_t count = 1)
 {
@@ -379,6 +390,7 @@ inline void consume_string(Lexer &lexer, const Token &tk)
 }
 
 void consume_expected(Compiler &, const std::string &exp, const Token &);
+void consume_expected(Compiler &, TokenKind, const Token &);
 
 void consume_newline_or_eof(Compiler &, const Token &);
 
@@ -448,11 +460,46 @@ struct AstAllocMark {
 
 inline std::vector<AstAllocMark> marks;
 
+#define EC_ENUM_OPERATOR(type, op)                                                \
+    constexpr type operator op(const type lhs, const type rhs) noexcept           \
+    {                                                                             \
+        return static_cast<type>(to_underlying(lhs) op to_underlying(rhs));       \
+    }                                                                             \
+    constexpr type &operator op##=(type & lhs, const type rhs) noexcept           \
+    {                                                                             \
+        return lhs = static_cast<type>(to_underlying(lhs) op to_underlying(rhs)); \
+    }
+
+#define EC_ENUM_BIT_OPS(type)                        \
+    EC_ENUM_OPERATOR(type, &)                        \
+    EC_ENUM_OPERATOR(type, |)                        \
+    EC_ENUM_OPERATOR(type, ^)                        \
+    EC_ENUM_OPERATOR(type, >>)                       \
+    EC_ENUM_OPERATOR(type, <<)                       \
+    constexpr type operator~(const type x) noexcept  \
+    {                                                \
+        return static_cast<type>(~to_underlying(x)); \
+    }                                                \
+    constexpr auto operator!(const type x) noexcept  \
+    {                                                \
+        return !to_underlying(x);                    \
+    }
+
+#define enum_flags(name, underlying) \
+    enum class name : underlying;    \
+    EC_ENUM_BIT_OPS(name)            \
+    enum class name : underlying
+
+enum_flags(AstFlags, uint64_t){
+    FOLDED = 1 << 0, // Prevent verifier trying to constant fold this tree multiple times.
+};
+
 struct Ast {
     Scope *scope;
     AstType type;
     Operation operation;
     SourceLocation location;
+    AstFlags flags{};
 
     Ast(AstType _type, Operation _operation = Operation::None, SourceLocation _location = {})
         : scope(current_scope)
@@ -801,7 +848,8 @@ Ast *parse_stmt(Compiler &, AstFunctionDecl *);
 void free_ast(Ast *);
 void free_ast(std::vector<Ast *> &);
 
-Ast *try_constant_fold(Compiler &, Ast *, Type *expected);
+enum class TypeOverridable { No, Yes };
+Ast *try_constant_fold(Compiler &, Ast *, Type *&expected, TypeOverridable);
 
 struct Scope {
     Scope *parent;
@@ -962,7 +1010,8 @@ void emit_asm(Compiler &);
 // Testing
 //
 
-void run_tests(const fs::path &);
+void run_tests(const fs::path &dir);
+void run_test(const fs::path &file);
 
 struct TestingException : std::runtime_error {
     TestingException(const char *const msg, ErrorType _type) throw()
@@ -977,6 +1026,7 @@ struct TestingException : std::runtime_error {
 struct TestMode {
     TestType test_type = TestType::CanCompile;
     ErrorType error_type;
+    uint64_t return_value;
 };
 
 //
@@ -993,48 +1043,6 @@ struct Compiler {
     void free_types();
     void free_ir();
     void cleanup(AstFunctionDecl *root);
-
-    [[noreturn]] void diag_error_at([[maybe_unused]] SourceLocation location,
-        [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args) const
-    {
-        const auto msg = std::vformat(fmt, std::make_format_args(args...));
-        if (!opts.testing) {
-            std::println("\033[31;1merror:\033[0m {}({},{}):", lexer.input.filename, location.line,
-                location.column);
-            std::println("{}", msg);
-            lexer.print_diag_line(location);
-#if _DEBUG
-            __builtin_trap();
-#else
-            exit(1);
-#endif
-        } else {
-            throw TestingException(msg.c_str(), type);
-        }
-    }
-
-    [[noreturn]] void diag_lexer_error(std::string_view fmt, auto &&...args) const
-    {
-        diag_error_at(lexer.location(), ErrorType::LexError, fmt, args...);
-    }
-
-    void diag_warning_at([[maybe_unused]] SourceLocation location,
-        [[maybe_unused]] std::string_view fmt, [[maybe_unused]] auto &&...args) const
-    {
-        // TODO - maybe test warnings too?
-        if (!opts.testing) {
-            std::println("\033[93;1mwarning:\033[0m {}({},{}):", lexer.input.filename,
-                location.line, location.column + 1);
-            const auto msg = std::vformat(fmt, std::make_format_args(args...));
-            std::println("{}", msg);
-            lexer.print_diag_line(location);
-        }
-    }
-
-    void diag_ast_warning(Ast *ast, std::string_view fmt, auto &&...args) const
-    {
-        diag_warning_at(ast->location, fmt, args...);
-    }
 };
 
 void compiler_main(Compiler &, AstFunctionDecl *root);
@@ -1043,7 +1051,51 @@ void compiler_main(Compiler &, AstFunctionDecl *root);
 // Diagnostics
 //
 
+void print_diag_line(std::string_view, SourceLocation);
 std::string make_printable(std::string_view);
+std::string to_string(TokenKind);
+
+[[noreturn]] void diag_error_at(Compiler &cc, [[maybe_unused]] SourceLocation location,
+    [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args)
+{
+    const auto msg = std::vformat(fmt, std::make_format_args(args...));
+    if (!opts.testing) {
+        std::println("\033[31;1merror:\033[0m {}({},{}):", cc.lexer.input.filename, location.line,
+            location.column);
+        std::println("{}", msg);
+        print_diag_line(cc.lexer.string, location);
+#if _DEBUG
+        __builtin_trap();
+#else
+        exit(1);
+#endif
+    } else {
+        throw TestingException(msg.c_str(), type);
+    }
+}
+
+[[noreturn]] void diag_lexer_error(Compiler &cc, std::string_view fmt, auto &&...args)
+{
+    diag_error_at(cc, cc.lexer.location(), ErrorType::Lexer, fmt, args...);
+}
+
+void diag_warning_at(Compiler &cc, [[maybe_unused]] SourceLocation location,
+    [[maybe_unused]] std::string_view fmt, [[maybe_unused]] auto &&...args)
+{
+    // TODO: maybe test warnings too?
+    if (!opts.testing) {
+        std::println("\033[93;1mwarning:\033[0m {}({},{}):", cc.lexer.input.filename, location.line,
+            location.column + 1);
+        const auto msg = std::vformat(fmt, std::make_format_args(args...));
+        std::println("{}", msg);
+        print_diag_line(cc.lexer.string, location);
+    }
+}
+
+void diag_ast_warning(Compiler &cc, Ast *ast, std::string_view fmt, auto &&...args)
+{
+    diag_warning_at(cc, ast->location, fmt, args...);
+}
 
 //
 // Debugging
@@ -1054,6 +1106,7 @@ std::string to_string(Operation);
 std::string to_string(IRArgType);
 std::string type_kind_to_string(TypeFlags);
 std::string type_flags_to_string(TypeFlags); // Including the kind
+std::string to_string(ErrorType);
 void print_ast(Ast *, std::string indent = "");
 void print_ast(const std::vector<Ast *> &, std::string indent = "");
 void print_types(Scope *);
