@@ -21,14 +21,18 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
 
     if (!testing) {
         dbgln("{}pre inference tree:{}", Cyan, Default);
+#ifdef _DEBUG
         print_ast(main);
+#endif
     };
 
     verify_main(cc, main);
 
     if (!testing) {
         dbgln("{}post inference tree:{}", Cyan, Default);
+#ifdef _DEBUG
         print_ast(main);
+#endif
     }
 
     if (opts.check_only) {
@@ -42,11 +46,13 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
     generate_ir(cc, main);
 
     if (!testing) {
+#ifdef _DEBUG
         dbgln("{}initial ir:{}", Cyan, Default);
         for (const auto *fn : cc.ir_builder.functions) {
             dbgln("{}:", fn->ast->name);
             print_ir(*fn);
         }
+#endif
     }
 
     if (!testing) {
