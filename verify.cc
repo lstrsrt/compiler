@@ -487,8 +487,12 @@ bool types_match(Type *t1, Type *t2)
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
 {
     auto *exp = resolve_binary_type(cc, cmp);
-    verify_expr(cc, cmp->left, warn_discarded, exp);
-    verify_expr(cc, cmp->right, warn_discarded, exp);
+    if (exp->get_kind() == TypeFlags::Integer || exp->get_kind() == TypeFlags::Boolean) {
+        verify_expr(cc, cmp->left, warn_discarded, exp);
+        verify_expr(cc, cmp->right, warn_discarded, exp);
+    } else {
+        verification_type_error(cmp->location, "comparison operator does not apply to this type");
+    }
 }
 
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
