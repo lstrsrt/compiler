@@ -1,0 +1,4 @@
+#{returns(129)}
+x := 123
+y := x + 1 + 2 + 3
+return y
