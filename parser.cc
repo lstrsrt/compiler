@@ -14,8 +14,8 @@ enum class Associativity {
 using Precedence = int;
 
 namespace prec {
-    constexpr Precedence Comma = 1, Assignment = 2, Comparison = 3, AdditiveArithmetic = 4,
-                         MultiplicativeArithmetic = 5;
+    constexpr Precedence Comma = 1, LogicalOr = 2, LogicalAnd = 3, Assignment = 4, Comparison = 5,
+                         AdditiveArithmetic = 6, MultiplicativeArithmetic = 7;
     constexpr Precedence Lowest = Comma, Highest = MultiplicativeArithmetic;
 } // namespace prec
 
@@ -41,6 +41,10 @@ OperatorInfo get_operator_info(TokenKind kind)
         case ColonEquals:
         case Equals:
             return { prec::Assignment, Associativity::Right };
+        case Or:
+            return { prec::LogicalOr, Associativity::Left };
+        case And:
+            return { prec::LogicalAnd, Associativity::Left };
         case Comma:
             return { prec::Comma, Associativity::Left };
         case EqualsEquals:
@@ -191,8 +195,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             return call;
         }
         auto *var_decl = find_variable(current_scope, token.string);
-        // TODO - probably always want to error if !var_decl
-        if (allow_var_decl == AllowVarDecl::No && !var_decl) {
+        if (!var_decl) {
             cc.lexer.column = prev_col;
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
@@ -264,6 +267,12 @@ AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, As
             break;
         case TokenKind::ColonEquals:
             operation = Operation::VariableDecl;
+            break;
+        case TokenKind::And:
+            operation = Operation::LogicalAnd;
+            break;
+        case TokenKind::Or:
+            operation = Operation::LogicalOr;
             break;
         default:
             parser_error(operation_token.location, "unexpected operator `{}` in binary operation",
@@ -467,7 +476,7 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
 AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
 {
     auto loc = cc.lexer.location();
-    Ast *expr = parse_expr(cc, AllowVarDecl::Yes);
+    Ast *expr = parse_expr(cc, AllowVarDecl::No);
     if (!expr) {
         parser_error(loc, "if statement must have a condition");
     }

@@ -222,13 +222,15 @@ enum class TokenKind : uint32_t {
     ExclEquals,
     ColonEquals,
     Arrow,
+    And,
+    Or,
 
     Fn = 1 | GroupKeyword,
     Return,
     If,
     Alias,
     False,
-    True
+    True,
 };
 
 struct SourceLocation {
@@ -430,6 +432,8 @@ enum class AstType {
     __ENUMERATE_OPERATION(Less)          \
     __ENUMERATE_OPERATION(LessEquals)    \
     __ENUMERATE_OPERATION(Assign)        \
+    __ENUMERATE_OPERATION(LogicalAnd)    \
+    __ENUMERATE_OPERATION(LogicalOr)     \
     __ENUMERATE_OPERATION(Return)        \
     __ENUMERATE_OPERATION(VariableDecl)  \
     __ENUMERATE_OPERATION(FunctionDecl)  \
@@ -675,7 +679,7 @@ enum class TypeFlags {
     //
     // Type kind
     //
-    Void,
+    Void = 1,
     Integer,
     Boolean,
     String,

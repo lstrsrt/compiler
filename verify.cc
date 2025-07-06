@@ -199,8 +199,10 @@ Type *get_binary_expression_type(
         case Operation::Greater:
         case Operation::GreaterEquals:
         case Operation::Less:
-            [[fallthrough]];
         case Operation::LessEquals:
+        case Operation::LogicalAnd:
+            [[fallthrough]];
+        case Operation::LogicalOr:
             return bool_type();
         default:
             break;

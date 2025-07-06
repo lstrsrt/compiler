@@ -1,0 +1,7 @@
+#{returns(1)}
+x := 0
+y := 3
+if x == 0 or y != 3 {
+    return 1
+}
+return 0

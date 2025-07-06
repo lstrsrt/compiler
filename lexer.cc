@@ -176,16 +176,16 @@ Token lex_operator(Lexer &lexer)
 TokenKind get_keyword_or_identifier_kind(std::string_view str)
 {
     using enum TokenKind;
-    // clang-format off
     static std::unordered_map<std::string_view, TokenKind> keyword_map{
         { "fn", Fn },
         { "return", Return },
         { "if", If },
         { "alias", Alias },
         { "false", False },
-        { "true", True }
+        { "true", True },
+        { "and", And },
+        { "or", Or },
     };
-    // clang-format on
     if (auto it = keyword_map.find(str); it != keyword_map.end()) {
         return it->second;
     }

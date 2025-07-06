@@ -234,7 +234,20 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
     }
 }
 
-void emit_asm_binary(Compiler &, const IRFunction &ir_fn, IR *ir)
+void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
+{
+
+    constexpr std::array ops{ "sete", "setne", "setg", "setge", "setl", "setle" };
+    auto op_index
+        = static_cast<size_t>(to_underlying(ir->operation) - to_underlying(Operation::Equals));
+    assert(op_index < ops.size());
+    emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
+    emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+    emit("cmp rax, {}", extract_ir_arg(ir_fn, ir->right));
+    emit("{} {}", ops[op_index], stack_addr(ir_fn, ir->target));
+}
+
+void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
 {
     switch (ir->operation) {
         case Operation::Assign:
@@ -275,17 +288,19 @@ void emit_asm_binary(Compiler &, const IRFunction &ir_fn, IR *ir)
         case Operation::GreaterEquals:
         case Operation::Less:
             [[fallthrough]];
-        case Operation::LessEquals: {
-            constexpr std::array ops{ "sete", "setne", "setg", "setge", "setl", "setle" };
-            auto op_index = static_cast<size_t>(
-                to_underlying(ir->operation) - to_underlying(Operation::Equals));
-            assert(op_index < ops.size());
-            emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("cmp rax, {}", extract_ir_arg(ir_fn, ir->right));
-            emit("{} {}", ops[op_index], stack_addr(ir_fn, ir->target));
+        case Operation::LessEquals:
+            emit_asm_comparison(ir_fn, ir);
             break;
-        }
+        case Operation::LogicalAnd:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("and rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
+        case Operation::LogicalOr:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("or rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
         case Operation::CondBranch:
             emit("cmp qword {}, 0", stack_addr(ir_fn, static_cast<IRBranch *>(ir)->cond_vreg));
             // False block
@@ -304,7 +319,7 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
 {
     switch (ir->type) {
         case AstType::Binary:
-            emit_asm_binary(cc, ir_fn, ir);
+            emit_asm_binary(ir_fn, ir);
             break;
         case AstType::Unary:
             emit_asm_unary(cc, ir_fn, ir);
