@@ -53,7 +53,7 @@ int main(int argc, char **argv)
             exit(1);
         }
         if (fs::is_regular_file(dir_or_file)) {
-            run_test(dir_or_file);
+            run_single_test(dir_or_file);
         } else if (fs::is_directory(dir_or_file)) {
             run_tests(dir_or_file);
         }

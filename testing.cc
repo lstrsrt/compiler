@@ -49,8 +49,16 @@ void run_test(const fs::path &file)
 {
     using namespace colors;
 
-    ++total_tests;
+    const auto report_result = [&]() {
+        if (total_tests == 1) {
+            auto color = passed_tests ? Green : Red;
+            auto str = passed_tests ? "passed" : "failed";
+            std::println("{}{}{} {}{}", color, str, DefaultBold, file.string(), Default);
+        }
+    };
+
     Compiler cc;
+    bool compiled = false;
     cc.lexer.set_input(file.string());
     auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
     try {
@@ -58,6 +66,7 @@ void run_test(const fs::path &file)
         compiler_main(cc, main);
         cc.cleanup(main);
         cc.lexer.free_input();
+        compiled = true;
     } catch (TestingException &te) {
         if (cc.test_mode.test_type == TestType::Error) {
             if (te.type != cc.test_mode.error_type) {
@@ -71,10 +80,12 @@ void run_test(const fs::path &file)
         }
         cc.cleanup(main);
         cc.lexer.free_input();
-        return;
     } catch (std::exception &e) {
         std::println("unexpected exception: {}", e.what());
-        return;
+    }
+
+    if (!compiled) {
+        return report_result();
     }
 
     if (cc.test_mode.test_type == TestType::Error) {
@@ -90,28 +101,27 @@ void run_test(const fs::path &file)
         if (spawn_and_wait("/usr/bin/nasm",
                 { "-f elf64", "-o output.o", (prev_wd / "output.asm").string() })) {
             std::println("{}testing error{}: nasm failure", Red, Default);
-            return;
-        }
-        if (spawn_and_wait("/usr/bin/gcc", { "output.o", "-ooutput" })) {
+        } else if (spawn_and_wait("/usr/bin/gcc", { "output.o", "-ooutput" })) {
             std::println("{}testing error{}: gcc failure", Red, Default);
-            return;
-        }
-        int status = spawn_and_wait("./output", {});
-        if (status == static_cast<int>(cc.test_mode.return_value)) {
-            ++passed_tests;
         } else {
-            std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
-                Default, status, cc.test_mode.return_value);
+            int status = spawn_and_wait("./output", {});
+            if (status == static_cast<int>(cc.test_mode.return_value)) {
+                ++passed_tests;
+            } else {
+                std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
+                    Default, status, cc.test_mode.return_value);
+            }
         }
         //  TODO: add AST walk verification, etc
     }
 
-    // TODO: when only running one test, print success/failure
-    if (total_tests == 1) {
-        auto color = passed_tests ? Green : Red;
-        auto str = passed_tests ? "passed" : "failed";
-        std::println("{}{}{} {}{}", color, str, DefaultBold, file.string(), Default);
-    }
+    report_result();
+}
+
+void run_single_test(const fs::path &path)
+{
+    total_tests = 1;
+    run_test(path);
 }
 
 void run_tests(const fs::path &path)
@@ -130,6 +140,7 @@ void run_tests(const fs::path &path)
         } else if (entry.path().has_filename() && entry.path().filename().has_extension()
             && entry.path().filename().extension() == ".txt") {
             files.push_back(entry);
+            ++total_tests;
         }
     }
 

@@ -236,7 +236,6 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 
 void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
 {
-
     constexpr std::array ops{ "sete", "setne", "setg", "setge", "setl", "setle" };
     auto op_index
         = static_cast<size_t>(to_underlying(ir->operation) - to_underlying(Operation::Equals));
@@ -362,7 +361,7 @@ std::string escape_string(const std::string &s)
     bool did_escape = false;
     bool in_string = false;
     for (size_t i = 0; i < s.size(); ++i) {
-        if (is_control(s[i])) {
+        if (is_control_char(s[i])) {
             if (in_string) {
                 ret += "\", ";
                 in_string = false;
@@ -395,7 +394,7 @@ void emit_asm(Compiler &cc)
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
     }
-    __emit("\nsection .rodata\n");
+    __emit("\nsection .data\n");
     for (size_t i = 0; i < string_map.size(); ++i) {
         __emit("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
     }

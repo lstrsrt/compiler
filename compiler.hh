@@ -174,7 +174,7 @@ inline constexpr bool is_space(char c)
     return c == ' ' || c == '\t' || c == '\f' || c == '\v';
 }
 
-inline constexpr bool is_control(char c)
+inline constexpr bool is_control_char(char c)
 {
     return (c >= 0 && c <= 31) || c == 127;
 }
@@ -1015,7 +1015,7 @@ void emit_asm(Compiler &);
 //
 
 void run_tests(const fs::path &dir);
-void run_test(const fs::path &file);
+void run_single_test(const fs::path &file);
 
 struct TestingException : std::runtime_error {
     TestingException(const char *const msg, ErrorType _type) throw()
