@@ -106,6 +106,7 @@ void insert_cast(Ast *&expr, Type *to)
 
 enum class TypeError {
     None,
+    NotAnInteger,
     SignednessMismatch,
     SizeMismatch,
     Unspecified,
@@ -186,6 +187,24 @@ Type *get_common_integer_type(Type *t1, Type *t2)
     return t2;
 }
 
+void traverse_postorder(Ast *&ast, auto &&callback)
+{
+    if (!ast) {
+        return;
+    }
+
+    if (ast->operation == Operation::Cast) {
+        traverse_postorder(static_cast<AstCast *>(ast)->expr, callback);
+    }
+
+    if (ast->type == AstType::Binary) {
+        traverse_postorder(static_cast<AstBinary *>(ast)->left, callback);
+        traverse_postorder(static_cast<AstBinary *>(ast)->right, callback);
+    }
+
+    callback(ast);
+}
+
 Type *get_binary_expression_type(
     Compiler &cc, Ast *&ast, ExprConstness *constness, TypeOverridable overridable)
 {
@@ -235,11 +254,13 @@ Type *get_binary_expression_type(
         }
     }
 
-    if (!expr_has_no_constants(*constness)) {
+    if (!expr_has_no_constants(*constness) && !(ast->flags & AstFlags::FOLDED)) {
         // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
         // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
         // overflowing add.
-        ast = try_constant_fold(cc, ast, ret, overridable);
+        traverse_postorder(
+            ast, [&](Ast *&ast) { ast = try_constant_fold(cc, ast, ret, overridable); });
+        ast->flags |= AstFlags::FOLDED;
     }
 
     return ret;
@@ -374,6 +395,9 @@ TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness
     if (wanted_type == type) {
         return TypeError::None;
     }
+    if (!type->has_flag(TypeFlags::Integer) || !wanted_type->has_flag(TypeFlags::Integer)) {
+        return TypeError::NotAnInteger;
+    }
 
     if (type->size > wanted_type->size) {
         return TypeError::SizeMismatch;
@@ -396,8 +420,9 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
 {
     auto *fn = get_callee(cc, call);
     if (call->args.size() != fn->params.size()) {
-        verification_error(call, "function `{}` takes {} arguments but was called with {}",
-            fn->name, fn->params.size(), call->args.size());
+        const char *plural = fn->params.size() == 1 ? "" : "s";
+        verification_error(call, "function `{}` takes {} argument{} but was called with {}",
+            fn->name, fn->params.size(), plural, call->args.size());
     }
     for (size_t i = 0; i < call->args.size(); ++i) {
         auto *&arg = call->args[i];
@@ -417,7 +442,6 @@ void verify_negate(
 {
     verify_expr(cc, unary->operand, warn_discarded, expected);
     ExprConstness constness{};
-    // TODO: probably not overridable??
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     // Must be a signed integer
     if (!type->has_flag(TypeFlags::Integer)
@@ -436,11 +460,10 @@ void verify_binary(
 Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
 {
     ExprConstness lhs_constness{}, rhs_constness{};
-    // TODO: probably not overridable??
     auto *lhs = get_expression_type(cc, ast->left, &lhs_constness, TypeOverridable::No);
     auto *rhs = get_expression_type(cc, ast->right, &rhs_constness, TypeOverridable::No);
     Type *exp = rhs;
-    if (expr_is_fully_constant(lhs_constness) && expr_is_fully_constant(rhs_constness)) {
+    if (expr_is_constexpr_int(lhs, lhs_constness) && expr_is_constexpr_int(rhs, rhs_constness)) {
         exp = get_common_integer_type(lhs, rhs);
     } else if (expr_is_fully_constant(rhs_constness)) {
         exp = lhs;
@@ -485,6 +508,9 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             }
             return;
         case AstType::Boolean:
+        case AstType::Identifier:
+            [[fallthrough]];
+        case AstType::String:
             break;
         case AstType::Unary:
             if (ast->operation == Operation::Call) {
@@ -511,9 +537,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             break;
         }
-        case AstType::Identifier:
-            break;
         default:
+            TODO();
             return;
     }
     if (expected) {
@@ -603,6 +628,16 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunctionDecl *current_function)
     verify_ast(cc, if_stmt->body, current_function);
 }
 
+void verify_assign(Compiler &cc, Ast *ast)
+{
+    auto *binary = static_cast<AstBinary *>(ast);
+    if (binary->left->type != AstType::Identifier) {
+        verification_error(ast, "assignment to invalid value");
+    }
+    auto *expected = static_cast<AstIdentifier *>(binary->left)->var->type;
+    verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
+}
+
 void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
 {
     if (ast->type == AstType::Statement) {
@@ -631,9 +666,15 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
             verify_ast(cc, stmt, current_function);
         }
     } else {
-        ExprConstness constness{};
-        verify_expr(cc, ast, WarnDiscardedReturn::Yes,
-            get_expression_type(cc, ast, &constness, TypeOverridable::Yes));
+        if (ast->operation == Operation::Assign) {
+            verify_assign(cc, ast);
+        } else if (ast->operation == Operation::Call) {
+            verify_call(cc, static_cast<AstCall *>(ast), WarnDiscardedReturn::Yes);
+        } else {
+            ExprConstness constness{};
+            verify_expr(cc, ast, WarnDiscardedReturn::Yes,
+                get_expression_type(cc, ast, &constness, TypeOverridable::No));
+        }
     }
 }
 
