@@ -138,7 +138,10 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     }
 }
 
-enum class ExprConstness { SawConstant = 1 << 0, SawNonConstant = 1 << 1 };
+enum class ExprConstness {
+    SawConstant = 1 << 0,
+    SawNonConstant = 1 << 1
+};
 
 constexpr ExprConstness &operator|=(ExprConstness &lhs, const ExprConstness rhs)
 {
@@ -384,7 +387,10 @@ bool has_top_level_return(AstBlock *block)
     return false;
 }
 
-enum class WarnDiscardedReturn { No, Yes };
+enum class WarnDiscardedReturn {
+    No,
+    Yes
+};
 
 void verify_expr(
     Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded, Type *expected = nullptr);

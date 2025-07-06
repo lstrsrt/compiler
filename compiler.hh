@@ -855,7 +855,10 @@ Ast *parse_stmt(Compiler &, AstFunctionDecl *);
 void free_ast(Ast *);
 void free_ast(std::vector<Ast *> &);
 
-enum class TypeOverridable { No, Yes };
+enum class TypeOverridable {
+    No,
+    Yes
+};
 Ast *try_constant_fold(Compiler &, Ast *, Type *&expected, TypeOverridable);
 
 struct Scope {
@@ -898,7 +901,10 @@ inline void free_scopes()
     current_scope = nullptr;
 }
 
-enum class SearchParents { No, Yes };
+enum class SearchParents {
+    No,
+    Yes
+};
 
 AstVariableDecl *find_variable(Scope *, std::string_view name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
@@ -909,7 +915,10 @@ AstFunctionDecl *find_function(Scope *, std::string_view name, Scope **result_sc
 Type *find_type(Scope *, std::string_view name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
-enum class ErrorOnShadowing { No, Yes };
+enum class ErrorOnShadowing {
+    No,
+    Yes
+};
 
 void diagnose_redeclaration_or_shadowing(
     Compiler &, Scope *, std::string_view name, std::string_view type, ErrorOnShadowing);

@@ -59,7 +59,10 @@ OperatorInfo get_operator_info(TokenKind kind)
     }
 }
 
-enum class AllowVarDecl { No, Yes };
+enum class AllowVarDecl {
+    No,
+    Yes
+};
 
 Ast *parse_expr(Compiler &, AllowVarDecl = AllowVarDecl::No, Precedence = prec::Lowest);
 
@@ -82,7 +85,11 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
     return new AstCall(function, std::move(args), location);
 }
 
-enum class IntConversionError { None, Overflow, EmptyString };
+enum class IntConversionError {
+    None,
+    Overflow,
+    EmptyString
+};
 
 // TODO: floats
 IntConversionError string_to_number(std::string_view str, uint64_t &result)
@@ -283,7 +290,10 @@ AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, As
     return new AstBinary(operation, lhs, rhs, operation_token.location);
 }
 
-enum class AllowInitExpr { No, Yes };
+enum class AllowInitExpr {
+    No,
+    Yes
+};
 
 AstVariableDecl *parse_var_decl(Compiler &, AllowInitExpr = AllowInitExpr::Yes);
 
@@ -502,14 +512,12 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
 
 void parse_error_attribute(Compiler &cc)
 {
-    // clang-format off
     static const std::unordered_map<std::string_view, ErrorType> error_attr_map{
         { "lexer", ErrorType::Lexer },
         { "parser", ErrorType::Parser },
         { "verify", ErrorType::Verification },
-        { "type", ErrorType::TypeCheck }
+        { "type", ErrorType::TypeCheck },
     };
-    // clang-format on
     consume_expected(cc, TokenKind::LParen, lex(cc));
     auto token = lex(cc);
     if (auto it = error_attr_map.find(token.string); it != error_attr_map.end()) {
