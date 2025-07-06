@@ -201,36 +201,50 @@ int reg_restores = 0;
 
 void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
-    if (ir->operation == Operation::Negate) {
-        emit("mov rax, {}", stack_addr_or_const(ir_fn, ir->left));
-        emit("neg rax");
-        emit("mov {}, rax", stack_addr(ir_fn, ir->target));
-    } else if (ir->operation == Operation::PushArg) {
-        if (ir->target < ssize(param_regs)) {
-            emit("push {}", param_regs[ir->target]);
-            emit("mov {}, {}", param_regs[ir->target], extract_ir_arg(ir_fn, ir->left));
-            ++reg_restores;
-        } else {
-            emit("push {}", stack_addr_or_const(ir_fn, ir->left));
-            stack_balance += 8;
-        }
-    } else if (ir->operation == Operation::Call) {
-        emit("xor eax, eax");
-        emit("call {}", ir->left.function->name);
-        if (stack_balance > 0) {
-            emit("add rsp, {}", stack_balance);
-            stack_balance = 0;
-        }
-        if (ir->target != -1) {
+    switch (ir->operation) {
+        case Operation::Negate:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("neg rax");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
-        }
-        while (reg_restores) {
-            emit("pop {}", param_regs[reg_restores - 1]);
-            --reg_restores;
-        }
-        assert(reg_restores == 0);
-    } else if (ir->operation == Operation::Cast) {
-        emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
+            break;
+        case Operation::PushArg:
+            if (ir->target < ssize(param_regs)) {
+                emit("push {}", param_regs[ir->target]);
+                emit("mov {}, {}", param_regs[ir->target], extract_ir_arg(ir_fn, ir->left));
+                ++reg_restores;
+            } else {
+                if (ir->left.arg_type == IRArgType::Constant) {
+                    emit("push {}", extract_integer_constant(ir->left.constant));
+                } else {
+                    emit("push qword {}", stack_addr(ir_fn, get_key(ir->left)));
+                }
+                stack_balance += 8;
+            }
+            break;
+        case Operation::Call:
+            emit("xor eax, eax");
+            emit("call {}", ir->left.function->name);
+            if (stack_balance > 0) {
+                emit("add rsp, {}", stack_balance);
+                stack_balance = 0;
+            }
+            if (ir->target != -1) {
+                emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            }
+            while (reg_restores) {
+                emit("pop {}", param_regs[reg_restores - 1]);
+                --reg_restores;
+            }
+            assert(reg_restores == 0);
+            break;
+        case Operation::Cast:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
+            break;
+        case Operation::Branch:
+            emit("jmp {}", ir->left.basic_block->label_name);
+            break;
+        default:
+            TODO();
     }
 }
 
@@ -310,7 +324,7 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             }
             break;
         default:
-            break;
+            TODO();
     }
 }
 

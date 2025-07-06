@@ -228,6 +228,7 @@ enum class TokenKind : uint32_t {
     Fn = 1 | GroupKeyword,
     Return,
     If,
+    Else,
     Alias,
     False,
     True,
@@ -725,7 +726,7 @@ constexpr TypeFlags operator~(TypeFlags rhs)
 }
 
 template<class E>
-    requires std::is_enum_v<E>
+requires std::is_enum_v<E>
 inline bool has_flag(E value, E flag)
 {
     return static_cast<bool>(to_underlying(value) & to_underlying(flag));
@@ -812,11 +813,13 @@ struct AstBlock : Ast {
 struct AstIf : Ast {
     Ast *expr;
     AstBlock *body;
+    AstBlock *else_body;
 
-    explicit AstIf(Ast *_expr, AstBlock *_body, SourceLocation _location)
+    explicit AstIf(Ast *_expr, AstBlock *_body, AstBlock *_else_body, SourceLocation _location)
         : Ast(AstType::Statement, Operation::If, _location)
         , expr(_expr)
         , body(_body)
+        , else_body(_else_body)
     {
     }
 };
@@ -1114,4 +1117,5 @@ std::string to_string(ErrorType);
 void print_ast(Ast *, std::string indent = "");
 void print_ast(const std::vector<Ast *> &, std::string indent = "");
 void print_types(Scope *);
+void print_ir(const std::vector<IR *> &);
 void print_ir(const IRFunction &);

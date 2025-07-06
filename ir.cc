@@ -10,7 +10,6 @@ BasicBlock *add_block(IRFunction *ir_fn)
     auto *bb = ir_fn->basic_blocks.emplace_back(new BasicBlock);
     bb->index = ir_fn->basic_blocks.size() - 1;
     bb->label_name = std::format(".{}_{}", ir_fn->ast->name, bb->index);
-    ir_fn->current_block = bb;
     return bb;
 }
 
@@ -31,7 +30,7 @@ void new_ir_function(IRBuilder &irb, AstFunctionDecl *ast)
     fn->ast = ast;
     irb.functions.push_back(fn);
     irb.current_function = fn;
-    add_block(fn);
+    irb.current_function->current_block = add_block(fn);
 }
 
 void generate_ir(Compiler &cc, [[maybe_unused]] IR *ir, IRArg &arg, Ast *ast)
@@ -206,28 +205,46 @@ void generate_ir_cond_branch(Compiler &cc, IR *cond, BasicBlock *bb1, BasicBlock
     add_ir(ir, bb);
 }
 
+void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
+{
+    auto *ir_fn = cc.ir_builder.current_function;
+    auto *bb = get_current_block(ir_fn);
+    auto *ir = new IRBranch;
+    ir->operation = Operation::Branch;
+    ir->type = AstType::Unary;
+    ir->left = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb1 };
+    add_ir(ir, bb);
+}
+
 void generate_ir_if(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *if_stmt = static_cast<AstIf *>(ast);
-    // Generate the compare instruction.
+
     auto *cmp = generate_ir_cmp(cc, if_stmt->expr);
-    cmp->ast = ast;
-    // TODO add unary excl mark operator
-    auto current_block = ir_fn->current_block;
-    auto true_block = add_block(ir_fn);
-    auto false_block = add_block(ir_fn);
-    // The if body has to be in true_block.
+    auto *true_block = add_block(ir_fn);
+    auto *after_block = add_block(ir_fn);
+    BasicBlock *else_block = nullptr;
+    if (if_stmt->else_body) {
+        else_block = add_block(ir_fn);
+    }
+    generate_ir_cond_branch(cc, cmp, true_block, else_block ? else_block : after_block);
+
     ir_fn->current_block = true_block;
-    for (auto *stmt : if_stmt->body->stmts) {
-        generate_ir_impl(cc, stmt);
+    for (auto *ast : if_stmt->body->stmts) {
+        generate_ir_impl(cc, ast);
     }
-    // Add the conditional branch to the current block.
-    ir_fn->current_block = current_block;
-    if (cmp) {
-        generate_ir_cond_branch(cc, cmp, true_block, false_block);
+    generate_ir_branch(cc, after_block);
+
+    if (else_block) {
+        ir_fn->current_block = else_block;
+        for (auto *ast : if_stmt->else_body->stmts) {
+            generate_ir_impl(cc, ast);
+        }
+        generate_ir_branch(cc, after_block);
     }
-    ir_fn->current_block = false_block;
+
+    ir_fn->current_block = after_block;
 }
 
 // TODO - don't set ir->target when we're in a return stmt

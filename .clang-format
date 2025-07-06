@@ -20,6 +20,7 @@ BraceWrapping:
 BreakStringLiterals: true
 FixNamespaceComments: true
 IndentCaseLabels: true
+IndentRequiresClause: false
 InsertNewlineAtEOF: true
 InsertBraces: true
 LineEnding: LF

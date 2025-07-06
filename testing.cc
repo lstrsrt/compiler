@@ -144,7 +144,7 @@ void run_tests(const fs::path &path)
         }
     }
 
-    std::ranges::sort(subdirs, [](const fs::directory_entry &a, const fs::directory_entry &b) {
+    std::ranges::sort(files, [](const fs::directory_entry &a, const fs::directory_entry &b) {
         return a.path().filename() < b.path().filename();
     });
 

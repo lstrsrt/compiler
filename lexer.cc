@@ -180,6 +180,7 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
         { "fn", Fn },
         { "return", Return },
         { "if", If },
+        { "else", Else },
         { "alias", Alias },
         { "false", False },
         { "true", True },

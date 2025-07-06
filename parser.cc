@@ -489,7 +489,15 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     enter_new_scope();
     AstBlock *body = parse_block(cc, current_function);
     leave_scope();
-    return new AstIf(expr, body, loc);
+
+    AstBlock *else_ = nullptr;
+    auto token = lex(cc);
+    if (token.kind == TokenKind::Else) {
+        consume(cc.lexer, token);
+        else_ = parse_block(cc, current_function);
+    }
+
+    return new AstIf(expr, body, else_, loc);
 }
 
 void parse_error_attribute(Compiler &cc)
