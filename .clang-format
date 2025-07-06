@@ -4,8 +4,6 @@ Language: Cpp
 ColumnLimit: 100
 Standard: Latest
 
-AlignConsecutiveShortCaseStatements:
-  Enabled: true
 AlignTrailingComments:
   Kind: Always
   OverEmptyLines: 1

@@ -1,4 +1,5 @@
 #include "compiler.hh"
+
 #include <limits>
 
 void flatten_binary(Ast *ast, Operation matching_operation, std::vector<Ast *> &flattened)
@@ -30,12 +31,15 @@ Ast *partial_fold_associative(
         }
     }
 
+    if (accumulator != 0 || non_constants.empty()) {
+        non_constants.push_back(new AstLiteral(expected, AstType::Integer, accumulator, {}));
+    }
+
     auto *ret = non_constants[0];
     for (size_t i = 1; i < non_constants.size(); ++i) {
         ret = new AstBinary(operation, ret, non_constants[i], {});
     }
-    return new AstBinary(
-        operation, ret, new AstLiteral(expected, AstType::Integer, accumulator, {}), {});
+    return ret;
 }
 
 Ast *try_fold_identities(
@@ -135,6 +139,38 @@ Type *get_integer_type(uint64_t x)
         }                                                                                        \
     }
 
+uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t left_const,
+    uint64_t right_const, Type *&expected, TypeOverridable overridable)
+{
+    if (expected->has_flag(TypeFlags::UNSIGNED)) {
+        // `0 - 0xffff_ffff` resolves to `1` (of type unsigned int) in C/C++. In this
+        // language, we either warn or cast up to s64.
+        if (left_const < right_const) {
+            if (expected->size < 8 && overridable == TypeOverridable::Yes) {
+                expected = s64_type();
+            } else {
+                diag_warning_at(cc, binary->location, "constant expression overflows type `{}`",
+                    expected->name);
+            }
+        }
+        return left_const - right_const;
+    }
+
+    int64_t i64;
+    bool overflows_i64 = __builtin_sub_overflow(
+        static_cast<int64_t>(left_const), static_cast<int64_t>(right_const), &i64);
+    if ((expected->size < 8 && i64 < std::numeric_limits<int32_t>::min()) || overflows_i64) {
+        if (overridable == TypeOverridable::Yes) {
+            expected = s64_type();
+        }
+        if (overridable == TypeOverridable::No || overflows_i64) {
+            diag_warning_at(
+                cc, binary->location, "constant expression overflows type `{}`", expected->name);
+        }
+    }
+    return static_cast<uint64_t>(i64);
+}
+
 Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, uint64_t right_const,
     Type *&expected, TypeOverridable overridable)
 {
@@ -144,20 +180,8 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             fold_and_warn_overflow(left_const, right_const, result, __builtin_add_overflow);
             break;
         case Operation::Subtract: {
-            if (expected->has_flag(TypeFlags::UNSIGNED)) {
-                // `0 - 0xffff_ffff` resolves to `1` (of type unsigned int) in C/C++. Behavior here
-                // is to warn or to cast up to s64.
-                if (left_const < right_const) {
-                    if (expected->size < 8 && overridable == TypeOverridable::Yes) {
-                        expected = s64_type();
-                    } else {
-                        diag_warning_at(cc, binary->location,
-                            "constant expression underflows type `{}`", expected->name);
-                    }
-                }
-            }
-            // TODO - could underflow signed type too
-            result = left_const - right_const;
+            result = fold_sub_and_warn_overflow(
+                cc, binary, left_const, right_const, expected, overridable);
             break;
         }
         case Operation::Multiply:
@@ -175,8 +199,8 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
 
     auto loc = binary->location;
     // TODO: fix double free (only happens when identity folding + constant folding)
-    // delete static_cast<AstLiteral *>(binary->left);
-    // delete static_cast<AstLiteral *>(binary->right);
+    delete static_cast<AstLiteral *>(binary->left);
+    delete static_cast<AstLiteral *>(binary->right);
     delete static_cast<AstBinary *>(binary);
     return new AstLiteral(expected, AstType::Integer, result, loc);
 }
