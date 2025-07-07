@@ -254,6 +254,27 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     ir_fn->current_block = after_block;
 }
 
+void generate_ir_while(Compiler &cc, Ast *ast)
+{
+    auto *ir_fn = cc.ir_builder.current_function;
+    auto *while_stmt = static_cast<AstWhile *>(ast);
+
+    auto *cmp_block = add_block(ir_fn);
+    auto *true_block = add_block(ir_fn);
+    auto *after_block = add_block(ir_fn);
+    ir_fn->current_block = cmp_block;
+    auto *cmp = generate_ir_cmp(cc, while_stmt->expr);
+    generate_ir_cond_branch(cc, cmp, true_block, after_block);
+
+    ir_fn->current_block = true_block;
+    for (auto *ast : while_stmt->body->stmts) {
+        generate_ir_impl(cc, ast);
+    }
+    generate_ir_branch(cc, cmp_block);
+
+    ir_fn->current_block = after_block;
+}
+
 // TODO - don't set ir->target when we're in a return stmt
 IRArg generate_ir_impl(Compiler &cc, Ast *ast)
 {
@@ -292,6 +313,8 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
                 generate_ir_return(cc, ast);
             } else if (ast->operation == Operation::If) {
                 generate_ir_if(cc, ast);
+            } else if (ast->operation == Operation::While) {
+                generate_ir_while(cc, ast);
             }
         }
     }

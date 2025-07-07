@@ -501,22 +501,27 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     }
 }
 
+void verify_int(Compiler &cc, Ast *&ast, Type *expected)
+{
+    if (!expected) {
+        return;
+    }
+
+    ExprConstness constness{};
+    if (auto *type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
+        !types_match(type, expected)) {
+        if (auto err = maybe_cast_integer(expected, type, ast, constness); err != TypeError::None) {
+            type_error(cc, ast, expected, type, err);
+        }
+    }
+}
+
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
 {
     Type *type;
     switch (ast->type) {
         case AstType::Integer:
-            if (expected) {
-                ExprConstness constness{};
-                if (type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
-                    !types_match(type, expected)) {
-                    if (auto err = maybe_cast_integer(expected, type, ast, constness);
-                        err != TypeError::None) {
-                        type_error(cc, ast, expected, type, err);
-                    }
-                }
-            }
-            return;
+            return verify_int(cc, ast, expected);
         case AstType::Boolean:
         case AstType::Identifier:
             [[fallthrough]];
@@ -636,6 +641,16 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunctionDecl *current_function)
         verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type());
     }
     verify_ast(cc, if_stmt->body, current_function);
+    if (if_stmt->else_body) {
+        verify_ast(cc, if_stmt->else_body, current_function);
+    }
+}
+
+void verify_while(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
+{
+    auto *while_stmt = static_cast<AstWhile *>(ast);
+    verify_expr(cc, while_stmt->expr, WarnDiscardedReturn::No, bool_type());
+    verify_ast(cc, while_stmt->body, current_function);
 }
 
 void verify_assign(Compiler &cc, Ast *ast)
@@ -648,28 +663,41 @@ void verify_assign(Compiler &cc, Ast *ast)
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
 }
 
+void verify_function_decl(Compiler &cc, Ast *ast)
+{
+    auto *fn = static_cast<AstFunctionDecl *>(ast);
+    resolve_type(cc, fn->scope, fn->return_type);
+    for (auto &param : fn->params) {
+        resolve_type(cc, fn->scope, param->var.type);
+    }
+    verify_ast(cc, fn->body, fn);
+    if (!fn->returns_void() && (fn->return_stmts.empty() || !has_top_level_return(fn->body))) {
+        verification_error(fn, "function `{}` is missing a top level return statement", fn->name);
+    }
+}
+
 void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
 {
     if (ast->type == AstType::Statement) {
-        if (ast->operation == Operation::VariableDecl) {
-            verify_var_decl(cc, static_cast<AstVariableDecl *>(ast));
-        } else if (ast->operation == Operation::FunctionDecl) {
-            auto *fn = static_cast<AstFunctionDecl *>(ast);
-            resolve_type(cc, fn->scope, fn->return_type);
-            for (auto &param : fn->params) {
-                resolve_type(cc, fn->scope, param->var.type);
-            }
-            verify_ast(cc, fn->body, fn);
-            if (!fn->returns_void()
-                && (fn->return_stmts.empty() || !has_top_level_return(fn->body))) {
-                verification_error(
-                    fn, "function `{}` is missing a top level return statement", fn->name);
-            }
-        } else if (ast->operation == Operation::If) {
-            verify_if(cc, static_cast<AstIf *>(ast), current_function);
-        } else if (ast->operation == Operation::Return) {
-            verify_return(
-                cc, static_cast<AstReturn *>(ast), current_function, current_function->return_type);
+        switch (ast->operation) {
+            case Operation::VariableDecl:
+                verify_var_decl(cc, static_cast<AstVariableDecl *>(ast));
+                break;
+            case Operation::FunctionDecl:
+                verify_function_decl(cc, ast);
+                break;
+            case Operation::If:
+                verify_if(cc, static_cast<AstIf *>(ast), current_function);
+                break;
+            case Operation::Return:
+                verify_return(cc, static_cast<AstReturn *>(ast), current_function,
+                    current_function->return_type);
+                break;
+            case Operation::While:
+                verify_while(cc, ast, current_function);
+                break;
+            default:
+                TODO();
         }
     } else if (ast->type == AstType::Block) {
         for (auto *stmt : static_cast<AstBlock *>(ast)->stmts) {

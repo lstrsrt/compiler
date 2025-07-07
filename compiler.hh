@@ -229,6 +229,7 @@ enum class TokenKind : uint32_t {
     Return,
     If,
     Else,
+    While,
     Alias,
     False,
     True,
@@ -439,6 +440,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(VariableDecl)  \
     __ENUMERATE_OPERATION(FunctionDecl)  \
     __ENUMERATE_OPERATION(If)            \
+    __ENUMERATE_OPERATION(While)         \
     __ENUMERATE_OPERATION(Cast)          \
     __ENUMERATE_OPERATION(PushArg)       \
     __ENUMERATE_OPERATION(Branch)        \
@@ -820,6 +822,18 @@ struct AstIf : Ast {
         , expr(_expr)
         , body(_body)
         , else_body(_else_body)
+    {
+    }
+};
+
+struct AstWhile : Ast {
+    Ast *expr;
+    AstBlock *body;
+
+    explicit AstWhile(Ast *_expr, AstBlock *_body, SourceLocation _location)
+        : Ast(AstType::Statement, Operation::While, _location)
+        , expr(_expr)
+        , body(_body)
     {
     }
 };

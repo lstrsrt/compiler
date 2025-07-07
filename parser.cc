@@ -510,6 +510,25 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     return new AstIf(expr, body, else_, loc);
 }
 
+AstWhile *parse_while(Compiler &cc, AstFunctionDecl *current_function)
+{
+    auto loc = cc.lexer.location();
+    Ast *expr = parse_expr(cc, AllowVarDecl::No);
+    if (!expr) {
+        parser_error(loc, "while statement must have a condition");
+    }
+
+    if (expr->operation == Operation::Assign) {
+        parser_ast_error(expr, "assignments are not allowed in while statements");
+    }
+
+    enter_new_scope();
+    AstBlock *body = parse_block(cc, current_function);
+    leave_scope();
+
+    return new AstWhile(expr, body, loc);
+}
+
 void parse_error_attribute(Compiler &cc)
 {
     static const std::unordered_map<std::string_view, ErrorType> error_attr_map{
@@ -575,8 +594,11 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
     if (is_group(token.kind, TokenKind::GroupKeyword)) {
         if (token.kind == TokenKind::If) {
             consume(cc.lexer, token);
-            auto *if_stmt = parse_if(cc, current_function);
-            return if_stmt;
+            return parse_if(cc, current_function);
+        }
+        if (token.kind == TokenKind::While) {
+            consume(cc.lexer, token);
+            return parse_while(cc, current_function);
         }
         if (token.kind == TokenKind::Fn) {
             consume(cc.lexer, token);

@@ -181,6 +181,7 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
         { "return", Return },
         { "if", If },
         { "else", Else },
+        { "while", While },
         { "alias", Alias },
         { "false", False },
         { "true", True },
