@@ -180,10 +180,17 @@ IR *generate_ir_cmp(Compiler &cc, Ast *ast)
     return ir;
 }
 
+void mangle_function_name(AstFunctionDecl *fn)
+{
+    auto &name = fn->name;
+    name += std::to_string(fn->params.size());
+}
+
 void generate_ir_fn_decl(Compiler &cc, Ast *ast)
 {
     auto *fn_decl = static_cast<AstFunctionDecl *>(ast);
     auto *last = cc.ir_builder.current_function;
+    mangle_function_name(fn_decl);
     new_ir_function(cc.ir_builder, fn_decl);
     for (auto *stmt : fn_decl->body->stmts) {
         generate_ir_impl(cc, stmt);
