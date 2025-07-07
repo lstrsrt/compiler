@@ -864,7 +864,7 @@ Ast *try_constant_fold(Compiler &, Ast *, Type *&expected, TypeOverridable);
 struct Scope {
     Scope *parent;
     std::unordered_map<std::string_view, Type *> types{};
-    std::vector<AstFunctionDecl *> functions{};
+    std::unordered_map<std::string_view, AstFunctionDecl *> functions{};
     std::vector<AstVariableDecl *> variables{};
 
     Scope(Scope *_parent)
@@ -873,7 +873,7 @@ struct Scope {
     }
 
     void add_variable(Compiler &, AstVariableDecl *);
-    void add_function(Compiler &, Ast *);
+    void add_function(Compiler &, Ast *, std::string_view unmangled_name);
     void add_alias(Compiler &, Type *, std::string_view alias, SourceLocation);
 };
 

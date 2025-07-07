@@ -445,7 +445,7 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
 
     // This expects { + (newline + stmts)? + }
     auto fn_decl = new AstFunctionDecl(name, ret_type, std::move(params), {}, location);
-    current_scope->parent->add_function(cc, fn_decl);
+    current_scope->parent->add_function(cc, fn_decl, name);
     fn_decl->body = parse_block(cc, fn_decl);
     fn_decl->scope = current_scope->parent;
     leave_scope();
@@ -718,12 +718,12 @@ void Scope::add_variable(Compiler &cc, AstVariableDecl *var_decl)
     variables.push_back(var_decl);
 }
 
-void Scope::add_function(Compiler &cc, Ast *ast)
+void Scope::add_function(Compiler &cc, Ast *ast, std::string_view unmangled_name)
 {
     assert(ast->operation == Operation::FunctionDecl);
     auto *fn = static_cast<AstFunctionDecl *>(ast);
     diagnose_redeclaration_or_shadowing(cc, this, fn->name, "function", ErrorOnShadowing::Yes);
-    functions.push_back(fn);
+    functions[unmangled_name] = fn;
 }
 
 void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLocation location)
@@ -856,15 +856,13 @@ AstVariableDecl *find_variable(
         });
 }
 
-AstFunctionDecl *find_function(
-    Scope *scope, std::string_view name, Scope **result_scope, SearchParents search_parents)
+AstFunctionDecl *find_function(Scope *scope, std::string_view unmangled_name, Scope **result_scope,
+    SearchParents search_parents)
 {
     return find__helper<AstFunctionDecl>(
-        scope, result_scope, search_parents, [name](Scope *s) -> AstFunctionDecl * {
-            for (auto *fn_decl : s->functions) {
-                if (fn_decl && fn_decl->name == name) {
-                    return fn_decl;
-                }
+        scope, result_scope, search_parents, [unmangled_name](Scope *s) -> AstFunctionDecl * {
+            if (auto res = s->functions.find(unmangled_name); res != s->functions.end()) {
+                return res->second;
             }
             return nullptr;
         });
