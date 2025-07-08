@@ -104,7 +104,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 [[noreturn]] inline void todo(const char *func)
 {
-    std::println("\nTODO: {}", func);
+    std::println("\n{}TODO{}: {}", colors::Red, colors::Default, func);
 #ifdef _DEBUG
     __builtin_trap();
 #else

@@ -165,6 +165,7 @@ void print_ast(Ast *ast, std::string indent)
         return;
     }
 
+    auto prev_indent = indent;
     print_node(ast, indent);
     if (ast->operation != Operation::None) {
         indent += "    ";
@@ -198,8 +199,17 @@ void print_ast(Ast *ast, std::string indent)
             } else if (ast->operation == Operation::VariableDecl) {
                 print_ast(static_cast<AstVariableDecl *>(ast)->init_expr, indent);
             } else if (ast->operation == Operation::If) {
-                print_ast(static_cast<AstIf *>(ast)->expr, indent);
-                print_ast(static_cast<AstIf *>(ast)->body, indent);
+                auto *if_stmt = static_cast<AstIf *>(ast);
+                print_ast(if_stmt->expr, indent);
+                print_ast(if_stmt->body, indent);
+                if (if_stmt->else_body) {
+                    // HACK:
+                    std::println("{}[Else]", prev_indent);
+                    print_ast(if_stmt->else_body, indent);
+                }
+            } else if (ast->operation == Operation::While) {
+                print_ast(static_cast<AstWhile *>(ast)->expr, indent);
+                print_ast(static_cast<AstWhile *>(ast)->body, indent);
             }
             break;
         }
