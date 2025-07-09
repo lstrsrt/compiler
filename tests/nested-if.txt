@@ -1,0 +1,23 @@
+#{returns(5)}
+x := 0
+if x < 0 {
+    return 1
+}
+else {
+    y := 9
+    z := 1
+    if 3*3 == y {
+        z = z + 4
+        if z == 5 {
+            y = 10
+        }
+    }
+    else {
+        z = -1
+    }
+    if y == 10 {
+        return z
+    }
+    return y
+}
+return 0
