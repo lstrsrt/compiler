@@ -14,7 +14,7 @@ enum class Associativity {
 using Precedence = int;
 
 namespace prec {
-    constexpr Precedence Comma = 1, LogicalOr = 2, LogicalAnd = 3, Assignment = 4, Comparison = 5,
+    constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
                          AdditiveArithmetic = 6, MultiplicativeArithmetic = 7;
     constexpr Precedence Lowest = Comma, Highest = MultiplicativeArithmetic;
 } // namespace prec
