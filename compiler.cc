@@ -55,6 +55,18 @@ void compiler_main(Compiler &cc, AstFunctionDecl *main)
 #endif
     }
 
+    optimize_ir(cc);
+
+    if (!testing) {
+#ifdef _DEBUG
+        dbgln("{}optimized ir:{}", Cyan, Default);
+        for (const auto *fn : cc.ir_builder.functions) {
+            dbgln("{}:", fn->ast->name);
+            print_ir(*fn);
+        }
+#endif
+    }
+
     if (!testing) {
         dbgln("{}assembly:{}", Cyan, Default);
     }
@@ -120,7 +132,7 @@ void Compiler::free_types()
 void Compiler::free_ir()
 {
     for (auto *fn : ir_builder.functions) {
-        ::free_ir(fn);
+        free_ir_function(fn);
     }
     ir_builder.functions.clear();
 }

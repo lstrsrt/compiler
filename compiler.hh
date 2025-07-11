@@ -944,7 +944,9 @@ void diagnose_redeclaration_or_shadowing(
 void verify_main(Compiler &, AstFunctionDecl *);
 
 bool has_top_level_return(AstBlock *);
-bool types_match(Type *t1, Type *t2);
+bool types_match(Type *, Type *);
+void flatten_binary(Ast *, std::vector<Ast *> &);
+void flatten_binary(Ast *, Operation matching_operation, std::vector<Ast *> &);
 
 //
 // IR
@@ -985,14 +987,13 @@ struct IRArg {
 };
 
 struct IR {
-    Ast *ast;
+    Ast *ast = nullptr;
     AstType type;
     Operation operation;
     IRArg left;
     IRArg right;
-    size_t basic_block_index;         // which basic block am I in?
+    size_t basic_block_index = 0; // which basic block am I in?
     ssize_t target = -1;
-    std::vector<IR *> target_used_by; // which IRs link to this target?
 
     bool has_vreg_target() const
     {
@@ -1001,13 +1002,14 @@ struct IR {
 };
 
 struct IRBranch : IR {
-    size_t cond_vreg;
+    ssize_t cond_vreg = -1;
 };
 
 struct BasicBlock {
-    std::vector<IR *> code;
+    std::vector<IR *> code{};
     size_t index = 0; // Index in IRFunction
-    std::string label_name;
+    std::string label_name{};
+    bool reachable = false;
 };
 
 struct IRFunction {
@@ -1028,7 +1030,7 @@ struct IRBuilder {
 void generate_ir(Compiler &, AstFunctionDecl *);
 void optimize_ir(Compiler &);
 
-void free_ir(IRFunction *);
+void free_ir_function(IRFunction *);
 
 //
 // Backend
@@ -1141,4 +1143,5 @@ void print_ast(Ast *, std::string indent = "");
 void print_ast(const std::vector<Ast *> &, std::string indent = "");
 void print_types(Scope *);
 void print_ir(const std::vector<IR *> &);
+void print_ir(IR *);
 void print_ir(const IRFunction &);

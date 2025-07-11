@@ -291,7 +291,9 @@ void print_ir(const IRFunction &ir_fn)
 {
     for (size_t i = 0; i < ir_fn.basic_blocks.size(); ++i) {
         auto *bb = ir_fn.basic_blocks[i];
-        dbgln("{}:", i);
+        const char *s = bb->reachable ? "live" : "dead";
+        std::println("{} ({}):", i, s);
         print_ir(bb->code);
     }
+    std::print("\n");
 }
