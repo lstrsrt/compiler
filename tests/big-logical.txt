@@ -1,0 +1,11 @@
+x := 1
+y := 2
+z := 3
+w := 4
+q := 5
+n := 4
+a := (x == 1 or (y == 3 or z == 5) and (w == 4)) and (q == 3 or n == 4)
+if a == true {
+    return 1
+}
+return 0

@@ -1,0 +1,11 @@
+#{returns(1)}
+
+x := 1
+y := 2
+z := 3
+w := 4
+
+if x == 1 and y == 3 /* false */ or z == 3 and w == 4 /* true */ {
+    return 1
+}
+return 0

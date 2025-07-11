@@ -157,12 +157,12 @@ void generate_ir_return(Compiler &cc, Ast *ast)
         generate_ir(cc, ir, ir->left, ret->expr);
     }
     add_ir(ir, bb);
+    ir_fn->current_block = add_block(ir_fn);
 }
 
-IR *generate_ir_cmp(Compiler &cc, Ast *ast)
+IR *generate_ir_comparison(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
-    auto *bb = get_current_block(ir_fn);
     auto *ir = new IR;
     ir->ast = ast;
     ir->operation = ast->operation;
@@ -194,8 +194,9 @@ IR *generate_ir_cmp(Compiler &cc, Ast *ast)
             TODO();
             break;
     }
+
     ir->target = ++ir_fn->temp_regs;
-    add_ir(ir, bb);
+    add_ir(ir, get_current_block(ir_fn));
     return ir;
 }
 
@@ -311,6 +312,138 @@ void generate_ir_while(Compiler &cc, Ast *ast)
     ir_fn->current_block = after_block;
 }
 
+AstLiteral *true_bool()
+{
+    static AstLiteral ast{ bool_type(), AstType::Boolean, true, {} };
+    return &ast;
+}
+
+AstLiteral *false_bool()
+{
+    static AstLiteral ast{ bool_type(), AstType::Boolean, false, {} };
+    return &ast;
+}
+
+IR *constant_ir(IRArg temp, AstLiteral *constant)
+{
+    IR *ir = new IR;
+    ir->operation = Operation::Assign;
+    ir->type = AstType::Binary;
+    ir->left = temp;
+    ir->right = IRArg{ .arg_type = IRArgType::Constant, .constant = constant };
+    return ir;
+}
+
+IRArg generate_ir_cond_result(
+    Compiler &cc, IRFunction *ir_fn, BasicBlock *true_block, BasicBlock *false_block)
+{
+    auto *last = new_block();
+    IRArg temp{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
+
+    add_block(ir_fn, true_block);
+    ir_fn->current_block = true_block;
+    add_ir(constant_ir(temp, true_bool()), ir_fn->current_block);
+    generate_ir_branch(cc, last);
+
+    add_block(ir_fn, false_block);
+    ir_fn->current_block = false_block;
+    add_ir(constant_ir(temp, false_bool()), ir_fn->current_block);
+    generate_ir_branch(cc, last);
+
+    add_block(ir_fn, last);
+    ir_fn->current_block = last;
+    return temp;
+}
+
+void generate_ir_logical_or(Compiler &cc, AstBinary *ast, BasicBlock *, BasicBlock *);
+
+void generate_ir_logical_and(
+    Compiler &cc, AstBinary *ast, BasicBlock *true_block, BasicBlock *false_block)
+{
+    auto *ir_fn = cc.ir_builder.current_function;
+    std::vector<Ast *> flattened;
+    flatten_binary(ast, Operation::LogicalAnd, flattened);
+
+    for (size_t i = 0; i < flattened.size(); ++i) {
+        if (flattened[i]->operation == Operation::LogicalOr) {
+            auto *true_or = new_block();
+            generate_ir_logical_or(
+                cc, static_cast<AstBinary *>(flattened[i]), true_or, false_block);
+            add_block(ir_fn, true_or);
+            ir_fn->current_block = true_or;
+            if (i == flattened.size() - 1) {
+                generate_ir_branch(cc, true_block);
+            }
+        } else {
+            auto cmp = generate_ir_comparison(cc, flattened[i]);
+            if (i == flattened.size() - 1) {
+                generate_ir_cond_branch(cc, cmp->target, true_block, false_block);
+            } else {
+                auto *next = add_block(ir_fn);
+                generate_ir_cond_branch(cc, cmp->target, next, false_block);
+                ir_fn->current_block = next;
+            }
+        }
+    }
+}
+
+IRArg generate_ir_logical_and(Compiler &cc, AstBinary *ast)
+{
+    auto *ir_fn = cc.ir_builder.current_function;
+    auto *true_block = new_block();
+    auto *false_block = new_block();
+    generate_ir_logical_and(cc, ast, true_block, false_block);
+    return generate_ir_cond_result(cc, ir_fn, true_block, false_block);
+}
+
+void generate_ir_logical_or(
+    Compiler &cc, AstBinary *ast, BasicBlock *true_block, BasicBlock *false_block)
+{
+    auto *ir_fn = cc.ir_builder.current_function;
+    std::vector<Ast *> flattened;
+    flatten_binary(ast, Operation::LogicalOr, flattened);
+
+    for (size_t i = 0; i < flattened.size(); ++i) {
+        if (flattened[i]->operation == Operation::LogicalAnd) {
+            auto *false_and = new_block();
+            generate_ir_logical_and(
+                cc, static_cast<AstBinary *>(flattened[i]), true_block, false_and);
+            add_block(ir_fn, false_and);
+            ir_fn->current_block = false_and;
+            if (i == flattened.size() - 1) {
+                generate_ir_branch(cc, false_block);
+            }
+        } else {
+            auto cmp = generate_ir_comparison(cc, flattened[i]);
+            if (i == flattened.size() - 1) {
+                generate_ir_cond_branch(cc, cmp->target, true_block, false_block);
+            } else {
+                auto *next = add_block(ir_fn);
+                generate_ir_cond_branch(cc, cmp->target, true_block, next);
+                ir_fn->current_block = next;
+            }
+        }
+    }
+}
+
+IRArg generate_ir_logical_or(Compiler &cc, AstBinary *ast)
+{
+    auto *ir_fn = cc.ir_builder.current_function;
+    auto *true_block = new_block();
+    auto *false_block = new_block();
+    generate_ir_logical_or(cc, ast, true_block, false_block);
+    return generate_ir_cond_result(cc, ir_fn, true_block, false_block);
+}
+
+void flatten_logical(Ast *ast, std::vector<Ast *> &flattened)
+{
+    if (ast->operation == Operation::LogicalAnd) {
+        flatten_binary(ast, Operation::LogicalAnd, flattened);
+    } else if (ast->operation == Operation::LogicalOr) {
+        flatten_binary(ast, Operation::LogicalOr, flattened);
+    }
+}
+
 // TODO - don't set ir->target when we're in a return stmt
 IRArg generate_ir_impl(Compiler &cc, Ast *ast)
 {
@@ -334,7 +467,24 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
         case AstType::Unary:
             return generate_ir_unary(cc, ast);
         case AstType::Binary:
-            return generate_ir_binary(cc, ast);
+            switch (ast->operation) {
+                case Operation::LogicalAnd:
+                    return generate_ir_logical_and(cc, static_cast<AstBinary *>(ast));
+                case Operation::LogicalOr:
+                    return generate_ir_logical_or(cc, static_cast<AstBinary *>(ast));
+                case Operation::Equals:
+                case Operation::NotEquals:
+                case Operation::Greater:
+                case Operation::GreaterEquals:
+                case Operation::Less:
+                    [[fallthrough]];
+                case Operation::LessEquals:
+                    generate_ir_comparison(cc, ast);
+                    break;
+                default:
+                    return generate_ir_binary(cc, ast);
+            }
+            break;
         case AstType::Block:
             for (auto *stmt : static_cast<AstBlock *>(ast)->stmts) {
                 generate_ir_impl(cc, stmt);

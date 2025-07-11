@@ -272,8 +272,11 @@ std::string get_ir_arg_value(const IRArg &src)
 void print_ir(IR *ir)
 {
     std::string target = ir->has_vreg_target() ? std::format("v{} = ", ir->target) : "";
-    std::print("    {}{} {} <{}>", target, to_string(ir->operation), get_ir_arg_value(ir->left),
-        to_string(ir->left.arg_type));
+    std::print("    {}{} ", target, to_string(ir->operation));
+    if (ir->operation == Operation::CondBranch) {
+        std::print("v{}, ", static_cast<IRBranch *>(ir)->cond_vreg);
+    }
+    std::print("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
     if (ir->type == AstType::Binary || ir->operation == Operation::Cast) {
         std::print(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
     }
