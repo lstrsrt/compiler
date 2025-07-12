@@ -241,7 +241,9 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
             break;
         case Operation::Branch:
-            emit("jmp {}", ir->left.basic_block->label_name);
+            if (ir->basic_block_index + 1 != ir->left.basic_block->index) {
+                emit("jmp {}", ir->left.basic_block->label_name);
+            }
             break;
         default:
             TODO();
@@ -285,15 +287,17 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::Divide:
             [[fallthrough]];
         case Operation::Modulo:
+            emit("push rdx");
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
             emit("cqo");
-            emit("mov rdi, {}", extract_ir_arg(ir_fn, ir->right));
-            emit("idiv rdi", extract_ir_arg(ir_fn, ir->right));
+            emit("mov r10, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("idiv r10");
             if (ir->operation == Operation::Modulo) {
                 emit("mov {}, rdx", stack_addr(ir_fn, ir->target));
             } else {
                 emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             }
+            emit("pop rdx");
             break;
         case Operation::Equals:
         case Operation::NotEquals:
@@ -317,10 +321,15 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::CondBranch:
             emit("cmp qword {}, 0", stack_addr(ir_fn, static_cast<IRBranch *>(ir)->cond_vreg));
             // False block
-            emit("je {}", ir->right.basic_block->label_name);
-            // Fall through if we dominate the true block
-            if (ir->basic_block_index + 1 != ir->left.basic_block->index) {
-                emit("jmp {}", ir->left.basic_block->label_name);
+            if (ir->basic_block_index + 1 != ir->right.basic_block->index) {
+                emit("je {}", ir->right.basic_block->label_name);
+                // Fall through if we dominate the true block
+                if (ir->basic_block_index + 1 != ir->left.basic_block->index) {
+                    emit("jmp {}", ir->left.basic_block->label_name);
+                }
+            } else {
+                emit("jne {}", ir->left.basic_block->label_name);
+                // Fall through if we dominate the false block
             }
             break;
         default:
