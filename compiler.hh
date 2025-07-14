@@ -444,7 +444,8 @@ enum class AstType {
     __ENUMERATE_OPERATION(Cast)          \
     __ENUMERATE_OPERATION(PushArg)       \
     __ENUMERATE_OPERATION(Branch)        \
-    __ENUMERATE_OPERATION(CondBranch)
+    __ENUMERATE_OPERATION(CondBranch)    \
+    __ENUMERATE_OPERATION(Fallthrough)
 
 enum class Operation {
 #define __ENUMERATE_OPERATION(operation) operation,

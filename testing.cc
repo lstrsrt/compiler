@@ -39,7 +39,7 @@ int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cm
         if (WIFEXITED(status)) {
             return WEXITSTATUS(status);
         } else {
-            std::println("signal or continue");
+            return -1;
         }
     } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     return -1;

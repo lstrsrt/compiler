@@ -288,15 +288,26 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     ir_fn->current_block = after_block;
 }
 
+BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
+{
+    auto *bb = add_block(ir_fn);
+    auto *ir = new IR;
+    ir->operation = Operation::Fallthrough;
+    ir->type = AstType::Unary;
+    ir->left = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb };
+    add_ir(ir, to);
+    bb->reachable = to->reachable;
+    return bb;
+}
+
 void generate_ir_while(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *while_stmt = static_cast<AstWhile *>(ast);
 
-    auto *cmp_block = add_block(ir_fn);
+    auto *cmp_block = add_fallthrough_block(ir_fn, get_current_block(ir_fn));
     auto *true_block = new_block();
     auto *after_block = new_block();
-    cmp_block->reachable = get_current_block(ir_fn)->reachable;
     ir_fn->current_block = cmp_block;
     auto cond = generate_ir_impl(cc, while_stmt->expr);
     generate_ir_cond_branch(cc, cond.vreg, true_block, after_block);
@@ -433,15 +444,6 @@ IRArg generate_ir_logical_or(Compiler &cc, AstBinary *ast)
     auto *false_block = new_block();
     generate_ir_logical_or(cc, ast, true_block, false_block);
     return generate_ir_cond_result(cc, ir_fn, true_block, false_block);
-}
-
-void flatten_logical(Ast *ast, std::vector<Ast *> &flattened)
-{
-    if (ast->operation == Operation::LogicalAnd) {
-        flatten_binary(ast, Operation::LogicalAnd, flattened);
-    } else if (ast->operation == Operation::LogicalOr) {
-        flatten_binary(ast, Operation::LogicalOr, flattened);
-    }
 }
 
 // TODO - don't set ir->target when we're in a return stmt

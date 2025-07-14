@@ -245,6 +245,8 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
                 emit("jmp {}", ir->left.basic_block->label_name);
             }
             break;
+        case Operation::Fallthrough:
+            break;
         default:
             TODO();
     }
@@ -308,16 +310,6 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::LessEquals:
             emit_asm_comparison(ir_fn, ir);
             break;
-        case Operation::LogicalAnd:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("and rax, {}", extract_ir_arg(ir_fn, ir->right));
-            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
-            break;
-        case Operation::LogicalOr:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("or rax, {}", extract_ir_arg(ir_fn, ir->right));
-            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
-            break;
         case Operation::CondBranch:
             emit("cmp qword {}, 0", stack_addr(ir_fn, static_cast<IRBranch *>(ir)->cond_vreg));
             // False block
@@ -350,7 +342,7 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
             emit_asm_stmt(cc, ir_fn, ir);
             break;
         default:
-            break;
+            TODO();
     }
 }
 
