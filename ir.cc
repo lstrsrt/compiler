@@ -279,9 +279,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
 
     if (else_block) {
         ir_fn->current_block = else_block;
-        for (auto *ast : if_stmt->else_body->stmts) {
-            generate_ir_impl(cc, ast);
-        }
+        generate_ir_impl(cc, if_stmt->else_body);
         generate_ir_branch(cc, after_block);
     }
 

@@ -500,11 +500,17 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     AstBlock *body = parse_block(cc, current_function);
     leave_scope();
 
-    AstBlock *else_ = nullptr;
+    Ast *else_ = nullptr;
     auto token = lex(cc);
     if (token.kind == TokenKind::Else) {
         consume(cc.lexer, token);
-        else_ = parse_block(cc, current_function);
+        token = lex(cc);
+        if (token.kind == TokenKind::If) {
+            consume(cc.lexer, token);
+            else_ = parse_if(cc, current_function);
+        } else {
+            else_ = parse_block(cc, current_function);
+        }
     }
 
     return new AstIf(expr, body, else_, loc);

@@ -816,9 +816,9 @@ struct AstBlock : Ast {
 struct AstIf : Ast {
     Ast *expr;
     AstBlock *body;
-    AstBlock *else_body;
+    Ast *else_body;
 
-    explicit AstIf(Ast *_expr, AstBlock *_body, AstBlock *_else_body, SourceLocation _location)
+    explicit AstIf(Ast *_expr, AstBlock *_body, Ast *_else_body, SourceLocation _location)
         : Ast(AstType::Statement, Operation::If, _location)
         , expr(_expr)
         , body(_body)
