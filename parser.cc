@@ -405,7 +405,9 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
             break;
         }
         auto *stmt = parse_stmt(cc, current_function);
-        assert(stmt);
+        if (!stmt) {
+            parser_error(cc.lexer.location(), "unexpected end of input. maybe a missing brace?");
+        }
         stmts.emplace_back(stmt);
     }
     return new AstBlock(std::move(stmts));
