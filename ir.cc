@@ -36,7 +36,7 @@ void add_ir(IR *ir, BasicBlock *bb)
     bb->code.push_back(ir);
 }
 
-void new_ir_function(IRBuilder &irb, AstFunctionDecl *ast)
+void new_ir_function(IRBuilder &irb, AstFunction *ast)
 {
     auto *fn = new IRFunction;
     fn->ast = ast;
@@ -200,19 +200,19 @@ IR *generate_ir_comparison(Compiler &cc, Ast *ast)
     return ir;
 }
 
-void mangle_function_name(AstFunctionDecl *fn)
+void mangle_function_name(AstFunction *fn)
 {
     auto &name = fn->name;
     name += std::to_string(fn->params.size());
 }
 
-void generate_ir_fn_decl(Compiler &cc, Ast *ast)
+void generate_ir_function(Compiler &cc, Ast *ast)
 {
-    auto *fn_decl = static_cast<AstFunctionDecl *>(ast);
+    auto *function = static_cast<AstFunction *>(ast);
     auto *last = cc.ir_builder.current_function;
-    mangle_function_name(fn_decl);
-    new_ir_function(cc.ir_builder, fn_decl);
-    for (auto *stmt : fn_decl->body->stmts) {
+    mangle_function_name(function);
+    new_ir_function(cc.ir_builder, function);
+    for (auto *stmt : function->body->stmts) {
         generate_ir_impl(cc, stmt);
     }
     cc.ir_builder.current_function = last;
@@ -494,7 +494,7 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
             if (ast->operation == Operation::VariableDecl) {
                 generate_ir_var_decl(cc, ast);
             } else if (ast->operation == Operation::FunctionDecl) {
-                generate_ir_fn_decl(cc, ast);
+                generate_ir_function(cc, ast);
             } else if (ast->operation == Operation::Return) {
                 generate_ir_return(cc, ast);
             } else if (ast->operation == Operation::If) {
@@ -507,7 +507,7 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
     return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
 }
 
-void generate_ir(Compiler &cc, AstFunctionDecl *main)
+void generate_ir(Compiler &cc, AstFunction *main)
 {
     new_ir_function(cc.ir_builder, main);
     main->call_count = 1;

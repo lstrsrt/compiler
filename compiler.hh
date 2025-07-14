@@ -639,12 +639,12 @@ struct AstCast : Ast {
     }
 };
 
-struct AstFunctionDecl;
+struct AstFunction;
 
 struct AstCall : Ast {
     std::string_view name;
     std::vector<Ast *> args;
-    AstFunctionDecl *fn = nullptr; // Use get_callee() instead of accessing this directly
+    AstFunction *fn = nullptr; // Use get_callee() instead of accessing this directly
 
     explicit AstCall(
         std::string_view _name, const std::vector<Ast *> &_args, SourceLocation _location)
@@ -655,7 +655,7 @@ struct AstCall : Ast {
     }
 };
 
-AstFunctionDecl *get_callee(Compiler &, AstCall *);
+AstFunction *get_callee(Compiler &, AstCall *);
 
 struct AstBinary : Ast {
     Ast *left;
@@ -839,7 +839,7 @@ struct AstWhile : Ast {
     }
 };
 
-struct AstFunctionDecl : Ast {
+struct AstFunction : Ast {
     std::string name;
     Type *return_type;
     std::vector<AstVariableDecl *> params;
@@ -849,7 +849,7 @@ struct AstFunctionDecl : Ast {
     std::vector<AstReturn *> return_stmts;
     uint64_t call_count = 0;
 
-    explicit AstFunctionDecl(std::string_view _name, Type *_return_type,
+    explicit AstFunction(std::string_view _name, Type *_return_type,
         const std::vector<AstVariableDecl *> &_params, AstBlock *_body, SourceLocation _location)
         : Ast(AstType::Statement, Operation::FunctionDecl, _location)
         , name(_name)
@@ -865,7 +865,7 @@ struct AstFunctionDecl : Ast {
     }
 };
 
-Ast *parse_stmt(Compiler &, AstFunctionDecl *);
+Ast *parse_stmt(Compiler &, AstFunction *);
 
 void free_ast(Ast *);
 void free_ast(std::vector<Ast *> &);
@@ -879,7 +879,7 @@ Ast *try_constant_fold(Compiler &, Ast *, Type *&expected, TypeOverridable);
 struct Scope {
     Scope *parent;
     std::unordered_map<std::string_view, Type *> types{};
-    std::unordered_map<std::string_view, AstFunctionDecl *> functions{};
+    std::unordered_map<std::string_view, AstFunction *> functions{};
     std::vector<AstVariableDecl *> variables{};
 
     Scope(Scope *_parent)
@@ -924,7 +924,7 @@ enum class SearchParents {
 AstVariableDecl *find_variable(Scope *, std::string_view name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
-AstFunctionDecl *find_function(Scope *, std::string_view name, Scope **result_scope = nullptr,
+AstFunction *find_function(Scope *, std::string_view name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
 Type *find_type(Scope *, std::string_view name, Scope **result_scope = nullptr,
@@ -942,7 +942,7 @@ void diagnose_redeclaration_or_shadowing(
 // Verification
 //
 
-void verify_main(Compiler &, AstFunctionDecl *);
+void verify_main(Compiler &, AstFunction *);
 
 bool has_top_level_return(AstBlock *);
 bool types_match(Type *, Type *);
@@ -980,7 +980,7 @@ struct IRArg {
         Variable *variable = nullptr;
         AstLiteral *constant;
         AstString *string;
-        AstFunctionDecl *function;
+        AstFunction *function;
         ssize_t vreg;
         BasicBlock *basic_block;
         Type *type;
@@ -1017,7 +1017,7 @@ struct IRFunction {
     std::vector<BasicBlock *> basic_blocks;
     BasicBlock *current_block = nullptr;
     std::unordered_map<uint64_t, int> stack_offsets;
-    AstFunctionDecl *ast;
+    AstFunction *ast;
     ssize_t temp_regs = 0;
 };
 
@@ -1028,7 +1028,7 @@ struct IRBuilder {
     IRFunction *current_function;
 };
 
-void generate_ir(Compiler &, AstFunctionDecl *);
+void generate_ir(Compiler &, AstFunction *);
 void optimize_ir(Compiler &);
 
 void free_ir_function(IRFunction *);
@@ -1075,10 +1075,10 @@ struct Compiler {
     void add_default_types();
     void free_types();
     void free_ir();
-    void cleanup(AstFunctionDecl *root);
+    void cleanup(AstFunction *root);
 };
 
-void compiler_main(Compiler &, AstFunctionDecl *root);
+void compiler_main(Compiler &, AstFunction *root);
 
 //
 // Diagnostics

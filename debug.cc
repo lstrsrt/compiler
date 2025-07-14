@@ -135,11 +135,11 @@ static void print_node(Ast *ast, std::string_view indent)
         auto call = static_cast<AstCall *>(ast);
         std::println(" {} ({} args)]", call->name, call->args.size());
     } else if (ast->operation == Operation::FunctionDecl) {
-        auto fn_decl = static_cast<AstFunctionDecl *>(ast);
-        std::println(" {} -> {}]", fn_decl->name, fn_decl->return_type->name);
-        for (size_t i = 0; i < fn_decl->params.size(); i++) {
+        auto function = static_cast<AstFunction *>(ast);
+        std::println(" {} -> {}]", function->name, function->return_type->name);
+        for (size_t i = 0; i < function->params.size(); i++) {
             std::print("{}[Param: ", indent);
-            auto *p = fn_decl->params[i];
+            auto *p = function->params[i];
             print_var_decl(p);
         }
     } else if (ast->operation == Operation::VariableDecl) {
@@ -195,7 +195,7 @@ void print_ast(Ast *ast, std::string indent)
             if (ast->operation == Operation::Return) {
                 print_ast(static_cast<AstReturn *>(ast)->expr, indent);
             } else if (ast->operation == Operation::FunctionDecl) {
-                print_ast(static_cast<AstFunctionDecl *>(ast)->body, indent);
+                print_ast(static_cast<AstFunction *>(ast)->body, indent);
             } else if (ast->operation == Operation::VariableDecl) {
                 print_ast(static_cast<AstVariableDecl *>(ast)->init_expr, indent);
             } else if (ast->operation == Operation::If) {

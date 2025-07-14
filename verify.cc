@@ -77,7 +77,7 @@ Type *get_unaliased_type(Type *type)
     return tmp;
 }
 
-AstFunctionDecl *get_callee(Compiler &cc, AstCall *call)
+AstFunction *get_callee(Compiler &cc, AstCall *call)
 {
     if (!call->fn) {
         // Cache it so the next lookup takes the fast path
@@ -601,10 +601,10 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
     var_decl->scope->variables[var.index_in_scope]->var.type = var.type;
 }
 
-void verify_ast(Compiler &, Ast *, AstFunctionDecl *);
+void verify_ast(Compiler &, Ast *, AstFunction *);
 
 void verify_return(
-    Compiler &cc, AstReturn *return_stmt, AstFunctionDecl *current_function, Type *expected)
+    Compiler &cc, AstReturn *return_stmt, AstFunction *current_function, Type *expected)
 {
     if (current_function->returns_void()) {
         if (return_stmt->expr) {
@@ -633,7 +633,7 @@ void verify_return(
     verify_expr(cc, return_stmt->expr, WarnDiscardedReturn::No, expected);
 }
 
-void verify_if(Compiler &cc, AstIf *if_stmt, AstFunctionDecl *current_function)
+void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
 {
     if (if_stmt->expr->operation == Operation::VariableDecl) {
         verify_var_decl(cc, static_cast<AstVariableDecl *>(if_stmt->expr));
@@ -646,7 +646,7 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunctionDecl *current_function)
     }
 }
 
-void verify_while(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
+void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *while_stmt = static_cast<AstWhile *>(ast);
     verify_expr(cc, while_stmt->expr, WarnDiscardedReturn::No, bool_type());
@@ -665,7 +665,7 @@ void verify_assign(Compiler &cc, Ast *ast)
 
 void verify_function_decl(Compiler &cc, Ast *ast)
 {
-    auto *fn = static_cast<AstFunctionDecl *>(ast);
+    auto *fn = static_cast<AstFunction *>(ast);
     resolve_type(cc, fn->scope, fn->return_type);
     for (auto &param : fn->params) {
         resolve_type(cc, fn->scope, param->var.type);
@@ -676,7 +676,7 @@ void verify_function_decl(Compiler &cc, Ast *ast)
     }
 }
 
-void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
+void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     if (ast->type == AstType::Statement) {
         switch (ast->operation) {
@@ -716,7 +716,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunctionDecl *current_function)
     }
 }
 
-void verify_main(Compiler &cc, AstFunctionDecl *main)
+void verify_main(Compiler &cc, AstFunction *main)
 {
     for (auto *ast : main->body->stmts) {
         verify_ast(cc, ast, main);

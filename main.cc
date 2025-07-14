@@ -62,7 +62,7 @@ int main(int argc, char **argv)
         cc.lexer.set_input(arg_parser.arguments.back());
         // Top level scope is main
         // TODO: give main argc and argv
-        auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
+        auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
         compiler_main(cc, main);
         cc.cleanup(main);
         cc.lexer.free_input();

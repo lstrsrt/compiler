@@ -1,6 +1,6 @@
 #include "compiler.hh"
 
-void compiler_main(Compiler &cc, AstFunctionDecl *main)
+void compiler_main(Compiler &cc, AstFunction *main)
 {
     using namespace colors;
 
@@ -137,7 +137,7 @@ void Compiler::free_ir()
     ir_builder.functions.clear();
 }
 
-void Compiler::cleanup(AstFunctionDecl *root)
+void Compiler::cleanup(AstFunction *root)
 {
     free_ast(root);
     leave_scope();

@@ -60,7 +60,7 @@ void run_test(const fs::path &file)
     Compiler cc;
     bool compiled = false;
     cc.lexer.set_input(file.string());
-    auto *main = new AstFunctionDecl("main", s32_type(), {}, new AstBlock({}), {});
+    auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
     try {
         ++current_test;
         compiler_main(cc, main);

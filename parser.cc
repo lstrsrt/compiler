@@ -390,7 +390,7 @@ std::vector<AstVariableDecl *> parse_fn_params(Compiler &cc)
     return ret;
 }
 
-AstBlock *parse_block(Compiler &cc, AstFunctionDecl *current_function = nullptr)
+AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
 {
     // TODO: keep track of the last token so we don't have to call lex again
     consume_expected(cc, TokenKind::LBrace, lex(cc));
@@ -411,7 +411,7 @@ AstBlock *parse_block(Compiler &cc, AstFunctionDecl *current_function = nullptr)
     return new AstBlock(std::move(stmts));
 }
 
-AstFunctionDecl *parse_fn_decl(Compiler &cc)
+AstFunction *parse_function(Compiler &cc)
 {
     auto token = lex(cc); // Name
     auto location = token.location;
@@ -444,13 +444,13 @@ AstFunctionDecl *parse_fn_decl(Compiler &cc)
     }
 
     // This expects { + (newline + stmts)? + }
-    auto fn_decl = new AstFunctionDecl(name, ret_type, std::move(params), {}, location);
-    current_scope->parent->add_function(cc, fn_decl, name);
-    fn_decl->body = parse_block(cc, fn_decl);
-    fn_decl->scope = current_scope->parent;
+    auto function = new AstFunction(name, ret_type, std::move(params), {}, location);
+    current_scope->parent->add_function(cc, function, name);
+    function->body = parse_block(cc, function);
+    function->scope = current_scope->parent;
     leave_scope();
 
-    return fn_decl;
+    return function;
 }
 
 AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
@@ -483,7 +483,7 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
     return nullptr;
 }
 
-AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
+AstIf *parse_if(Compiler &cc, AstFunction *current_function)
 {
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
@@ -516,7 +516,7 @@ AstIf *parse_if(Compiler &cc, AstFunctionDecl *current_function)
     return new AstIf(expr, body, else_, loc);
 }
 
-AstWhile *parse_while(Compiler &cc, AstFunctionDecl *current_function)
+AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
 {
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
@@ -586,7 +586,7 @@ void parse_attribute_list(Compiler &cc)
     consume_expected(cc, TokenKind::RBrace, lex(cc));
 }
 
-Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
+Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {
     auto token = lex(cc);
 
@@ -609,13 +609,13 @@ Ast *parse_stmt(Compiler &cc, AstFunctionDecl *current_function)
         if (token.kind == TokenKind::Fn) {
             consume(cc.lexer, token);
             cc.lexer.ignore_newlines = false;
-            auto *fn_decl = parse_fn_decl(cc);
-            // Note we have to set it again because parse_fn_decl
+            auto *function = parse_function(cc);
+            // Note we have to set it again because parse_function
             // may recurse into here and some paths can reset it
             cc.lexer.ignore_newlines = false;
             consume_newline_or_eof(cc, lex(cc));
             cc.lexer.ignore_newlines = true;
-            return fn_decl;
+            return function;
         }
         if (token.kind == TokenKind::Return) {
             consume(cc.lexer, token);
@@ -710,7 +710,7 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
     std::string_view type, ErrorOnShadowing error_on_shadowing)
 {
     Scope *result_scope;
-    AstFunctionDecl *existing_fn = nullptr;
+    AstFunction *existing_fn = nullptr;
     Type *existing_type = nullptr;
     AstVariableDecl *existing_var = find_variable(scope, name, &result_scope);
     if (!result_scope) {
@@ -749,7 +749,7 @@ void Scope::add_variable(Compiler &cc, AstVariableDecl *var_decl)
 void Scope::add_function(Compiler &cc, Ast *ast, std::string_view unmangled_name)
 {
     assert(ast->operation == Operation::FunctionDecl);
-    auto *fn = static_cast<AstFunctionDecl *>(ast);
+    auto *fn = static_cast<AstFunction *>(ast);
     diagnose_redeclaration_or_shadowing(cc, this, fn->name, "function", ErrorOnShadowing::Yes);
     functions[unmangled_name] = fn;
 }
@@ -803,11 +803,11 @@ void free_ast(Ast *ast)
                 free_ast(static_cast<AstReturn *>(ast)->expr);
                 delete static_cast<AstReturn *>(ast);
             } else if (ast->operation == Operation::FunctionDecl) {
-                for (auto *param : static_cast<AstFunctionDecl *>(ast)->params) {
+                for (auto *param : static_cast<AstFunction *>(ast)->params) {
                     free_ast(param);
                 }
-                free_ast(static_cast<AstFunctionDecl *>(ast)->body);
-                delete static_cast<AstFunctionDecl *>(ast);
+                free_ast(static_cast<AstFunction *>(ast)->body);
+                delete static_cast<AstFunction *>(ast);
             } else if (ast->operation == Operation::VariableDecl) {
                 free_ast(static_cast<AstVariableDecl *>(ast)->init_expr);
                 delete static_cast<AstVariableDecl *>(ast);
@@ -884,11 +884,11 @@ AstVariableDecl *find_variable(
         });
 }
 
-AstFunctionDecl *find_function(Scope *scope, std::string_view unmangled_name, Scope **result_scope,
+AstFunction *find_function(Scope *scope, std::string_view unmangled_name, Scope **result_scope,
     SearchParents search_parents)
 {
-    return find__helper<AstFunctionDecl>(
-        scope, result_scope, search_parents, [unmangled_name](Scope *s) -> AstFunctionDecl * {
+    return find__helper<AstFunction>(
+        scope, result_scope, search_parents, [unmangled_name](Scope *s) -> AstFunction * {
             if (auto res = s->functions.find(unmangled_name); res != s->functions.end()) {
                 return res->second;
             }
