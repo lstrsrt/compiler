@@ -1,6 +1,7 @@
 #include "compiler.hh"
 
 #include <algorithm> // std::ranges::remove
+#include <unordered_set>
 
 IRArg generate_ir_impl(Compiler &cc, Ast *ast);
 
@@ -148,6 +149,7 @@ void generate_ir_return(Compiler &cc, Ast *ast)
     auto *ret = static_cast<AstReturn *>(ast);
     auto *ir_fn = cc.ir_builder.current_function;
     auto *bb = get_current_block(ir_fn);
+    bb->terminal = true;
     auto ir = new IR;
     ir->ast = ast;
     ir->type = AstType::Statement;
@@ -254,6 +256,12 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
     add_ir(ir, bb);
 }
 
+AstLiteral *null_s32()
+{
+    static AstLiteral ast{ s32_type(), 0, {} };
+    return &ast;
+}
+
 void generate_ir_if(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
@@ -272,8 +280,8 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     generate_ir_cond_branch(cc, cond.vreg, true_block, false_block);
 
     ir_fn->current_block = true_block;
-    for (auto *ast : if_stmt->body->stmts) {
-        generate_ir_impl(cc, ast);
+    for (auto *stmt : if_stmt->body->stmts) {
+        generate_ir_impl(cc, stmt);
     }
     generate_ir_branch(cc, after_block);
 
@@ -323,17 +331,17 @@ void generate_ir_while(Compiler &cc, Ast *ast)
 
 AstLiteral *true_bool()
 {
-    static AstLiteral ast{ bool_type(), AstType::Boolean, true, {} };
+    static AstLiteral ast{ true, {} };
     return &ast;
 }
 
 AstLiteral *false_bool()
 {
-    static AstLiteral ast{ bool_type(), AstType::Boolean, false, {} };
+    static AstLiteral ast{ false, {} };
     return &ast;
 }
 
-IR *constant_ir(IRArg temp, AstLiteral *constant)
+IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)
 {
     IR *ir = new IR;
     ir->operation = Operation::Assign;
@@ -351,12 +359,12 @@ IRArg generate_ir_cond_result(
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
-    add_ir(constant_ir(temp, true_bool()), ir_fn->current_block);
+    add_ir(generate_ir_assign_constant(temp, true_bool()), ir_fn->current_block);
     generate_ir_branch(cc, last);
 
     add_block(ir_fn, false_block);
     ir_fn->current_block = false_block;
-    add_ir(constant_ir(temp, false_bool()), ir_fn->current_block);
+    add_ir(generate_ir_assign_constant(temp, false_bool()), ir_fn->current_block);
     generate_ir_branch(cc, last);
 
     add_block(ir_fn, last);
@@ -444,7 +452,7 @@ IRArg generate_ir_logical_or(Compiler &cc, AstBinary *ast)
     return generate_ir_cond_result(cc, ir_fn, true_block, false_block);
 }
 
-// TODO - don't set ir->target when we're in a return stmt
+// TODO: don't set ir->target when we're in a return stmt
 IRArg generate_ir_impl(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
@@ -514,18 +522,6 @@ void generate_ir(Compiler &cc, AstFunction *main)
     for (auto *stmt : main->body->stmts) {
         generate_ir_impl(cc, stmt);
     }
-    for (size_t i = 0; i < cc.ir_builder.functions.size();) {
-        auto *fn = cc.ir_builder.functions[i];
-        if (!fn->ast->call_count) {
-            diag_ast_warning(cc, fn->ast, "unused function");
-            free_ir_function(fn);
-            // Why
-            auto [beg, end] = std::ranges::remove(cc.ir_builder.functions, fn);
-            cc.ir_builder.functions.erase(beg, end);
-        } else {
-            ++i;
-        }
-    }
 }
 
 void free_bb(BasicBlock *bb)
@@ -545,8 +541,8 @@ void optimize_ir(Compiler &cc, IRFunction &ir_fn)
             return true;
         }
         if (!bb->reachable) {
-            if (bb->code.front()->ast) {
-                diag_ast_warning(cc, bb->code.front()->ast, "unreachable code");
+            if (bb->code.back()->ast) {
+                diag_ast_warning(cc, bb->code.back()->ast, "unreachable code");
             }
             return true;
         }
@@ -557,7 +553,8 @@ void optimize_ir(Compiler &cc, IRFunction &ir_fn)
         auto *bb = bbs[i];
         if (killable(bb)) {
             free_bb(bb);
-            bbs.erase(bbs.begin() + i);
+            auto [beg, end] = std::ranges::remove(bbs, bb);
+            bbs.erase(beg, end);
         } else {
             ++i;
         }
@@ -572,10 +569,113 @@ void optimize_ir(Compiler &cc, IRFunction &ir_fn)
     }
 }
 
+AstLiteral *s32_literal(int value)
+{
+    return new AstLiteral{ s32_type(), static_cast<uint64_t>(value), {} };
+}
+
+void generate_ir_constant(IRArg &arg, AstLiteral *constant)
+{
+    arg = IRArg{ .arg_type = IRArgType::Constant, .constant = constant };
+}
+
+void insert_return(IRFunction *ir_fn, int32_t return_value)
+{
+    auto *bb = get_current_block(ir_fn);
+    bb->terminal = true;
+    auto ir = new IR;
+    ir->type = AstType::Statement;
+    ir->operation = Operation::Return;
+    generate_ir_constant(ir->left, s32_literal(return_value));
+    add_ir(ir, bb);
+}
+
+void visit_successors(Compiler &cc, IRFunction *fn, BasicBlock *block,
+    std::unordered_set<BasicBlock *> &visited, bool is_main)
+{
+    if (visited.find(block) != visited.end()) {
+        return;
+    }
+
+    visited.insert(block);
+    for (auto *bb : block->successors) {
+        visit_successors(cc, fn, bb, visited, is_main);
+    }
+
+    if (block->successors.empty() && !block->terminal) {
+        if (is_main) {
+            auto *bb = add_block(fn);
+            bb->reachable = true;
+            fn->current_block = bb;
+            insert_return(fn, 0);
+        } else {
+            // TODO: print demangled name
+            diag_error_at(cc, fn->ast->location, ErrorType::Verification,
+                "non-void function does not return a value on all paths");
+        }
+    }
+}
+
+void build_successor_lists(Compiler &cc)
+{
+    for (size_t i = 0; i < cc.ir_builder.functions.size(); ++i) {
+        auto *fn = cc.ir_builder.functions[i];
+        if (fn->basic_blocks.empty()) {
+            if (fn->ast->returns_void()) {
+                auto *bb = add_block(fn);
+                bb->reachable = true;
+                fn->current_block = bb;
+                insert_return(fn, {});
+            } else {
+                diag_error_at(cc, fn->ast->location, ErrorType::Verification,
+                    "non-void function does not return a value on all paths");
+            }
+            continue;
+        }
+        // Would be faster to do this during IR gen, but then dealing with invalidated blocks
+        // becomes annoying.
+        for (auto *bb : fn->basic_blocks) {
+            auto *code = bb->code.back();
+            switch (code->operation) {
+                case Operation::CondBranch:
+                    bb->successors.push_back(code->left.basic_block);
+                    bb->successors.push_back(code->right.basic_block);
+                    break;
+                case Operation::Branch:
+                    [[fallthrough]];
+                case Operation::Fallthrough:
+                    bb->successors.push_back(code->left.basic_block);
+                    break;
+                default:
+                    break;
+            }
+        }
+        std::unordered_set<BasicBlock *> visited;
+        visit_successors(cc, fn, fn->basic_blocks[0], visited, i == 0);
+    }
+}
+
 void optimize_ir(Compiler &cc)
 {
     for (auto *fn : cc.ir_builder.functions) {
         optimize_ir(cc, *fn);
+    }
+
+    // TODO: use this to insert ret for void functions with no explicit return
+    // also need to always ret from main
+    build_successor_lists(cc);
+
+    for (size_t i = 0; i < cc.ir_builder.functions.size();) {
+        auto *fn = cc.ir_builder.functions[i];
+        if (!fn->ast->call_count) {
+            diag_ast_warning(cc, fn->ast, "unused function");
+            free_ir_function(fn);
+            // Why
+            auto [beg, end] = std::ranges::remove(cc.ir_builder.functions, fn);
+            cc.ir_builder.functions.erase(beg, end);
+        } else {
+            ++i;
+        }
     }
 }
 

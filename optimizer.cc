@@ -32,7 +32,7 @@ Ast *partial_fold_associative(
     }
 
     if (accumulator != 0 || non_constants.empty()) {
-        non_constants.push_back(new AstLiteral(expected, AstType::Integer, accumulator, {}));
+        non_constants.push_back(new AstLiteral(expected, accumulator, {}));
     }
 
     auto *ret = non_constants[0];
@@ -202,7 +202,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
     delete static_cast<AstLiteral *>(binary->left);
     delete static_cast<AstLiteral *>(binary->right);
     delete static_cast<AstBinary *>(binary);
-    return new AstLiteral(expected, AstType::Integer, result, loc);
+    return new AstLiteral(expected, result, loc);
 }
 
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)

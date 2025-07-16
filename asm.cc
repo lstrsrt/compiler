@@ -188,11 +188,7 @@ void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
         }
         emit_epilogue();
-        if (ir_fn.ast->name == "main") {
-            emit("ret");
-        } else {
-            emit("ret");
-        }
+        emit("ret");
     }
 }
 
@@ -348,7 +344,6 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
 
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
-    bool is_main = ir_fn.ast->name == "main";
     __emit("\nglobal {0}\n"
            "{0}:\n",
         ir_fn.ast->name);
@@ -360,13 +355,6 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
         for (auto *ir : bb->code) {
             emit_asm(cc, ir_fn, ir);
         }
-    }
-    if (!has_top_level_return(ir_fn.ast->body)) {
-        emit_epilogue();
-        if (is_main) {
-            emit("xor eax, eax");
-        }
-        emit("ret");
     }
 }
 

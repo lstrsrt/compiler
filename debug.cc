@@ -269,6 +269,19 @@ std::string get_ir_arg_value(const IRArg &src)
     assert(!"get_ir_arg_value unhandled source type");
 }
 
+void print_ir(BasicBlock *bb)
+{
+    for (auto *code : bb->code) {
+        print_ir(code);
+    }
+    if (!bb->successors.empty()) {
+        std::println("successors:");
+        for (auto *s : bb->successors) {
+            std::println("    {}", s->index);
+        }
+    }
+}
+
 void print_ir(IR *ir)
 {
     std::string target = ir->has_vreg_target() ? std::format("v{} = ", ir->target) : "";
@@ -283,20 +296,14 @@ void print_ir(IR *ir)
     std::print("\n");
 }
 
-void print_ir(const std::vector<IR *> &ir_vec)
-{
-    for (auto *ir : ir_vec) {
-        print_ir(ir);
-    }
-}
-
 void print_ir(const IRFunction &ir_fn)
 {
     for (size_t i = 0; i < ir_fn.basic_blocks.size(); ++i) {
         auto *bb = ir_fn.basic_blocks[i];
         const char *s = bb->reachable ? "live" : "dead";
-        std::println("{} ({}):", i, s);
-        print_ir(bb->code);
+        const char *s2 = bb->terminal ? "terminal" : "non-terminal";
+        std::println("{} ({}, {}):", i, s, s2);
+        print_ir(bb);
     }
     std::print("\n");
 }

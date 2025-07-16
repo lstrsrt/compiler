@@ -374,19 +374,6 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
     }
 }
 
-bool has_top_level_return(AstBlock *block)
-{
-    for (auto *stmt : block->stmts) {
-        if (stmt->operation == Operation::Return) {
-            return true;
-        }
-        if (stmt->type == AstType::Block) {
-            return has_top_level_return(static_cast<AstBlock *>(stmt));
-        }
-    }
-    return false;
-}
-
 enum class WarnDiscardedReturn {
     No,
     Yes
@@ -671,9 +658,6 @@ void verify_function_decl(Compiler &cc, Ast *ast)
         resolve_type(cc, fn->scope, param->var.type);
     }
     verify_ast(cc, fn->body, fn);
-    if (!fn->returns_void() && (fn->return_stmts.empty() || !has_top_level_return(fn->body))) {
-        verification_error(fn, "function `{}` is missing a top level return statement", fn->name);
-    }
 }
 
 void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)

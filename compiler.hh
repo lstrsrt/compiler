@@ -293,9 +293,9 @@ struct Token {
     }
 
     static constexpr Token make_keyword(
-        std::string_view _string, TokenKind _kind2, SourceLocation _location)
+        std::string_view _string, TokenKind _kind, SourceLocation _location)
     {
-        return Token{ .string = _string, .kind = _kind2, .location = _location };
+        return Token{ .string = _string, .kind = _kind, .location = _location };
     }
 
     std::string_view string{}; // use for AstIdentifier?
@@ -542,6 +542,7 @@ struct Ast {
 };
 
 struct Type;
+Type *bool_type();
 
 struct AstLiteral : Ast {
     Type *literal_type = nullptr;
@@ -554,37 +555,16 @@ struct AstLiteral : Ast {
         bool boolean;
     } u;
 
-    explicit AstLiteral(Type *_type, AstType _ast_type, uint64_t _literal, SourceLocation _location)
-        : Ast(_ast_type, Operation::None, _location)
+    explicit AstLiteral(Type *_type, uint64_t _literal, SourceLocation _location)
+        : Ast(AstType::Integer, Operation::None, _location)
         , literal_type(_type)
     {
         u.u64 = _literal;
     }
 
-    explicit AstLiteral(Type *_type, AstType _ast_type, uint32_t _literal, SourceLocation _location)
-        : Ast(_ast_type, Operation::None, _location)
-        , literal_type(_type)
-    {
-        u.u32 = _literal;
-    }
-
-    explicit AstLiteral(Type *_type, AstType _ast_type, int32_t _literal, SourceLocation _location)
-        : Ast(_ast_type, Operation::None, _location)
-        , literal_type(_type)
-    {
-        u.s32 = _literal;
-    }
-
-    explicit AstLiteral(Type *_type, AstType _ast_type, int64_t _literal, SourceLocation _location)
-        : Ast(_ast_type, Operation::None, _location)
-        , literal_type(_type)
-    {
-        u.s64 = _literal;
-    }
-
-    explicit AstLiteral(Type *_type, AstType _ast_type, bool _literal, SourceLocation _location)
-        : Ast(_ast_type, Operation::None, _location)
-        , literal_type(_type)
+    explicit AstLiteral(bool _literal, SourceLocation _location)
+        : Ast(AstType::Boolean, Operation::None, _location)
+        , literal_type(bool_type())
     {
         u.boolean = _literal;
     }
@@ -764,7 +744,6 @@ Type *u32_type();
 Type *u64_type();
 Type *s32_type();
 Type *s64_type();
-Type *bool_type();
 Type *string_type();
 Type *unresolved_type();
 
@@ -1010,7 +989,9 @@ struct BasicBlock {
     std::vector<IR *> code{};
     size_t index = 0; // Index in IRFunction
     std::string label_name{};
+    std::vector<BasicBlock *> successors{};
     bool reachable = false;
+    bool terminal = false;
 };
 
 struct IRFunction {
@@ -1088,8 +1069,8 @@ void print_diag_line(std::string_view, SourceLocation);
 std::string make_printable(std::string_view);
 std::string to_string(TokenKind);
 
-[[noreturn]] void diag_error_at(Compiler &cc, [[maybe_unused]] SourceLocation location,
-    [[maybe_unused]] ErrorType type, std::string_view fmt, auto &&...args)
+[[noreturn]] void diag_error_at(
+    Compiler &cc, SourceLocation location, ErrorType type, std::string_view fmt, auto &&...args)
 {
     const auto msg = std::vformat(fmt, std::make_format_args(args...));
     if (!opts.testing) {
@@ -1112,8 +1093,7 @@ std::string to_string(TokenKind);
     diag_error_at(cc, cc.lexer.location(), ErrorType::Lexer, fmt, args...);
 }
 
-void diag_warning_at(Compiler &cc, [[maybe_unused]] SourceLocation location,
-    [[maybe_unused]] std::string_view fmt, [[maybe_unused]] auto &&...args)
+void diag_warning_at(Compiler &cc, SourceLocation location, std::string_view fmt, auto &&...args)
 {
     // TODO: maybe test warnings too?
     if (!opts.testing) {
@@ -1143,6 +1123,6 @@ std::string to_string(ErrorType);
 void print_ast(Ast *, std::string indent = "");
 void print_ast(const std::vector<Ast *> &, std::string indent = "");
 void print_types(Scope *);
-void print_ir(const std::vector<IR *> &);
 void print_ir(IR *);
+void print_ir(BasicBlock *);
 void print_ir(const IRFunction &);

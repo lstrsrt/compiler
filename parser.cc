@@ -175,15 +175,15 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         try_convert_string_to_u64(cc, token.location, token.string, number);
         consume(cc.lexer, token);
         if (number > std::numeric_limits<int64_t>::max()) {
-            return new AstLiteral(u64_type(), AstType::Integer, number, token.location);
+            return new AstLiteral(u64_type(), number, token.location);
         }
         if (number > std::numeric_limits<uint32_t>::max()) {
-            return new AstLiteral(s64_type(), AstType::Integer, number, token.location);
+            return new AstLiteral(s64_type(), number, token.location);
         }
         if (number > std::numeric_limits<int32_t>::max()) {
-            return new AstLiteral(u32_type(), AstType::Integer, number, token.location);
+            return new AstLiteral(u32_type(), number, token.location);
         }
-        return new AstLiteral(s32_type(), AstType::Integer, number, token.location);
+        return new AstLiteral(s32_type(), number, token.location);
     }
 
     if (is_group(token.kind, TokenKind::GroupString)) {
@@ -220,7 +220,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             }
         }
         consume(cc.lexer, token);
-        return new AstLiteral(bool_type(), AstType::Boolean, is_true, token.location);
+        return new AstLiteral(is_true, token.location);
     }
 
     return nullptr;
@@ -406,7 +406,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
         }
         auto *stmt = parse_stmt(cc, current_function);
         if (!stmt) {
-            parser_error(cc.lexer.location(), "unexpected end of input. maybe a missing brace?");
+            parser_error(cc.lexer.location(), "unexpected end of input. maybe missing a brace?");
         }
         stmts.emplace_back(stmt);
     }
