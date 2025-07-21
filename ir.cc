@@ -81,7 +81,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
             args.push_back(push);
         }
         auto *fn = get_callee(cc, call);
-        ir->left = IRArg{ .arg_type = IRArgType::Function, .function = fn };
+        ir->left = IRArg::make_function(fn);
         if (fn->return_type->get_kind() != TypeFlags::Void) {
             ir->target = ++ir_fn->temp_regs;
         }
@@ -96,12 +96,12 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
     } else if (ast->operation == Operation::Cast) {
         auto *cast = static_cast<AstCast *>(ast);
         ir->left.arg_type = IRArgType::Type;
-        ir->left.type = cast->cast_type;
+        ir->left.u.type = cast->cast_type;
         generate_ir(cc, ir, ir->right, cast->expr);
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, bb);
     }
-    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir->target };
+    return IRArg::make_vreg(ir->target);
 }
 
 void print_bb(BasicBlock *bb)
@@ -124,7 +124,7 @@ IRArg generate_ir_binary(Compiler &cc, Ast *ast)
         ir->target = ++ir_fn->temp_regs;
     }
     add_ir(ir, get_current_block(ir_fn));
-    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir->target };
+    return IRArg::make_vreg(ir->target);
 }
 
 IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
@@ -134,14 +134,14 @@ IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
     if (var_decl->init_expr) {
         auto ir = new IR;
         ir->ast = ast;
-        ir->left = IRArg{ .arg_type = IRArgType::Variable, .variable = &var_decl->var };
+        ir->left = IRArg::make_variable(&var_decl->var);
         generate_ir(cc, ir, ir->right, var_decl->init_expr);
         // Transform into an assignment; we don't care (yet?)
         ir->operation = Operation::Assign;
         ir->type = AstType::Binary;
         add_ir(ir, get_current_block(ir_fn));
     }
-    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
+    return IRArg::make_vreg(ir_fn->temp_regs);
 }
 
 void generate_ir_return(Compiler &cc, Ast *ast)
@@ -226,7 +226,7 @@ IRBranch *new_ir_branch(Ast *ast, AstType type, Operation operation, ssize_t con
     ir->ast = ast;
     ir->operation = operation;
     ir->type = type;
-    ir->cond_vreg = cond_vreg;
+    ir->cond = cond_vreg;
     return ir;
 }
 
@@ -235,8 +235,8 @@ void generate_ir_cond_branch(Compiler &cc, ssize_t cond, BasicBlock *bb1, BasicB
     auto *ir_fn = cc.ir_builder.current_function;
     auto *ir = new_ir_branch(nullptr, AstType::Binary, Operation::CondBranch, cond);
     auto *bb = get_current_block(ir_fn);
-    ir->left = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb1 };
-    ir->right = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb2 };
+    ir->left = IRArg::make_block(bb1);
+    ir->right = IRArg::make_block(bb2);
     if (bb->reachable) {
         bb1->reachable = true;
         bb2->reachable = true;
@@ -249,7 +249,7 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
     auto *ir_fn = cc.ir_builder.current_function;
     auto *bb = get_current_block(ir_fn);
     auto *ir = new_ir_branch(nullptr, AstType::Unary, Operation::Branch);
-    ir->left = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb1 };
+    ir->left = IRArg::make_block(bb1);
     if (bb->reachable) {
         bb1->reachable = true;
     }
@@ -277,7 +277,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
 
     auto *after_block = add_block(ir_fn);
     auto *false_block = else_block ? else_block : after_block;
-    generate_ir_cond_branch(cc, cond.vreg, true_block, false_block);
+    generate_ir_cond_branch(cc, cond.u.vreg, true_block, false_block);
 
     ir_fn->current_block = true_block;
     for (auto *stmt : if_stmt->body->stmts) {
@@ -300,7 +300,7 @@ BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
     auto *ir = new IR;
     ir->operation = Operation::Fallthrough;
     ir->type = AstType::Unary;
-    ir->left = IRArg{ .arg_type = IRArgType::BasicBlock, .basic_block = bb };
+    ir->left = IRArg::make_block(bb);
     add_ir(ir, to);
     bb->reachable = to->reachable;
     return bb;
@@ -316,7 +316,7 @@ void generate_ir_while(Compiler &cc, Ast *ast)
     auto *after_block = new_block();
     ir_fn->current_block = cmp_block;
     auto cond = generate_ir_impl(cc, while_stmt->expr);
-    generate_ir_cond_branch(cc, cond.vreg, true_block, after_block);
+    generate_ir_cond_branch(cc, cond.u.vreg, true_block, after_block);
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
@@ -347,7 +347,7 @@ IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)
     ir->operation = Operation::Assign;
     ir->type = AstType::Binary;
     ir->left = temp;
-    ir->right = IRArg{ .arg_type = IRArgType::Constant, .constant = constant };
+    ir->right = IRArg::make_constant(constant);
     return ir;
 }
 
@@ -355,7 +355,7 @@ IRArg generate_ir_cond_result(
     Compiler &cc, IRFunction *ir_fn, BasicBlock *true_block, BasicBlock *false_block)
 {
     auto *last = new_block();
-    IRArg temp{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
+    auto temp = IRArg::make_vreg(ir_fn->temp_regs);
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
@@ -460,17 +460,16 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
         case AstType::Integer:
             [[fallthrough]];
         case AstType::Boolean:
-            return IRArg{ .arg_type = IRArgType::Constant,
-                .constant = static_cast<AstLiteral *>(ast) };
+            return IRArg::make_constant(static_cast<AstLiteral *>(ast));
         case AstType::String:
             string_map.push_back(static_cast<AstString *>(ast)->string);
-            return IRArg{ .arg_type = IRArgType::String,
-                .string_index = string_map.size(),
-                .string = static_cast<AstString *>(ast) };
+            return IRArg::make_string(string_map.size(), static_cast<AstString *>(ast));
         case AstType::Identifier: {
             auto *var = static_cast<AstIdentifier *>(ast)->var;
-            auto src_type = var->is_parameter() ? IRArgType::Parameter : IRArgType::Variable;
-            return IRArg{ .arg_type = src_type, .variable = var };
+            if (var->is_parameter()) {
+                return IRArg::make_parameter(var);
+            }
+            return IRArg::make_variable(var);
         }
         case AstType::Unary:
             return generate_ir_unary(cc, ast);
@@ -512,7 +511,7 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
             }
         }
     }
-    return IRArg{ .arg_type = IRArgType::Vreg, .vreg = ir_fn->temp_regs };
+    return IRArg::make_vreg(ir_fn->temp_regs);
 }
 
 void generate_ir(Compiler &cc, AstFunction *main)
@@ -574,11 +573,6 @@ AstLiteral *s32_literal(int value)
     return new AstLiteral{ s32_type(), static_cast<uint64_t>(value), {} };
 }
 
-void generate_ir_constant(IRArg &arg, AstLiteral *constant)
-{
-    arg = IRArg{ .arg_type = IRArgType::Constant, .constant = constant };
-}
-
 void insert_return(IRFunction *ir_fn, int32_t return_value)
 {
     auto *bb = get_current_block(ir_fn);
@@ -586,7 +580,7 @@ void insert_return(IRFunction *ir_fn, int32_t return_value)
     auto ir = new IR;
     ir->type = AstType::Statement;
     ir->operation = Operation::Return;
-    generate_ir_constant(ir->left, s32_literal(return_value));
+    ir->left = IRArg::make_constant(s32_literal(return_value));
     add_ir(ir, bb);
 }
 
@@ -638,13 +632,13 @@ void build_successor_lists(Compiler &cc)
             auto *code = bb->code.back();
             switch (code->operation) {
                 case Operation::CondBranch:
-                    bb->successors.push_back(code->left.basic_block);
-                    bb->successors.push_back(code->right.basic_block);
+                    bb->successors.push_back(code->left.u.basic_block);
+                    bb->successors.push_back(code->right.u.basic_block);
                     break;
                 case Operation::Branch:
                     [[fallthrough]];
                 case Operation::Fallthrough:
-                    bb->successors.push_back(code->left.basic_block);
+                    bb->successors.push_back(code->left.u.basic_block);
                     break;
                 default:
                     break;

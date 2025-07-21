@@ -950,19 +950,77 @@ enum class IRArgType {
 
 struct BasicBlock;
 
+union IRStorage {
+    Variable *variable = nullptr;
+    AstLiteral *constant;
+    AstString *string;
+    AstFunction *function;
+    ssize_t vreg;
+    BasicBlock *basic_block;
+    Type *type;
+};
+
 struct IRArg {
     IRArgType arg_type;
     size_t string_index = 0;
+    IRStorage u;
 
-    union {
-        Variable *variable = nullptr;
-        AstLiteral *constant;
-        AstString *string;
-        AstFunction *function;
-        ssize_t vreg;
-        BasicBlock *basic_block;
-        Type *type;
-    };
+    static IRArg make_parameter(Variable *variable)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::Parameter;
+        arg.u.variable = variable;
+        return arg;
+    }
+
+    static IRArg make_variable(Variable *variable)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::Variable;
+        arg.u.variable = variable;
+        return arg;
+    }
+
+    static IRArg make_block(BasicBlock *bb)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::BasicBlock;
+        arg.u.basic_block = bb;
+        return arg;
+    }
+
+    static IRArg make_function(AstFunction *function)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::Function;
+        arg.u.function = function;
+        return arg;
+    }
+
+    static IRArg make_constant(AstLiteral *constant)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::Constant;
+        arg.u.constant = constant;
+        return arg;
+    }
+
+    static IRArg make_vreg(ssize_t vreg)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::Vreg;
+        arg.u.vreg = vreg;
+        return arg;
+    }
+
+    static IRArg make_string(size_t index, AstString *string)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::String;
+        arg.string_index = index;
+        arg.u.string = string;
+        return arg;
+    }
 };
 
 struct IR {
@@ -981,7 +1039,7 @@ struct IR {
 };
 
 struct IRBranch : IR {
-    ssize_t cond_vreg = -1;
+    ssize_t cond = 0;
 };
 
 struct BasicBlock {

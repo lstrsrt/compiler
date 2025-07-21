@@ -248,21 +248,21 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::Empty:
             return "";
         case IRArgType::Constant:
-            return extract_integer_constant(src.constant);
+            return extract_integer_constant(src.u.constant);
         case IRArgType::String:
-            return src.string->string;
+            return src.u.string->string;
         case IRArgType::Vreg:
-            return std::to_string(src.vreg);
+            return std::to_string(src.u.vreg);
         case IRArgType::Parameter:
             [[fallthrough]];
         case IRArgType::Variable:
-            return src.variable->name;
+            return src.u.variable->name;
         case IRArgType::Function:
-            return src.function->name;
+            return src.u.function->name;
         case IRArgType::BasicBlock:
-            return std::to_string(src.basic_block->index);
+            return std::to_string(src.u.basic_block->index);
         case IRArgType::Type:
-            return src.type->name;
+            return src.u.type->name;
         default:
             TODO();
     }
@@ -287,7 +287,7 @@ void print_ir(IR *ir)
     std::string target = ir->has_vreg_target() ? std::format("v{} = ", ir->target) : "";
     std::print("    {}{} ", target, to_string(ir->operation));
     if (ir->operation == Operation::CondBranch) {
-        std::print("v{}, ", static_cast<IRBranch *>(ir)->cond_vreg);
+        std::print("v{}, ", static_cast<IRBranch *>(ir)->cond);
     }
     std::print("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
     if (ir->type == AstType::Binary || ir->operation == Operation::Cast) {

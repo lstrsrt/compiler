@@ -80,10 +80,10 @@ void emit_epilogue()
 uint64_t get_key(IRArg src)
 {
     if (src.arg_type == IRArgType::Vreg) {
-        return src.vreg;
+        return src.u.vreg;
     }
     if (src.arg_type == IRArgType::Variable) {
-        return reinterpret_cast<uint64_t>(src.variable);
+        return reinterpret_cast<uint64_t>(src.u.variable);
     }
     assert(!"get_key unhandled source type");
 }
@@ -91,9 +91,9 @@ uint64_t get_key(IRArg src)
 void debug_stack_location(int location, IRArg src)
 {
     if (src.arg_type == IRArgType::Variable) {
-        emit(";; [rbp{:+}]: {}", location, src.variable->name);
+        emit(";; [rbp{:+}]: {}", location, src.u.variable->name);
     } else {
-        emit(";; [rbp{:+}]: v{}", location, src.vreg);
+        emit(";; [rbp{:+}]: v{}", location, src.u.vreg);
     }
 }
 
@@ -109,7 +109,7 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
     }
 
     if (src.arg_type == IRArgType::Variable) {
-        offset += align_up(get_unaliased_type(src.variable->type)->size, 8);
+        offset += align_up(get_unaliased_type(src.u.variable->type)->size, 8);
     } else if (src.arg_type == IRArgType::Vreg) {
         offset += 8;
     }
@@ -161,7 +161,7 @@ constexpr std::string param_regs[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
 std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 {
     if (src.arg_type == IRArgType::Constant) {
-        return extract_integer_constant(src.constant);
+        return extract_integer_constant(src.u.constant);
     }
     return stack_addr(ir_fn, get_key(src));
 }
@@ -169,7 +169,7 @@ std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 std::string extract_ir_arg(const IRFunction &ir_fn, IRArg arg)
 {
     if (arg.arg_type == IRArgType::Parameter) {
-        auto index = arg.variable->param_index;
+        auto index = arg.u.variable->param_index;
         if (index < ssize(param_regs)) {
             return param_regs[index];
         }
@@ -210,7 +210,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
                 ++reg_restores;
             } else {
                 if (ir->left.arg_type == IRArgType::Constant) {
-                    emit("push {}", extract_integer_constant(ir->left.constant));
+                    emit("push {}", extract_integer_constant(ir->left.u.constant));
                 } else {
                     emit("push qword {}", stack_addr(ir_fn, get_key(ir->left)));
                 }
@@ -219,7 +219,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::Call:
             emit("xor eax, eax");
-            emit("call {}", ir->left.function->name);
+            emit("call {}", ir->left.u.function->name);
             if (stack_balance > 0) {
                 emit("add rsp, {}", stack_balance);
                 stack_balance = 0;
@@ -238,8 +238,8 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Branch:
-            if (ir->basic_block_index + 1 != ir->left.basic_block->index) {
-                emit("jmp {}", ir->left.basic_block->label_name);
+            if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
+                emit("jmp {}", ir->left.u.basic_block->label_name);
             }
             break;
         case Operation::Fallthrough:
@@ -308,16 +308,16 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             emit_asm_comparison(ir_fn, ir);
             break;
         case Operation::CondBranch:
-            emit("cmp qword {}, 0", stack_addr(ir_fn, static_cast<IRBranch *>(ir)->cond_vreg));
+            emit("cmp qword {}, 0", stack_addr(ir_fn, static_cast<IRBranch *>(ir)->cond));
             // False block
-            if (ir->basic_block_index + 1 != ir->right.basic_block->index) {
-                emit("je {}", ir->right.basic_block->label_name);
+            if (ir->basic_block_index + 1 != ir->right.u.basic_block->index) {
+                emit("je {}", ir->right.u.basic_block->label_name);
                 // Fall through if we dominate the true block
-                if (ir->basic_block_index + 1 != ir->left.basic_block->index) {
-                    emit("jmp {}", ir->left.basic_block->label_name);
+                if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
+                    emit("jmp {}", ir->left.u.basic_block->label_name);
                 }
             } else {
-                emit("jne {}", ir->left.basic_block->label_name);
+                emit("jne {}", ir->left.u.basic_block->label_name);
                 // Fall through if we dominate the false block
             }
             break;
