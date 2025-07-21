@@ -235,6 +235,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::Cast:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Branch:
             if (ir->basic_block_index + 1 != ir->left.basic_block->index) {
