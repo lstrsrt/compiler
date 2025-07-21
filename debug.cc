@@ -274,12 +274,12 @@ void print_ir(BasicBlock *bb)
     for (auto *code : bb->code) {
         print_ir(code);
     }
-    if (!bb->successors.empty()) {
+    /*if (!bb->successors.empty()) {
         std::println("successors:");
         for (auto *s : bb->successors) {
             std::println("    {}", s->index);
         }
-    }
+    }*/
 }
 
 void print_ir(IR *ir)

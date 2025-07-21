@@ -923,7 +923,6 @@ void diagnose_redeclaration_or_shadowing(
 
 void verify_main(Compiler &, AstFunction *);
 
-bool has_top_level_return(AstBlock *);
 bool types_match(Type *, Type *);
 void flatten_binary(Ast *, std::vector<Ast *> &);
 void flatten_binary(Ast *, Operation matching_operation, std::vector<Ast *> &);

@@ -545,10 +545,19 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     }
     if (expected) {
         ExprConstness constness{};
-        if (type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
-            !expr_is_constexpr_int(type, constness) && !types_match(type, expected)) {
-            type_error(cc, ast, expected, type, TypeError::Unspecified);
+        type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
+        if (expected == bool_type()) {
+            if (type->get_kind() == TypeFlags::Boolean) {
+                return;
+            }
+            if (type->get_kind() == TypeFlags::Integer) {
+                insert_cast(ast, bool_type());
+                return;
+            }
+        } else if (expr_is_constexpr_int(type, constness) || types_match(type, expected)) {
+            return;
         }
+        type_error(cc, ast, expected, type, TypeError::Unspecified);
     }
 }
 
