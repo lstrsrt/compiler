@@ -220,17 +220,23 @@ void generate_ir_function(Compiler &cc, Ast *ast)
     cc.ir_builder.current_function = last;
 }
 
-IRBranch *new_ir_branch(Ast *ast, AstType type, Operation operation, ssize_t cond_vreg = -1)
+IRBranch *new_ir_branch(Ast *ast, AstType type, Operation operation)
 {
     auto *ir = new IRBranch;
     ir->ast = ast;
     ir->operation = operation;
     ir->type = type;
-    ir->cond = cond_vreg;
     return ir;
 }
 
-void generate_ir_cond_branch(Compiler &cc, ssize_t cond, BasicBlock *bb1, BasicBlock *bb2)
+IRBranch *new_ir_branch(Ast *ast, AstType type, Operation operation, IRArg cond)
+{
+    auto *ir = new_ir_branch(ast, type, operation);
+    ir->cond = cond;
+    return ir;
+}
+
+void generate_ir_cond_branch(Compiler &cc, IRArg cond, BasicBlock *bb1, BasicBlock *bb2)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *ir = new_ir_branch(nullptr, AstType::Binary, Operation::CondBranch, cond);
@@ -277,7 +283,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
 
     auto *after_block = add_block(ir_fn);
     auto *false_block = else_block ? else_block : after_block;
-    generate_ir_cond_branch(cc, cond.u.vreg, true_block, false_block);
+    generate_ir_cond_branch(cc, cond, true_block, false_block);
 
     ir_fn->current_block = true_block;
     for (auto *stmt : if_stmt->body->stmts) {
@@ -316,7 +322,7 @@ void generate_ir_while(Compiler &cc, Ast *ast)
     auto *after_block = new_block();
     ir_fn->current_block = cmp_block;
     auto cond = generate_ir_impl(cc, while_stmt->expr);
-    generate_ir_cond_branch(cc, cond.u.vreg, true_block, after_block);
+    generate_ir_cond_branch(cc, cond, true_block, after_block);
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
@@ -394,10 +400,10 @@ void generate_ir_logical_and(
         } else {
             auto cmp = generate_ir_comparison(cc, flattened[i]);
             if (i == flattened.size() - 1) {
-                generate_ir_cond_branch(cc, cmp->target, true_block, false_block);
+                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, false_block);
             } else {
                 auto *next = add_block(ir_fn);
-                generate_ir_cond_branch(cc, cmp->target, next, false_block);
+                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), next, false_block);
                 ir_fn->current_block = next;
             }
         }
@@ -433,10 +439,10 @@ void generate_ir_logical_or(
         } else {
             auto cmp = generate_ir_comparison(cc, flattened[i]);
             if (i == flattened.size() - 1) {
-                generate_ir_cond_branch(cc, cmp->target, true_block, false_block);
+                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, false_block);
             } else {
                 auto *next = add_block(ir_fn);
-                generate_ir_cond_branch(cc, cmp->target, true_block, next);
+                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, next);
                 ir_fn->current_block = next;
             }
         }

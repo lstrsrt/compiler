@@ -307,20 +307,34 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::LessEquals:
             emit_asm_comparison(ir_fn, ir);
             break;
-        case Operation::CondBranch:
-            emit("cmp qword {}, 0", stack_addr(ir_fn, static_cast<IRBranch *>(ir)->cond));
-            // False block
-            if (ir->basic_block_index + 1 != ir->right.u.basic_block->index) {
-                emit("je {}", ir->right.u.basic_block->label_name);
-                // Fall through if we dominate the true block
-                if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
-                    emit("jmp {}", ir->left.u.basic_block->label_name);
+        case Operation::CondBranch: {
+            auto cond = static_cast<IRBranch *>(ir)->cond;
+            if (cond.arg_type == IRArgType::Constant) {
+                if (cond.u.constant->u.u64) {
+                    if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
+                        emit("jmp {}", ir->left.u.basic_block->label_name);
+                    }
+                } else {
+                    if (ir->basic_block_index + 1 != ir->right.u.basic_block->index) {
+                        emit("jmp {}", ir->right.u.basic_block->label_name);
+                    }
                 }
             } else {
-                emit("jne {}", ir->left.u.basic_block->label_name);
-                // Fall through if we dominate the false block
+                emit("cmp qword {}, 0", extract_ir_arg(ir_fn, cond));
+                // False block
+                if (ir->basic_block_index + 1 != ir->right.u.basic_block->index) {
+                    emit("je {}", ir->right.u.basic_block->label_name);
+                    // Fall through if we dominate the true block
+                    if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
+                        emit("jmp {}", ir->left.u.basic_block->label_name);
+                    }
+                } else {
+                    emit("jne {}", ir->left.u.basic_block->label_name);
+                    // Fall through if we dominate the false block
+                }
             }
             break;
+        }
         default:
             TODO();
     }

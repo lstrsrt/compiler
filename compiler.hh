@@ -1039,7 +1039,7 @@ struct IR {
 };
 
 struct IRBranch : IR {
-    ssize_t cond = 0;
+    IRArg cond{};
 };
 
 struct BasicBlock {
