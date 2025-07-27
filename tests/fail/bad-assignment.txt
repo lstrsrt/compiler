@@ -1,2 +1,2 @@
 #{error(type)}
-x: bool = 1
+x: string = 1

@@ -495,12 +495,25 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
     }
 
     ExprConstness constness{};
-    if (auto *type = get_expression_type(cc, ast, &constness, TypeOverridable::No);
-        !types_match(type, expected)) {
+    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
+    if (get_unaliased_type(expected) == bool_type()) {
+        if (type->get_kind() == TypeFlags::Boolean) {
+            return;
+        }
+        if (type->get_kind() == TypeFlags::Integer) {
+            insert_cast(ast, expected);
+            return;
+        }
+    } else if (!types_match(type, expected)) {
         if (auto err = maybe_cast_integer(expected, type, ast, constness); err != TypeError::None) {
             type_error(cc, ast, expected, type, err);
         }
+        return;
+    } else {
+        return;
     }
+
+    type_error(cc, ast, expected, type, TypeError::Unspecified);
 }
 
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
