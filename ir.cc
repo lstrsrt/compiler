@@ -33,7 +33,6 @@ BasicBlock *get_current_block(IRFunction *ir_fn)
 
 void add_ir(IR *ir, BasicBlock *bb)
 {
-    ir->basic_block_index = bb->index;
     bb->code.push_back(ir);
 }
 
@@ -155,37 +154,61 @@ void generate_ir_return(Compiler &cc, Ast *ast)
     ir->type = AstType::Statement;
     ir->operation = Operation::Return;
     if (ret->expr) {
-        // TODO void call needs special handling
+        // TODO: void call needs special handling
         generate_ir(cc, ir, ir->left, ret->expr);
     }
     add_ir(ir, bb);
     ir_fn->current_block = add_block(ir_fn);
 }
 
-IR *generate_ir_comparison(Compiler &cc, Ast *ast)
+enum class ComparisonKind {
+    ConstantFalse,
+    ConstantTrue,
+    Runtime,
+};
+
+IR *generate_ir_logical(Compiler &cc, Ast *ast, ComparisonKind *kind)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *ir = new IR;
     ir->ast = ast;
     ir->operation = ast->operation;
     ir->type = ast->type;
+    *kind = ComparisonKind::Runtime;
     switch (ast->type) {
         case AstType::Unary:
-            generate_ir(cc, ir, ir->left, static_cast<AstNegate *>(ast)->operand);
-            break;
+            generate_ir(cc, ir, ir->left, ast);
+            ir->target = ir_fn->temp_regs;
+            return ir;
         case AstType::Binary:
             generate_ir(cc, ir, ir->left, static_cast<AstBinary *>(ast)->left);
             generate_ir(cc, ir, ir->right, static_cast<AstBinary *>(ast)->right);
             break;
-        case AstType::Integer:
-            [[fallthrough]];
-        case AstType::Boolean:
-            TODO();
-            // TODO - if 0, kill body, else kill condition instead
-            break;
-        case AstType::Identifier:
-            TODO();
-            break;
+        case AstType::Integer: {
+            auto *constant = static_cast<AstLiteral *>(ast);
+            if (constant->u.u64) {
+                *kind = ComparisonKind::ConstantTrue;
+            } else {
+                *kind = ComparisonKind::ConstantFalse;
+            }
+            delete ir;
+            return nullptr;
+        }
+        case AstType::Boolean: {
+            auto *constant = static_cast<AstLiteral *>(ast);
+            if (constant->u.boolean) {
+                *kind = ComparisonKind::ConstantTrue;
+            } else {
+                *kind = ComparisonKind::ConstantFalse;
+            }
+            delete ir;
+            return nullptr;
+        }
+        case AstType::Identifier: {
+            delete ir;
+            auto *eq = new AstBinary(Operation::Equals, ast, new AstLiteral(true, {}), {});
+            return generate_ir_logical(cc, eq, kind);
+        }
         case AstType::Statement:
             /*if (ast->operation != Operation::VariableDecl) {
                 cc.diag_ast_error(ast, "illegal expression in if statement");
@@ -398,13 +421,29 @@ void generate_ir_logical_and(
                 generate_ir_branch(cc, true_block);
             }
         } else {
-            auto cmp = generate_ir_comparison(cc, flattened[i]);
+            ComparisonKind kind;
+            auto cmp = generate_ir_logical(cc, flattened[i], &kind);
             if (i == flattened.size() - 1) {
-                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, false_block);
+                if (cmp) {
+                    generate_ir_cond_branch(
+                        cc, IRArg::make_vreg(cmp->target), true_block, false_block);
+                } else if (kind == ComparisonKind::ConstantFalse) {
+                    generate_ir_branch(cc, false_block);
+                } else if (kind == ComparisonKind::ConstantTrue) {
+                    generate_ir_branch(cc, true_block);
+                }
             } else {
-                auto *next = add_block(ir_fn);
-                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), next, false_block);
-                ir_fn->current_block = next;
+                if (cmp) {
+                    auto *next = add_block(ir_fn);
+                    generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), next, false_block);
+                    ir_fn->current_block = next;
+                } else if (kind == ComparisonKind::ConstantFalse) {
+                    generate_ir_branch(cc, false_block);
+                } else if (kind == ComparisonKind::ConstantTrue) {
+                    auto *next = add_block(ir_fn);
+                    generate_ir_branch(cc, next);
+                    ir_fn->current_block = next;
+                }
             }
         }
     }
@@ -437,12 +476,26 @@ void generate_ir_logical_or(
                 generate_ir_branch(cc, false_block);
             }
         } else {
-            auto cmp = generate_ir_comparison(cc, flattened[i]);
+            ComparisonKind kind;
+            auto cmp = generate_ir_logical(cc, flattened[i], &kind);
             if (i == flattened.size() - 1) {
-                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, false_block);
+                if (cmp) {
+                    generate_ir_cond_branch(
+                        cc, IRArg::make_vreg(cmp->target), true_block, false_block);
+                } else if (kind == ComparisonKind::ConstantFalse) {
+                    generate_ir_branch(cc, false_block);
+                } else if (kind == ComparisonKind::ConstantTrue) {
+                    generate_ir_branch(cc, true_block);
+                }
             } else {
                 auto *next = add_block(ir_fn);
-                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, next);
+                if (cmp) {
+                    generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, next);
+                } else if (kind == ComparisonKind::ConstantFalse) {
+                    generate_ir_branch(cc, false_block);
+                } else if (kind == ComparisonKind::ConstantTrue) {
+                    generate_ir_branch(cc, true_block);
+                }
                 ir_fn->current_block = next;
             }
         }
@@ -491,9 +544,11 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
                 case Operation::GreaterEquals:
                 case Operation::Less:
                     [[fallthrough]];
-                case Operation::LessEquals:
-                    generate_ir_comparison(cc, ast);
+                case Operation::LessEquals: {
+                    ComparisonKind kind;
+                    generate_ir_logical(cc, ast, &kind);
                     break;
+                }
                 default:
                     return generate_ir_binary(cc, ast);
             }
