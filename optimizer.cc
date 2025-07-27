@@ -121,7 +121,7 @@ Type *get_integer_type(uint64_t x)
 #define fold_and_warn_overflow(left_const, right_const, result, fn)                              \
     {                                                                                            \
         bool overflows_u64 = fn(left_const, right_const, &result);                               \
-        bool overflows_type = result > max_for_type(expected);                                   \
+        bool overflows_type = result > max_for_type(get_unaliased_type(expected));               \
         bool warn = false;                                                                       \
         if (overflows_u64 || overflows_type) {                                                   \
             if (overridable == TypeOverridable::Yes) {                                           \
