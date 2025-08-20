@@ -149,6 +149,8 @@ void process_cmdline(ArgumentParser &);
 // Lexer
 //
 
+static constexpr size_t MAX_IDENT_LENGTH = 150;
+
 inline constexpr bool is_digit(char c)
 {
     return c >= '0' && c <= '9';

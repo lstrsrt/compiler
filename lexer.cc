@@ -194,11 +194,17 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
     return TokenKind::GroupIdentifier;
 }
 
-Token lex_identifier_or_keyword(Lexer &lexer)
+Token lex_identifier_or_keyword(Compiler &cc)
 {
+    auto &lexer = cc.lexer;
     const auto loc = lexer.location();
     const auto start = lexer.position;
     const auto count = lexer.count_while(is_valid_char_in_identifier);
+    if (count > MAX_IDENT_LENGTH) {
+        diag_lexer_error(cc,
+            "identifier is {} chars long, which exceeds the maximum allowed length of {}", count,
+            MAX_IDENT_LENGTH);
+    }
     const auto str = lexer.string.substr(start, count);
     const auto kind = get_keyword_or_identifier_kind(str);
     if (kind == TokenKind::GroupIdentifier) {
@@ -428,7 +434,7 @@ Token lex(Compiler &cc)
         return lex_operator(lexer);
     }
     if (is_start_of_identifier(c)) {
-        return lex_identifier_or_keyword(lexer);
+        return lex_identifier_or_keyword(cc);
     }
     if (is_digit(c)) {
         return lex_number(cc);
