@@ -167,6 +167,18 @@ enum class ComparisonKind {
     Runtime,
 };
 
+AstLiteral *true_bool()
+{
+    static AstLiteral ast{ true, {} };
+    return &ast;
+}
+
+AstLiteral *false_bool()
+{
+    static AstLiteral ast{ false, {} };
+    return &ast;
+}
+
 IR *generate_ir_logical(Compiler &cc, Ast *ast, ComparisonKind *kind)
 {
     auto *ir_fn = cc.ir_builder.current_function;
@@ -206,7 +218,8 @@ IR *generate_ir_logical(Compiler &cc, Ast *ast, ComparisonKind *kind)
         }
         case AstType::Identifier: {
             delete ir;
-            auto *eq = new AstBinary(Operation::Equals, ast, new AstLiteral(true, {}), {});
+            // TODO: xx_literal(1) for integers
+            auto *eq = new AstBinary(Operation::Equals, ast, true_bool(), {});
             return generate_ir_logical(cc, eq, kind);
         }
         case AstType::Statement:
@@ -356,18 +369,6 @@ void generate_ir_while(Compiler &cc, Ast *ast)
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
-}
-
-AstLiteral *true_bool()
-{
-    static AstLiteral ast{ true, {} };
-    return &ast;
-}
-
-AstLiteral *false_bool()
-{
-    static AstLiteral ast{ false, {} };
-    return &ast;
 }
 
 IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)

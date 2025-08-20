@@ -192,6 +192,13 @@ void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
     }
 }
 
+void emit_jump(IR *ir, BasicBlock *target)
+{
+    if (ir->basic_block_index + 1 != target->index) {
+        emit("jmp {}", target->label_name);
+    }
+}
+
 int stack_balance = 0;
 int reg_restores = 0;
 
@@ -238,9 +245,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Branch:
-            if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
-                emit("jmp {}", ir->left.u.basic_block->label_name);
-            }
+            emit_jump(ir, ir->left.u.basic_block);
             break;
         case Operation::Fallthrough:
             break;
@@ -308,30 +313,28 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             emit_asm_comparison(ir_fn, ir);
             break;
         case Operation::CondBranch: {
+            const auto cond_jump = [](IR *ir, BasicBlock *true_block, BasicBlock *false_block) {
+                if (ir->basic_block_index + 1 != false_block->index) {
+                    emit("je {}", false_block->label_name);
+                    // Fall through if we dominate the true block
+                    if (ir->basic_block_index + 1 != true_block->index) {
+                        emit("jmp {}", true_block->label_name);
+                    }
+                } else {
+                    emit("jne {}", true_block->label_name);
+                    // Fall through if we dominate the false block
+                }
+            };
             auto cond = static_cast<IRBranch *>(ir)->cond;
             if (cond.arg_type == IRArgType::Constant) {
                 if (cond.u.constant->u.u64) {
-                    if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
-                        emit("jmp {}", ir->left.u.basic_block->label_name);
-                    }
+                    emit_jump(ir, ir->left.u.basic_block);
                 } else {
-                    if (ir->basic_block_index + 1 != ir->right.u.basic_block->index) {
-                        emit("jmp {}", ir->right.u.basic_block->label_name);
-                    }
+                    emit_jump(ir, ir->right.u.basic_block);
                 }
             } else {
                 emit("cmp qword {}, 0", extract_ir_arg(ir_fn, cond));
-                // False block
-                if (ir->basic_block_index + 1 != ir->right.u.basic_block->index) {
-                    emit("je {}", ir->right.u.basic_block->label_name);
-                    // Fall through if we dominate the true block
-                    if (ir->basic_block_index + 1 != ir->left.u.basic_block->index) {
-                        emit("jmp {}", ir->left.u.basic_block->label_name);
-                    }
-                } else {
-                    emit("jne {}", ir->left.u.basic_block->label_name);
-                    // Fall through if we dominate the false block
-                }
+                cond_jump(ir, ir->left.u.basic_block, ir->right.u.basic_block);
             }
             break;
         }
@@ -364,8 +367,7 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
         ir_fn.ast->name);
     int stack_size = allocate_stack(ir_fn);
     emit_prologue(stack_size);
-    for (size_t i = 0; i < ir_fn.basic_blocks.size(); ++i) {
-        auto *bb = ir_fn.basic_blocks[i];
+    for (auto *bb : ir_fn.basic_blocks) {
         __emit("{}:\n", bb->label_name);
         for (auto *ir : bb->code) {
             emit_asm(cc, ir_fn, ir);
