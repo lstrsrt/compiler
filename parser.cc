@@ -15,8 +15,8 @@ using Precedence = int;
 
 namespace prec {
     constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
-                         AdditiveArithmetic = 6, MultiplicativeArithmetic = 7;
-    constexpr Precedence Lowest = Comma, Highest = MultiplicativeArithmetic;
+                         AdditiveArithmetic = 6, MultiplicativeArithmetic = 7, Unary = 8;
+    constexpr Precedence Lowest = Comma, Highest = Unary;
 } // namespace prec
 
 struct OperatorInfo {
@@ -28,6 +28,8 @@ OperatorInfo get_operator_info(TokenKind kind)
 {
     using enum TokenKind;
     switch (kind) {
+        case Excl:
+            return { prec::Unary, Associativity::Right };
         case Star:
         case Slash:
         case Percent:
@@ -163,9 +165,20 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             // Double negate isn't allowed
             if (arg->operation == Operation::Negate) {
                 cc.lexer.column = prev_col;
-                parser_ast_error(arg, "only one unary minus is allowed");
+                parser_ast_error(arg, "only one `unary minus` is allowed");
             }
             return new AstNegate(Operation::Negate, arg, token.location);
+        }
+        if (token.kind == TokenKind::Excl) {
+            consume(cc.lexer, token);
+            auto prev_col = cc.lexer.column;
+            auto arg = parse_atom(cc, allow_var_decl);
+            // Double LogicalNot isn't allowed
+            if (arg->operation == Operation::LogicalNot) {
+                cc.lexer.column = prev_col;
+                parser_ast_error(arg, "only one `logical NOT` is allowed");
+            }
+            return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
         }
         parser_error(token.location, "unexpected operator");
     }

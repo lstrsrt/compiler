@@ -438,6 +438,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(Assign)        \
     __ENUMERATE_OPERATION(LogicalAnd)    \
     __ENUMERATE_OPERATION(LogicalOr)     \
+    __ENUMERATE_OPERATION(LogicalNot)    \
     __ENUMERATE_OPERATION(Return)        \
     __ENUMERATE_OPERATION(VariableDecl)  \
     __ENUMERATE_OPERATION(FunctionDecl)  \
@@ -607,6 +608,8 @@ struct AstNegate : Ast {
     {
     }
 };
+
+using AstLogicalNot = AstNegate;
 
 struct AstCast : Ast {
     Ast *expr;

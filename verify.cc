@@ -313,6 +313,10 @@ Type *get_expression_type(
                 return get_expression_type(
                     cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
             }
+            if (ast->operation == Operation::LogicalNot) {
+                return get_expression_type(
+                    cc, static_cast<AstLogicalNot *>(ast)->operand, constness, overridable);
+            }
             if (ast->operation == Operation::Cast) {
                 return static_cast<AstCast *>(ast)->cast_type;
             }

@@ -210,6 +210,11 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("neg rax");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
+        case Operation::LogicalNot:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("test rax, rax");
+            emit("sete {}", stack_addr(ir_fn, ir->target));
+            break;
         case Operation::PushArg:
             if (ir->target < ssize(param_regs)) {
                 emit("push {}", param_regs[ir->target]);
