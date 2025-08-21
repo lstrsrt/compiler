@@ -1,8 +1,9 @@
+#{returns(15)}
 if false {
+    return 456
+} else {
     x := 10
     y := 5
     return x + y
-} else {
-    return 456
 }
 return 123
