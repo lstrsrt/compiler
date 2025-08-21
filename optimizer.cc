@@ -94,6 +94,8 @@ uint64_t max_for_type(Type *t)
 {
     bool is_unsigned = t->has_flag(TypeFlags::UNSIGNED);
     switch (t->size) {
+        case 1:
+            return 1;
         case 4:
             return is_unsigned ? std::numeric_limits<uint32_t>::max()
                                : std::numeric_limits<int32_t>::max();
@@ -118,7 +120,7 @@ Type *get_integer_type(uint64_t x)
     return s32_type();
 }
 
-#define fold_and_warn_overflow(left_const, right_const, result, fn)                              \
+#define fold_and_warn_overflow(left_const, right_const, result, expected, fn)                    \
     {                                                                                            \
         bool overflows_u64 = fn(left_const, right_const, &result);                               \
         bool overflows_type = result > max_for_type(get_unaliased_type(expected));               \
@@ -177,7 +179,8 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
     uint64_t result;
     switch (binary->operation) {
         case Operation::Add:
-            fold_and_warn_overflow(left_const, right_const, result, __builtin_add_overflow);
+            fold_and_warn_overflow(
+                left_const, right_const, result, expected, __builtin_add_overflow);
             break;
         case Operation::Subtract: {
             result = fold_sub_and_warn_overflow(
@@ -185,7 +188,8 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             break;
         }
         case Operation::Multiply:
-            fold_and_warn_overflow(left_const, right_const, result, __builtin_mul_overflow);
+            fold_and_warn_overflow(
+                left_const, right_const, result, expected, __builtin_mul_overflow);
             break;
         case Operation::Divide:
             result = left_const / right_const;
@@ -195,6 +199,10 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             break;
         default:
             return binary; // Do nothing
+    }
+
+    if (get_unaliased_type(expected) == bool_type()) {
+        result = std::clamp<uint64_t>(result, 0, 1);
     }
 
     auto loc = binary->location;
@@ -210,8 +218,8 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
     // Figure out which parts of the expression are constant.
     auto *left = try_constant_fold(cc, binary->left, expected, overridable);
     auto *right = try_constant_fold(cc, binary->right, expected, overridable);
-    bool left_is_const = left->type == AstType::Integer;
-    bool right_is_const = right->type == AstType::Integer;
+    bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
+    bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
     if (!left_is_const && !right_is_const) {
         return binary;
     }
