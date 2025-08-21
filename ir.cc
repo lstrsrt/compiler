@@ -308,10 +308,47 @@ AstLiteral *null_s32()
     return &ast;
 }
 
+ComparisonKind get_if_comparison_kind(Compiler &, AstIf *if_stmt)
+{
+    auto *expr = if_stmt->expr;
+    while (expr->operation == Operation::Cast) {
+        expr = static_cast<AstCast *>(expr)->expr;
+    }
+    if (expr->type == AstType::Integer || expr->type == AstType::Boolean) {
+        auto *literal = static_cast<AstLiteral *>(expr);
+        if (literal->u.u64) {
+            return ComparisonKind::ConstantTrue;
+        } else {
+            return ComparisonKind::ConstantFalse;
+        }
+    }
+    return ComparisonKind::Runtime;
+}
+
 void generate_ir_if(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *if_stmt = static_cast<AstIf *>(ast);
+
+    auto cmp_kind = get_if_comparison_kind(cc, if_stmt);
+
+    if (cmp_kind == ComparisonKind::ConstantTrue) {
+        generate_ir_impl(cc, if_stmt->body);
+        auto *after_block = add_block(ir_fn);
+        generate_ir_branch(cc, after_block);
+        ir_fn->current_block = after_block;
+        return;
+    }
+
+    if (cmp_kind == ComparisonKind::ConstantFalse) {
+        if (if_stmt->else_body) {
+            generate_ir_impl(cc, if_stmt->else_body);
+        }
+        auto *after_block = add_block(ir_fn);
+        generate_ir_branch(cc, after_block);
+        ir_fn->current_block = after_block;
+        return;
+    }
 
     auto cond = generate_ir_impl(cc, if_stmt->expr);
 
@@ -326,9 +363,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     generate_ir_cond_branch(cc, cond, true_block, false_block);
 
     ir_fn->current_block = true_block;
-    for (auto *stmt : if_stmt->body->stmts) {
-        generate_ir_impl(cc, stmt);
-    }
+    generate_ir_impl(cc, if_stmt->body);
     generate_ir_branch(cc, after_block);
 
     if (else_block) {

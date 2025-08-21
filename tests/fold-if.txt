@@ -1,0 +1,8 @@
+if false {
+    x := 10
+    y := 5
+    return x + y
+} else {
+    return 456
+}
+return 123
