@@ -70,12 +70,20 @@ std::string to_string(TokenKind kind)
             return ":=";
         case TokenKind::Arrow:
             return "->";
+        case TokenKind::And:
+            return "and";
+        case TokenKind::Or:
+            return "or";
         case TokenKind::Fn:
             return "fn";
         case TokenKind::Return:
             return "return";
         case TokenKind::If:
             return "if";
+        case TokenKind::Else:
+            return "else";
+        case TokenKind::While:
+            return "while";
         case TokenKind::Alias:
             return "alias";
         case TokenKind::False:
