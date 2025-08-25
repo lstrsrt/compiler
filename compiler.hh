@@ -6,7 +6,6 @@
 #include <cstring>
 #include <filesystem>
 #include <print>
-#include <span>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -664,7 +663,7 @@ struct AstReturn : Ast {
     }
 };
 
-enum class TypeFlags {
+enum_flags(TypeFlags, int){
     //
     // Type kind
     //
@@ -688,32 +687,7 @@ enum class TypeFlags {
     UNSIGNED = (1 << 7),
 };
 
-constexpr TypeFlags operator|(const TypeFlags lhs, const TypeFlags rhs)
-{
-    return static_cast<TypeFlags>(to_underlying(lhs) | to_underlying(rhs));
-}
-
-constexpr TypeFlags &operator|=(TypeFlags &lhs, const TypeFlags rhs)
-{
-    return lhs = static_cast<TypeFlags>(to_underlying(lhs) | to_underlying(rhs));
-}
-
-constexpr TypeFlags operator&(const TypeFlags lhs, const TypeFlags rhs)
-{
-    return static_cast<TypeFlags>(to_underlying(lhs) & to_underlying(rhs));
-}
-
-constexpr TypeFlags &operator&=(TypeFlags &lhs, const TypeFlags rhs)
-{
-    return lhs = static_cast<TypeFlags>(to_underlying(lhs) & to_underlying(rhs));
-}
-
-constexpr TypeFlags operator~(TypeFlags rhs)
-{
-    return static_cast<TypeFlags>(~to_underlying(rhs));
-}
-
-template<class E>
+template<typename E>
 requires std::is_enum_v<E>
 inline bool has_flag(E value, E flag)
 {

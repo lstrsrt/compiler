@@ -1,5 +1,4 @@
 #include "compiler.hh"
-#include <filesystem>
 
 [[noreturn]] void usage(int errc)
 {
@@ -36,6 +35,18 @@ void process_cmdline(ArgumentParser &ap)
     }
 }
 
+template<typename... Args>
+[[noreturn]] void die(std::string_view msg, Args &&...args)
+{
+    if constexpr (sizeof...(args)) {
+        std::print(
+            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+    } else {
+        std::print("{}", msg);
+    }
+    exit(EXIT_FAILURE);
+}
+
 int main(int argc, char **argv)
 {
     if (argc < 2) {
@@ -49,8 +60,7 @@ int main(int argc, char **argv)
     if (opts.testing) {
         auto dir_or_file = arg_parser.arguments.back();
         if (!fs::exists(dir_or_file)) {
-            std::println("not found");
-            exit(1);
+            die("test file or directory '{}' not found", dir_or_file);
         }
         if (fs::is_regular_file(dir_or_file)) {
             run_single_test(dir_or_file);
@@ -59,7 +69,14 @@ int main(int argc, char **argv)
         }
     } else {
         Compiler cc;
-        cc.lexer.set_input(arg_parser.arguments.back());
+        auto *maybe_file = arg_parser.arguments.back();
+        if (!fs::exists(maybe_file)) {
+            die("input '{}' not found", maybe_file);
+        }
+        if (!fs::is_regular_file(maybe_file)) {
+            die("input '{}' is not a file", maybe_file);
+        }
+        cc.lexer.set_input(maybe_file);
         // Top level scope is main
         // TODO: give main argc and argv
         auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
