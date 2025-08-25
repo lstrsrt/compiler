@@ -2,11 +2,11 @@
 
 #include <limits>
 
-void flatten_binary(Ast *ast, Operation matching_operation, std::vector<Ast *> &flattened)
+void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened)
 {
-    if (ast->type == AstType::Binary && ast->operation == matching_operation) {
-        flatten_binary(static_cast<AstBinary *>(ast)->left, matching_operation, flattened);
-        flatten_binary(static_cast<AstBinary *>(ast)->right, matching_operation, flattened);
+    if (ast->type == AstType::Binary && ast->operation == operation) {
+        flatten_binary(static_cast<AstBinary *>(ast)->left, operation, flattened);
+        flatten_binary(static_cast<AstBinary *>(ast)->right, operation, flattened);
     } else {
         flattened.push_back(ast);
     }
@@ -123,7 +123,8 @@ Type *get_integer_type(uint64_t x)
 #define fold_and_warn_overflow(left_const, right_const, result, expected, fn)                    \
     {                                                                                            \
         bool overflows_u64 = fn(left_const, right_const, &result);                               \
-        bool overflows_type = result > max_for_type(get_unaliased_type(expected));               \
+        bool overflows_type = get_unaliased_type(expected) != bool_type()                        \
+            && result > max_for_type(get_unaliased_type(expected));                              \
         bool warn = false;                                                                       \
         if (overflows_u64 || overflows_type) {                                                   \
             if (overridable == TypeOverridable::Yes) {                                           \
@@ -244,8 +245,8 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         return try_fold_constants(cc, binary, left_const, right_const, expected, overridable);
     }
 
-    // Only one side is a constant, and the operation is associative.
     if (binary->operation == Operation::Multiply || binary->operation == Operation::Add) {
+        // Only one side is a constant, and the operation is associative.
         auto *constant_ast = left_is_const ? left : right;
         auto *variable_ast = left_is_const ? right : left;
         auto constant = left_is_const ? left_const : right_const;

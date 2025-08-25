@@ -1,9 +1,9 @@
 #{returns(15)}
-if false {
-    return 456
+if 5-5 {
+    return 1
 } else {
     x := 10
     y := 5
     return x + y
 }
-return 123
+return 2
