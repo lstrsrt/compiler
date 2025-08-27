@@ -504,11 +504,14 @@ enum_flags(AstFlags, uint64_t){
     FOLDED = 1 << 0, // Prevent verifier trying to constant fold this tree multiple times.
 };
 
+struct Type;
+
 struct Ast {
     Scope *scope;
     AstType type;
     Operation operation;
     SourceLocation location;
+    Type *expr_type = nullptr; // Set during verification.
     AstFlags flags{};
 
     Ast(AstType _type, Operation _operation = Operation::None, SourceLocation _location = {})
@@ -543,7 +546,6 @@ struct Ast {
 #endif
 };
 
-struct Type;
 Type *bool_type();
 
 struct AstLiteral : Ast {
@@ -903,6 +905,8 @@ void diagnose_redeclaration_or_shadowing(
 void verify_main(Compiler &, AstFunction *);
 
 bool types_match(Type *, Type *);
+uint64_t max_for_type(Type *);
+uint64_t get_int_literal(Ast *);
 void flatten_binary(Ast *, std::vector<Ast *> &);
 void flatten_binary(Ast *, Operation matching_operation, std::vector<Ast *> &);
 
@@ -1010,6 +1014,15 @@ struct IR {
     IRArg right;
     size_t basic_block_index = 0; // which basic block am I in?
     ssize_t target = -1;
+
+    explicit IR() = default;
+
+    explicit IR(Ast *_ast)
+        : ast(_ast)
+        , type(_ast->type)
+        , operation(_ast->operation)
+    {
+    }
 
     bool has_vreg_target() const
     {

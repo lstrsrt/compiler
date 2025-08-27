@@ -7,7 +7,6 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast);
 
 BasicBlock *add_block(IRFunction *ir_fn)
 {
-    // TODO - add constructor
     auto *bb = ir_fn->basic_blocks.emplace_back(new BasicBlock);
     bb->index = ir_fn->basic_blocks.size() - 1;
     bb->label_name = std::format(".{}_{}", ir_fn->ast->name, bb->index);
@@ -60,15 +59,12 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *bb = get_current_block(ir_fn);
-    auto ir = new IR;
-    ir->ast = ast;
-    ir->operation = ast->operation;
-    ir->type = ast->type;
+    auto *ir = new IR(ast);
     if (ast->operation == Operation::Call) {
-        auto call = static_cast<AstCall *>(ast);
+        auto *call = static_cast<AstCall *>(ast);
         std::vector<IR *> args;
         for (ssize_t i = 0; i < ssize(call->args); ++i) {
-            auto push = new IR;
+            auto *push = new IR;
             push->ast = call->args[i];
             push->operation = Operation::PushArg;
             push->type = AstType::Unary;
@@ -107,22 +103,12 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
     return IRArg::make_vreg(ir->target);
 }
 
-void print_bb(BasicBlock *bb)
-{
-    for (auto *ir : bb->code) {
-        print_ir(ir);
-    }
-}
-
 IRArg generate_ir_binary(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
-    auto ir = new IR;
-    ir->ast = ast;
+    auto *ir = new IR(ast);
     generate_ir(cc, ir, ir->left, static_cast<AstBinary *>(ast)->left);
     generate_ir(cc, ir, ir->right, static_cast<AstBinary *>(ast)->right);
-    ir->operation = ast->operation;
-    ir->type = ast->type;
     if (ir->operation != Operation::Assign) {
         ir->target = ++ir_fn->temp_regs;
     }
@@ -135,13 +121,13 @@ IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
     auto *ir_fn = cc.ir_builder.current_function;
     auto *var_decl = static_cast<AstVariableDecl *>(ast);
     if (var_decl->init_expr) {
-        auto ir = new IR;
+        auto *ir = new IR;
         ir->ast = ast;
-        ir->left = IRArg::make_variable(&var_decl->var);
-        generate_ir(cc, ir, ir->right, var_decl->init_expr);
         // Transform into an assignment; we don't care (yet?)
         ir->operation = Operation::Assign;
         ir->type = AstType::Binary;
+        ir->left = IRArg::make_variable(&var_decl->var);
+        generate_ir(cc, ir, ir->right, var_decl->init_expr);
         add_ir(ir, get_current_block(ir_fn));
     }
     return IRArg::make_vreg(ir_fn->temp_regs);
@@ -153,10 +139,7 @@ void generate_ir_return(Compiler &cc, Ast *ast)
     auto *ir_fn = cc.ir_builder.current_function;
     auto *bb = get_current_block(ir_fn);
     bb->terminal = true;
-    auto ir = new IR;
-    ir->ast = ast;
-    ir->type = AstType::Statement;
-    ir->operation = Operation::Return;
+    auto *ir = new IR(ast);
     if (ret->expr) {
         // TODO: void call needs special handling
         generate_ir(cc, ir, ir->left, ret->expr);
@@ -186,10 +169,7 @@ AstLiteral *false_bool()
 IR *generate_ir_logical(Compiler &cc, Ast *ast, ComparisonKind *kind)
 {
     auto *ir_fn = cc.ir_builder.current_function;
-    auto *ir = new IR;
-    ir->ast = ast;
-    ir->operation = ast->operation;
-    ir->type = ast->type;
+    auto *ir = new IR(ast);
     *kind = ComparisonKind::Runtime;
     switch (ast->type) {
         case AstType::Unary:
@@ -619,9 +599,7 @@ void generate_ir(Compiler &cc, AstFunction *main)
 {
     new_ir_function(cc.ir_builder, main);
     main->call_count = 1;
-    for (auto *stmt : main->body->stmts) {
-        generate_ir_impl(cc, stmt);
-    }
+    generate_ir_impl(cc, main->body);
 }
 
 void free_bb(BasicBlock *bb)
@@ -678,7 +656,7 @@ void insert_return(IRFunction *ir_fn, int32_t return_value)
 {
     auto *bb = get_current_block(ir_fn);
     bb->terminal = true;
-    auto ir = new IR;
+    auto *ir = new IR;
     ir->type = AstType::Statement;
     ir->operation = Operation::Return;
     ir->left = IRArg::make_constant(s32_literal(return_value));
@@ -771,6 +749,13 @@ void optimize_ir(Compiler &cc)
         } else {
             ++i;
         }
+    }
+}
+
+void print_bb(BasicBlock *bb)
+{
+    for (auto *ir : bb->code) {
+        print_ir(ir);
     }
 }
 

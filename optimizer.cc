@@ -21,9 +21,9 @@ Ast *partial_fold_associative(
     for (auto *ast : operands) {
         if (ast->type == AstType::Integer) {
             if (operation == Operation::Add) {
-                accumulator += static_cast<AstLiteral *>(ast)->u.u64;
+                accumulator += get_int_literal(ast);
             } else if (operation == Operation::Multiply) {
-                accumulator *= static_cast<AstLiteral *>(ast)->u.u64;
+                accumulator *= get_int_literal(ast);
             }
             delete static_cast<AstLiteral *>(ast);
         } else {
@@ -88,22 +88,6 @@ Ast *try_partial_fold_associative(
     std::vector<Ast *> flattened;
     flatten_binary(binary, binary->operation, flattened);
     return partial_fold_associative(flattened, binary->operation, expected);
-}
-
-uint64_t max_for_type(Type *t)
-{
-    bool is_unsigned = t->has_flag(TypeFlags::UNSIGNED);
-    switch (t->size) {
-        case 1:
-            return 1;
-        case 4:
-            return is_unsigned ? std::numeric_limits<uint32_t>::max()
-                               : std::numeric_limits<int32_t>::max();
-        case 8:
-            return is_unsigned ? std::numeric_limits<uint64_t>::max()
-                               : std::numeric_limits<int64_t>::max();
-    }
-    TODO();
 }
 
 Type *get_integer_type(uint64_t x)
@@ -227,10 +211,10 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
 
     uint64_t left_const, right_const;
     if (left_is_const) {
-        left_const = static_cast<AstLiteral *>(left)->u.u64;
+        left_const = get_int_literal(left);
     }
     if (right_is_const) {
-        right_const = static_cast<AstLiteral *>(right)->u.u64;
+        right_const = get_int_literal(right);
     }
 
     if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {

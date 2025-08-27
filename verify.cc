@@ -118,9 +118,11 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
         case TypeError::None:
             return;
         case TypeError::SizeMismatch: {
+            const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
+            const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             verification_type_error(ast->location,
-                "incompatible sizes for types `{}` ({} bytes) and `{}` ({} bytes)", rhs_type->name,
-                rhs_type->size, lhs_type->name, lhs_type->size);
+                "incompatible sizes for types `{}` ({} {} bytes) and `{}` ({} {} bytes)",
+                rhs_type->name, rhs_str, rhs_type->size, lhs_type->name, lhs_str, lhs_type->size);
             break;
         }
         case TypeError::SignednessMismatch: {
@@ -276,56 +278,62 @@ Type *get_expression_type(
         return nullptr;
     }
 
-    switch (ast->type) {
-        case AstType::Integer: {
-            if (constness) {
-                *constness |= ExprConstness::SawConstant;
+    if (ast->expr_type) {
+        return ast->expr_type;
+    }
+
+    ast->expr_type = [&]() -> Type * {
+        switch (ast->type) {
+            case AstType::Integer: {
+                if (constness) {
+                    *constness |= ExprConstness::SawConstant;
+                }
+                return static_cast<AstLiteral *>(ast)->literal_type;
             }
-            return static_cast<AstLiteral *>(ast)->literal_type;
-        }
-        case AstType::Boolean:
-            if (constness) {
-                *constness |= ExprConstness::SawConstant;
-            }
-            return bool_type();
-        case AstType::String:
-            if (constness) {
-                *constness |= ExprConstness::SawConstant;
-            }
-            return string_type();
-        case AstType::Identifier:
-            if (constness) {
-                *constness |= ExprConstness::SawNonConstant;
-            }
-            return static_cast<AstIdentifier *>(ast)->var->type;
-        case AstType::Binary: {
-            return get_binary_expression_type(cc, ast, constness, overridable);
-        }
-        case AstType::Unary:
-            if (ast->operation == Operation::Call) {
+            case AstType::Boolean:
+                if (constness) {
+                    *constness |= ExprConstness::SawConstant;
+                }
+                return bool_type();
+            case AstType::String:
+                if (constness) {
+                    *constness |= ExprConstness::SawConstant;
+                }
+                return string_type();
+            case AstType::Identifier:
                 if (constness) {
                     *constness |= ExprConstness::SawNonConstant;
                 }
-                auto *call = static_cast<AstCall *>(ast);
-                return get_callee(cc, call)->return_type;
+                return static_cast<AstIdentifier *>(ast)->var->type;
+            case AstType::Binary: {
+                return get_binary_expression_type(cc, ast, constness, overridable);
             }
-            if (ast->operation == Operation::Negate) {
-                return get_expression_type(
-                    cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
-            }
-            if (ast->operation == Operation::LogicalNot) {
-                return get_expression_type(
-                    cc, static_cast<AstLogicalNot *>(ast)->operand, constness, overridable);
-            }
-            if (ast->operation == Operation::Cast) {
-                return static_cast<AstCast *>(ast)->cast_type;
-            }
-            break;
-        default:
-            break;
-    }
-    assert(!"get_expression_type unhandled ast type");
-    return nullptr;
+            case AstType::Unary:
+                if (ast->operation == Operation::Call) {
+                    if (constness) {
+                        *constness |= ExprConstness::SawNonConstant;
+                    }
+                    auto *call = static_cast<AstCall *>(ast);
+                    return get_callee(cc, call)->return_type;
+                }
+                if (ast->operation == Operation::Negate) {
+                    return get_expression_type(
+                        cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
+                }
+                if (ast->operation == Operation::LogicalNot) {
+                    return get_expression_type(
+                        cc, static_cast<AstLogicalNot *>(ast)->operand, constness, overridable);
+                }
+                if (ast->operation == Operation::Cast) {
+                    return static_cast<AstCast *>(ast)->cast_type;
+                }
+                [[fallthrough]];
+            default:
+                assert(!"get_expression_type unhandled ast type");
+                return nullptr;
+        }
+    }();
+    return ast->expr_type;
 }
 
 // Only valid before the type has been inferred.
@@ -386,6 +394,27 @@ enum class WarnDiscardedReturn {
 void verify_expr(
     Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded, Type *expected = nullptr);
 
+uint64_t max_for_type(Type *t)
+{
+    bool is_unsigned = t->has_flag(TypeFlags::UNSIGNED);
+    switch (t->size) {
+        case 1:
+            return 1;
+        case 4:
+            return is_unsigned ? std::numeric_limits<uint32_t>::max()
+                               : std::numeric_limits<int32_t>::max();
+        case 8:
+            return is_unsigned ? std::numeric_limits<uint64_t>::max()
+                               : std::numeric_limits<int64_t>::max();
+    }
+    TODO();
+}
+
+uint64_t get_int_literal(Ast *ast)
+{
+    return static_cast<AstLiteral *>(ast)->u.u64;
+}
+
 TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
 {
     Type *wanted_type = get_unaliased_type(wanted);
@@ -443,7 +472,7 @@ void verify_negate(
     // Must be a signed integer
     if (!type->has_flag(TypeFlags::Integer)
         || (!expr_is_constexpr_int(type, constness) && type->has_flag(TypeFlags::UNSIGNED))) {
-        verification_type_error(unary->location, "negate of unsupported type `{}`", type->name);
+        verification_type_error(unary->location, "negation of unsupported type `{}`", type->name);
     }
 }
 
@@ -483,10 +512,11 @@ bool types_match(Type *t1, Type *t2)
 
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
 {
-    auto *exp = resolve_binary_type(cc, cmp);
-    if (exp->get_kind() == TypeFlags::Integer || exp->get_kind() == TypeFlags::Boolean) {
-        verify_expr(cc, cmp->left, warn_discarded, exp);
-        verify_expr(cc, cmp->right, warn_discarded, exp);
+    cmp->expr_type = resolve_binary_type(cc, cmp);
+    auto kind = cmp->expr_type->get_kind();
+    if (kind == TypeFlags::Integer || kind == TypeFlags::Boolean) {
+        verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
+        verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
     } else {
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
