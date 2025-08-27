@@ -62,15 +62,6 @@ std::string type_flags_to_string(TypeFlags flags)
     return ret;
 }
 
-static Type *get_unaliased(Type *type)
-{
-    auto *tmp = type;
-    while (tmp->has_flag(TypeFlags::ALIAS)) {
-        tmp = tmp->real;
-    }
-    return tmp;
-}
-
 void print_types(Scope *scope)
 {
     for (const auto &[name, type] : scope->types) {
@@ -101,7 +92,7 @@ static void print_var_decl(AstVariableDecl *var_decl)
         const auto flags_str = type_flags_to_string(type->flags);
         std::print("{}: {} {}", var_decl->var.name, type->name, flags_str);
         if (type->has_flag(TypeFlags::ALIAS)) {
-            std::print("-> {}", get_unaliased(type)->name);
+            std::print("-> {}", get_unaliased_type(type)->name);
         } else if (!type->has_flag(TypeFlags::UNRESOLVED)) {
             std::print("size {}", type->size);
         }
