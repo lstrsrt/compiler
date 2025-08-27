@@ -1,0 +1,2 @@
+#{error(type)}
+x: s32 = 0xffff_ffff

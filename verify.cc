@@ -430,13 +430,12 @@ TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness
     }
     // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
     // where y is a s64.
-    // TODO: This also means U32_MAX can be casted to an s32. Add size check for constant literals?
     if (expr_has_no_constants(constness)
         && (type->has_flag(TypeFlags::UNSIGNED) ^ wanted_type->has_flag(TypeFlags::UNSIGNED))) {
         return TypeError::SignednessMismatch;
     }
-    if (expr_is_fully_constant(constness) && expr->operation == Operation::Negate) {
-        return TypeError::SignednessMismatch;
+    if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted_type)) {
+        return TypeError::SizeMismatch;
     }
     insert_cast(expr, wanted_type);
     return TypeError::None;
