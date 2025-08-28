@@ -128,6 +128,9 @@ int allocate_stack(IRFunction &ir_fn)
     auto &stack_offsets = ir_fn.stack_offsets;
     int stack_size = 0;
     for (auto *bb : ir_fn.basic_blocks) {
+        if (bb->code.empty()) {
+            continue;
+        }
         for (auto *ir : bb->code) {
             if (ir->operation == Operation::None) {
                 continue;
@@ -240,8 +243,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
                 emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             }
             while (reg_restores) {
-                emit("pop {}", param_regs[reg_restores - 1]);
-                --reg_restores;
+                emit("pop {}", param_regs[--reg_restores]);
             }
             assert(reg_restores == 0);
             break;
@@ -375,6 +377,9 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
     for (auto *bb : ir_fn.basic_blocks) {
         __emit("{}:\n", bb->label_name);
         for (auto *ir : bb->code) {
+            if (bb->code.empty()) {
+                continue;
+            }
             emit_asm(cc, ir_fn, ir);
         }
     }

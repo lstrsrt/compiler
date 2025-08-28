@@ -145,7 +145,6 @@ void generate_ir_return(Compiler &cc, Ast *ast)
         generate_ir(cc, ir, ir->left, ret->expr);
     }
     add_ir(ir, bb);
-    ir_fn->current_block = add_block(ir_fn);
 }
 
 enum class ComparisonKind {
@@ -295,12 +294,7 @@ ComparisonKind get_if_comparison_kind(Compiler &, AstIf *if_stmt)
         expr = static_cast<AstCast *>(expr)->expr;
     }
     if (expr->type == AstType::Integer || expr->type == AstType::Boolean) {
-        auto *literal = static_cast<AstLiteral *>(expr);
-        if (literal->u.u64) {
-            return ComparisonKind::ConstantTrue;
-        } else {
-            return ComparisonKind::ConstantFalse;
-        }
+        return get_int_literal(expr) ? ComparisonKind::ConstantTrue : ComparisonKind::ConstantFalse;
     }
     return ComparisonKind::Runtime;
 }
@@ -676,10 +670,7 @@ void visit_successors(Compiler &cc, IRFunction *fn, BasicBlock *block,
     }
 
     if (block->successors.empty() && !block->terminal) {
-        if (is_main) {
-            auto *bb = add_block(fn);
-            bb->reachable = true;
-            fn->current_block = bb;
+        if (is_main || fn->ast->returns_void()) {
             insert_return(fn, 0);
         } else {
             // TODO: print demangled name
@@ -693,21 +684,12 @@ void build_successor_lists(Compiler &cc)
 {
     for (size_t i = 0; i < cc.ir_builder.functions.size(); ++i) {
         auto *fn = cc.ir_builder.functions[i];
-        if (fn->basic_blocks.empty()) {
-            if (fn->ast->returns_void()) {
-                auto *bb = add_block(fn);
-                bb->reachable = true;
-                fn->current_block = bb;
-                insert_return(fn, {});
-            } else {
-                diag_error_at(cc, fn->ast->location, ErrorType::Verification,
-                    "non-void function does not return a value on all paths");
-            }
-            continue;
-        }
         // Would be faster to do this during IR gen, but then dealing with invalidated blocks
         // becomes annoying.
         for (auto *bb : fn->basic_blocks) {
+            if (bb->code.empty()) {
+                continue;
+            }
             auto *code = bb->code.back();
             switch (code->operation) {
                 case Operation::CondBranch:
@@ -730,8 +712,14 @@ void build_successor_lists(Compiler &cc)
 
 void optimize_ir(Compiler &cc)
 {
-    for (auto *fn : cc.ir_builder.functions) {
-        optimize_ir(cc, *fn);
+    for (auto *ir_fn : cc.ir_builder.functions) {
+        for (size_t i = 0; auto *bb : ir_fn->basic_blocks) {
+            bb->index = i;
+            for (auto *ir : bb->code) {
+                ir->basic_block_index = i;
+            }
+            ++i;
+        }
     }
 
     // TODO: use this to insert ret for void functions with no explicit return
