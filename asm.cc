@@ -132,9 +132,6 @@ int allocate_stack(IRFunction &ir_fn)
             continue;
         }
         for (auto *ir : bb->code) {
-            if (ir->operation == Operation::None) {
-                continue;
-            }
             if (is_on_stack(ir->left.arg_type)) {
                 extend_stack(stack_size, ir_fn, ir->left);
             }
@@ -263,14 +260,31 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 
 void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
 {
-    constexpr std::array ops{ "sete", "setne", "setg", "setge", "setl", "setle" };
-    auto op_index
-        = static_cast<size_t>(to_underlying(ir->operation) - to_underlying(Operation::Equals));
-    assert(op_index < ops.size());
+    const char *op = [ir]() {
+        auto *type = ir->ast->expr_type;
+        bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
+        assert(type);
+        switch (ir->operation) {
+            case Operation::Equals:
+                return "sete";
+            case Operation::NotEquals:
+                return "setne";
+            case Operation::Greater:
+                return is_unsigned ? "seta" : "setg";
+            case Operation::GreaterEquals:
+                return is_unsigned ? "setae" : "setge";
+            case Operation::Less:
+                return is_unsigned ? "setb" : "setl";
+            case Operation::LessEquals:
+                return is_unsigned ? "setbe" : "setle";
+            default:
+                TODO();
+        }
+    }();
     emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
     emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
     emit("cmp rax, {}", extract_ir_arg(ir_fn, ir->right));
-    emit("{} {}", ops[op_index], stack_addr(ir_fn, ir->target));
+    emit("{} {}", op, stack_addr(ir_fn, ir->target));
 }
 
 void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
@@ -300,9 +314,14 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::Modulo:
             emit("push rdx");
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("cqo");
             emit("mov r10, {}", extract_ir_arg(ir_fn, ir->right));
-            emit("idiv r10");
+            if (ir->ast->expr_type->has_flag(TypeFlags::UNSIGNED)) {
+                emit("xor edx, edx");
+                emit("div r10");
+            } else {
+                emit("cqo"); // TODO: cdq when using different reg sizes
+                emit("idiv r10");
+            }
             if (ir->operation == Operation::Modulo) {
                 emit("mov {}, rdx", stack_addr(ir_fn, ir->target));
             } else {
