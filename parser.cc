@@ -161,7 +161,10 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         if (token.kind == TokenKind::Minus) {
             consume(cc.lexer, token);
             auto prev_col = cc.lexer.column;
-            auto arg = parse_atom(cc, allow_var_decl);
+            auto *arg = parse_atom(cc, allow_var_decl);
+            if (!arg) {
+                parser_error(token.location, "missing operand");
+            }
             // Double negate isn't allowed
             if (arg->operation == Operation::Negate) {
                 cc.lexer.column = prev_col;
@@ -172,7 +175,10 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         if (token.kind == TokenKind::Excl) {
             consume(cc.lexer, token);
             auto prev_col = cc.lexer.column;
-            auto arg = parse_atom(cc, allow_var_decl);
+            auto *arg = parse_atom(cc, allow_var_decl);
+            if (!arg) {
+                parser_error(token.location, "missing operand");
+            }
             // Double LogicalNot isn't allowed
             if (arg->operation == Operation::LogicalNot) {
                 cc.lexer.column = prev_col;
@@ -445,8 +451,10 @@ AstFunction *parse_function(Compiler &cc)
     std::vector<AstVariableDecl *> params{};
     if (token.kind != TokenKind::RParen) {
         params = parse_fn_params(cc);
+        consume_expected(cc, TokenKind::RParen, lex(cc));
+    } else {
+        consume(cc.lexer, token);
     }
-    consume_expected(cc, TokenKind::RParen, lex(cc));
 
     auto *ret_type = void_type();
     cc.lexer.ignore_newlines = true;
