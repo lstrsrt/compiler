@@ -457,6 +457,11 @@ void InputFile::open(std::string_view name)
         ::close(file_handle);
         exit(1);
     }
+    if (!stat.st_size) {
+        std::println("input '{}' is empty", name);
+        ::close(file_handle);
+        exit(1);
+    }
     this->map = static_cast<char *>(mmap(0, stat.st_size, PROT_READ, MAP_SHARED, file_handle, 0));
     if (map == MAP_FAILED) {
         perror("mmap");

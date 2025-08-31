@@ -39,10 +39,10 @@ template<typename... Args>
 [[noreturn]] void die(std::string_view msg, Args &&...args)
 {
     if constexpr (sizeof...(args)) {
-        std::print(
+        std::println(
             "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
     } else {
-        std::print("{}", msg);
+        std::println("{}", msg);
     }
     exit(EXIT_FAILURE);
 }
