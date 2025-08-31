@@ -262,7 +262,7 @@ void generate_ir_cond_branch(Compiler &cc, IRArg cond, BasicBlock *bb1, BasicBlo
     auto *bb = get_current_block(ir_fn);
     ir->left = IRArg::make_block(bb1);
     ir->right = IRArg::make_block(bb2);
-    if (bb->reachable) {
+    if (bb->reachable && !bb->terminal) {
         bb1->reachable = true;
         bb2->reachable = true;
     }
@@ -275,7 +275,7 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
     auto *bb = get_current_block(ir_fn);
     auto *ir = new_ir_branch(nullptr, AstType::Unary, Operation::Branch);
     ir->left = IRArg::make_block(bb1);
-    if (bb->reachable) {
+    if (bb->reachable && !bb->terminal) {
         bb1->reachable = true;
     }
     add_ir(ir, bb);
@@ -714,6 +714,11 @@ void optimize_ir(Compiler &cc)
 {
     for (auto *ir_fn : cc.ir_builder.functions) {
         for (size_t i = 0; auto *bb : ir_fn->basic_blocks) {
+            if (!bb->reachable && !bb->code.empty()) {
+                if (bb->code.back()->ast) {
+                    diag_ast_warning(cc, bb->code.back()->ast, "unreachable code");
+                }
+            }
             bb->index = i;
             for (auto *ir : bb->code) {
                 ir->basic_block_index = i;
