@@ -1,4 +1,5 @@
 #include "compiler.hh"
+#include "frontend.hh"
 
 [[noreturn]] void usage(int errc)
 {

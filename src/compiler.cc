@@ -1,4 +1,8 @@
 #include "compiler.hh"
+#include "asm.hh"
+#include "debug.hh"
+#include "frontend.hh"
+#include "verify.hh"
 
 void compiler_main(Compiler &cc, AstFunction *main)
 {

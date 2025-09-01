@@ -1,4 +1,7 @@
-#include "compiler.hh"
+#include "ir.hh"
+#include "debug.hh"
+#include "diagnose.hh"
+#include "verify.hh"
 
 #include <algorithm> // std::ranges::remove
 #include <unordered_set>

@@ -1,4 +1,5 @@
-#include "compiler.hh"
+#include "verify.hh"
+#include "diagnose.hh"
 
 #define verification_error(ast, msg, ...) \
     diag_error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))

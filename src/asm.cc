@@ -1,4 +1,7 @@
+#include "asm.hh"
 #include "compiler.hh"
+#include "frontend.hh"
+#include "ir.hh"
 
 #include <fcntl.h>
 #include <unistd.h>

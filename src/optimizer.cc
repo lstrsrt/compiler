@@ -1,4 +1,5 @@
-#include "compiler.hh"
+#include "diagnose.hh"
+#include "verify.hh"
 
 #include <limits>
 

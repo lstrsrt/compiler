@@ -1,4 +1,5 @@
-#include "compiler.hh"
+#include "lexer.hh"
+#include "diagnose.hh"
 
 #include <fcntl.h>
 #include <sys/mman.h>

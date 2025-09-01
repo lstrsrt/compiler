@@ -1,4 +1,5 @@
-#include "compiler.hh"
+#include "parser.hh"
+#include "diagnose.hh"
 
 #define parser_ast_error(ast, msg, ...) \
     diag_error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))

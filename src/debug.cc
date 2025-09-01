@@ -1,4 +1,4 @@
-#include "compiler.hh"
+#include "debug.hh"
 
 std::string to_string(AstType type)
 {
