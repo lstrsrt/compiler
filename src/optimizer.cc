@@ -60,7 +60,7 @@ Ast *try_fold_identities(
             // x*0=0 and 0*x=0
             delete static_cast<AstIdentifier *>(variable_ast);
             delete static_cast<AstBinary *>(binary);
-            static_cast<AstLiteral *>(constant_ast)->literal_type = expected;
+            static_cast<AstLiteral *>(constant_ast)->expr_type = expected;
             return constant_ast;
         }
         if (constant == 1) {

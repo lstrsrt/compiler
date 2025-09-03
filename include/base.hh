@@ -95,6 +95,38 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 #define TODO() todo(__func__)
 
+#define DEFINE_ENUM_OPERATOR(type, op)                                            \
+    constexpr type operator op(const type lhs, const type rhs) noexcept           \
+    {                                                                             \
+        return static_cast<type>(to_underlying(lhs) op to_underlying(rhs));       \
+    }                                                                             \
+    constexpr type &operator op##=(type & lhs, const type rhs) noexcept           \
+    {                                                                             \
+        return lhs = static_cast<type>(to_underlying(lhs) op to_underlying(rhs)); \
+    }
+
+#define DEFINE_ENUM_BIT_OPS(type)                    \
+    DEFINE_ENUM_OPERATOR(type, &)                    \
+    DEFINE_ENUM_OPERATOR(type, |)                    \
+    DEFINE_ENUM_OPERATOR(type, ^)                    \
+    DEFINE_ENUM_OPERATOR(type, >>)                   \
+    DEFINE_ENUM_OPERATOR(type, <<)                   \
+    constexpr type operator~(const type x) noexcept  \
+    {                                                \
+        return static_cast<type>(~to_underlying(x)); \
+    }                                                \
+    constexpr auto operator!(const type x) noexcept  \
+    {                                                \
+        return !to_underlying(x);                    \
+    }
+
+#ifndef enum_flags
+#define enum_flags(name, underlying) \
+    enum class name : underlying;    \
+    DEFINE_ENUM_BIT_OPS(name)        \
+    enum class name : underlying
+#endif
+
 using hash_t = uint32_t;
 
 inline constexpr hash_t hash(const char *s, size_t len)

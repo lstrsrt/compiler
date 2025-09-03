@@ -76,36 +76,6 @@ struct AstAllocMark {
 
 inline std::vector<AstAllocMark> marks;
 
-#define EC_ENUM_OPERATOR(type, op)                                                \
-    constexpr type operator op(const type lhs, const type rhs) noexcept           \
-    {                                                                             \
-        return static_cast<type>(to_underlying(lhs) op to_underlying(rhs));       \
-    }                                                                             \
-    constexpr type &operator op##=(type & lhs, const type rhs) noexcept           \
-    {                                                                             \
-        return lhs = static_cast<type>(to_underlying(lhs) op to_underlying(rhs)); \
-    }
-
-#define EC_ENUM_BIT_OPS(type)                        \
-    EC_ENUM_OPERATOR(type, &)                        \
-    EC_ENUM_OPERATOR(type, |)                        \
-    EC_ENUM_OPERATOR(type, ^)                        \
-    EC_ENUM_OPERATOR(type, >>)                       \
-    EC_ENUM_OPERATOR(type, <<)                       \
-    constexpr type operator~(const type x) noexcept  \
-    {                                                \
-        return static_cast<type>(~to_underlying(x)); \
-    }                                                \
-    constexpr auto operator!(const type x) noexcept  \
-    {                                                \
-        return !to_underlying(x);                    \
-    }
-
-#define enum_flags(name, underlying) \
-    enum class name : underlying;    \
-    EC_ENUM_BIT_OPS(name)            \
-    enum class name : underlying
-
 enum_flags(AstFlags, uint64_t){
     FOLDED = 1 << 0, // Prevent verifier trying to constant fold this tree multiple times.
 };
@@ -156,8 +126,6 @@ struct Ast {
 Type *bool_type();
 
 struct AstLiteral : Ast {
-    Type *literal_type = nullptr;
-
     union {
         uint32_t u32;
         uint64_t u64;
@@ -168,15 +136,15 @@ struct AstLiteral : Ast {
 
     explicit AstLiteral(Type *_type, uint64_t _literal, SourceLocation _location)
         : Ast(AstType::Integer, Operation::None, _location)
-        , literal_type(_type)
     {
+        expr_type = _type;
         u.u64 = _literal;
     }
 
     explicit AstLiteral(bool _literal, SourceLocation _location)
         : Ast(AstType::Boolean, Operation::None, _location)
-        , literal_type(bool_type())
     {
+        expr_type = bool_type();
         u.boolean = _literal;
     }
 };

@@ -711,7 +711,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 
 std::string extract_integer_constant(AstLiteral *literal)
 {
-    auto *type = get_unaliased_type(literal->literal_type);
+    auto *type = get_unaliased_type(literal->expr_type);
     if (type->get_kind() == TypeFlags::Integer) {
         if (type->has_flag(TypeFlags::UNSIGNED)) {
             if (type->size == 8) {

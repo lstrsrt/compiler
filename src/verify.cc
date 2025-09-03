@@ -279,17 +279,13 @@ Type *get_expression_type(
         return nullptr;
     }
 
-    if (ast->expr_type) {
-        return ast->expr_type;
-    }
-
     ast->expr_type = [&]() -> Type * {
         switch (ast->type) {
             case AstType::Integer: {
                 if (constness) {
                     *constness |= ExprConstness::SawConstant;
                 }
-                return static_cast<AstLiteral *>(ast)->literal_type;
+                return static_cast<AstLiteral *>(ast)->expr_type;
             }
             case AstType::Boolean:
                 if (constness) {

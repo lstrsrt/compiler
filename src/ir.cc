@@ -6,7 +6,7 @@
 #include <algorithm> // std::ranges::remove
 #include <unordered_set>
 
-IRArg generate_ir_impl(Compiler &cc, Ast *ast);
+IRArg generate_ir_impl(Compiler &, Ast *);
 
 BasicBlock *add_block(IRFunction *ir_fn)
 {

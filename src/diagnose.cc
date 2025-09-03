@@ -1,4 +1,4 @@
-#include "compiler.hh"
+#include "diagnose.hh"
 
 void print_diag_line(std::string_view string, SourceLocation loc)
 {

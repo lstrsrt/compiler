@@ -106,7 +106,7 @@ static void print_node(Ast *ast, std::string_view indent)
         std::print("{}", indent);
         if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
             auto *literal = static_cast<AstLiteral *>(ast);
-            std::print("{} ({})", extract_integer_constant(literal), literal->literal_type->name);
+            std::print("{} ({})", extract_integer_constant(literal), literal->expr_type->name);
         } else if (ast->type == AstType::String) {
             auto *string = static_cast<AstString *>(ast);
             // TODO - print escaped?
