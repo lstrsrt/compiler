@@ -265,8 +265,8 @@ void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
 {
     const char *op = [ir]() {
         auto *type = ir->ast->expr_type;
-        bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
         assert(type);
+        bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
         switch (ir->operation) {
             case Operation::Equals:
                 return "sete";

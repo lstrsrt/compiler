@@ -141,20 +141,10 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     }
 }
 
-enum class ExprConstness {
+enum_flags(ExprConstness, uint8_t){
     SawConstant = 1 << 0,
-    SawNonConstant = 1 << 1
+    SawNonConstant = 1 << 1,
 };
-
-constexpr ExprConstness &operator|=(ExprConstness &lhs, const ExprConstness rhs)
-{
-    return lhs = static_cast<ExprConstness>(to_underlying(lhs) | to_underlying(rhs));
-}
-
-constexpr ExprConstness operator|(const ExprConstness lhs, const ExprConstness rhs)
-{
-    return static_cast<ExprConstness>(to_underlying(lhs) | to_underlying(rhs));
-}
 
 bool expr_has_no_constants(ExprConstness e)
 {

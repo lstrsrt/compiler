@@ -261,8 +261,8 @@ IRBranch *new_ir_branch(Ast *ast, AstType type, Operation operation, IRArg cond)
 void generate_ir_cond_branch(Compiler &cc, IRArg cond, BasicBlock *bb1, BasicBlock *bb2)
 {
     auto *ir_fn = cc.ir_builder.current_function;
-    auto *ir = new_ir_branch(nullptr, AstType::Binary, Operation::CondBranch, cond);
     auto *bb = get_current_block(ir_fn);
+    auto *ir = new_ir_branch(nullptr, AstType::Binary, Operation::CondBranch, cond);
     ir->left = IRArg::make_block(bb1);
     ir->right = IRArg::make_block(bb2);
     if (bb->reachable && !bb->terminal) {
@@ -330,10 +330,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     auto cond = generate_ir_impl(cc, if_stmt->expr);
 
     auto *true_block = add_block(ir_fn);
-    BasicBlock *else_block = nullptr;
-    if (if_stmt->else_body) {
-        else_block = add_block(ir_fn);
-    }
+    auto *else_block = if_stmt->else_body ? add_block(ir_fn) : nullptr;
 
     auto *after_block = add_block(ir_fn);
     auto *false_block = else_block ? else_block : after_block;
