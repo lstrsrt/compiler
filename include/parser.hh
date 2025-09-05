@@ -410,6 +410,7 @@ enum class TypeOverridable {
     Yes
 };
 Ast *try_constant_fold(Compiler &, Ast *, Type *&expected, TypeOverridable);
+Ast *try_fold_logical_chain(Compiler &, AstBinary *);
 
 struct Scope {
     Scope *parent;

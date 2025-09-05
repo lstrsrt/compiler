@@ -91,6 +91,53 @@ Ast *try_partial_fold_associative(
     return partial_fold_associative(flattened, binary->operation, expected);
 }
 
+Ast *try_fold_logical_chain(
+    AstBinary *binary, const std::vector<Ast *> &operands, Operation operation)
+{
+    std::vector<Ast *> chain;
+    uint64_t constant;
+
+    for (size_t i = 0; i < operands.size(); ++i) {
+        auto *ast = operands[i];
+        if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
+            constant = get_int_literal(ast);
+            // The break condition is "not 0" for LogicalOr and 0 for LogicalAnd.
+            if ((constant == 0) ^ (operation == Operation::LogicalOr)) {
+                if (i != 0) {
+                    // If this is not the first operand, override the previous expression result by
+                    // inserting the constant.
+                    chain.push_back(ast);
+                }
+                // Ignore the rest
+                break;
+            }
+        } else {
+            chain.push_back(ast);
+        }
+    }
+
+    if (chain.empty()) {
+        // This happens if we broke on the first operand
+        return new AstLiteral(constant != 0, binary->location);
+    }
+
+    auto *ret = chain[0];
+    for (size_t i = 1; i < chain.size(); ++i) {
+        ret = new AstBinary(operation, ret, chain[i], {});
+    }
+    return ret;
+}
+
+Ast *try_fold_logical_chain(Compiler &, AstBinary *binary)
+{
+    assert(binary->operation == Operation::LogicalAnd || binary->operation == Operation::LogicalOr);
+    std::vector<Ast *> flattened;
+    flatten_binary(binary, binary->operation, flattened);
+    auto *res = try_fold_logical_chain(binary, flattened, binary->operation);
+    res->flags |= AstFlags::FOLDED;
+    return res;
+}
+
 Type *get_integer_type(uint64_t x)
 {
     if (x > max_for_type(s64_type())) {
@@ -183,6 +230,30 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
         case Operation::Modulo:
             result = left_const % right_const;
             break;
+        case Operation::Equals:
+            result = left_const == right_const;
+            break;
+        case Operation::NotEquals:
+            result = left_const != right_const;
+            break;
+        case Operation::Less:
+            result = left_const < right_const;
+            break;
+        case Operation::LessEquals:
+            result = left_const <= right_const;
+            break;
+        case Operation::Greater:
+            result = left_const > right_const;
+            break;
+        case Operation::GreaterEquals:
+            result = left_const >= right_const;
+            break;
+        case Operation::LogicalAnd:
+            result = left_const && right_const;
+            break;
+        case Operation::LogicalOr:
+            result = left_const || right_const;
+            break;
         default:
             return binary; // Do nothing
     }
@@ -236,6 +307,11 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         auto *variable_ast = left_is_const ? right : left;
         auto constant = left_is_const ? left_const : right_const;
         return try_partial_fold_associative(binary, constant_ast, variable_ast, constant, expected);
+    }
+
+    if (binary->operation == Operation::LogicalOr || binary->operation == Operation::LogicalAnd) {
+        // TODO: does anything need to be verified here?
+        return try_fold_logical_chain(cc, binary);
     }
 
     // TODO: non-associative folding

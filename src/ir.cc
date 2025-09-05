@@ -436,14 +436,14 @@ void generate_ir_logical_and(
             }
         } else {
             ComparisonKind kind;
-            auto cmp = generate_ir_logical(cc, flattened[i], &kind);
+            auto *cmp = generate_ir_logical(cc, flattened[i], &kind);
             if (i == flattened.size() - 1) {
                 if (cmp) {
                     generate_ir_cond_branch(
                         cc, IRArg::make_vreg(cmp->target), true_block, false_block);
                 } else if (kind == ComparisonKind::ConstantFalse) {
                     generate_ir_branch(cc, false_block);
-                } else if (kind == ComparisonKind::ConstantTrue) {
+                } else {
                     generate_ir_branch(cc, true_block);
                 }
             } else {
@@ -453,7 +453,7 @@ void generate_ir_logical_and(
                     ir_fn->current_block = next;
                 } else if (kind == ComparisonKind::ConstantFalse) {
                     generate_ir_branch(cc, false_block);
-                } else if (kind == ComparisonKind::ConstantTrue) {
+                } else {
                     auto *next = add_block(ir_fn);
                     generate_ir_branch(cc, next);
                     ir_fn->current_block = next;
@@ -491,25 +491,17 @@ void generate_ir_logical_or(
             }
         } else {
             ComparisonKind kind;
-            auto cmp = generate_ir_logical(cc, flattened[i], &kind);
-            if (i == flattened.size() - 1) {
-                if (cmp) {
-                    generate_ir_cond_branch(
-                        cc, IRArg::make_vreg(cmp->target), true_block, false_block);
-                } else if (kind == ComparisonKind::ConstantFalse) {
-                    generate_ir_branch(cc, false_block);
-                } else if (kind == ComparisonKind::ConstantTrue) {
-                    generate_ir_branch(cc, true_block);
-                }
+            auto *cmp = generate_ir_logical(cc, flattened[i], &kind);
+            auto is_final = i == flattened.size() - 1;
+            auto *next = is_final ? false_block : add_block(ir_fn);
+            if (cmp) {
+                generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, next);
+            } else if (kind == ComparisonKind::ConstantFalse) {
+                generate_ir_branch(cc, false_block);
             } else {
-                auto *next = add_block(ir_fn);
-                if (cmp) {
-                    generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, next);
-                } else if (kind == ComparisonKind::ConstantFalse) {
-                    generate_ir_branch(cc, false_block);
-                } else if (kind == ComparisonKind::ConstantTrue) {
-                    generate_ir_branch(cc, true_block);
-                }
+                generate_ir_branch(cc, true_block);
+            }
+            if (!is_final) {
                 ir_fn->current_block = next;
             }
         }
