@@ -171,6 +171,8 @@ void print_ast(Ast *ast, std::string indent)
                 }
             } else if (ast->operation == Operation::Negate) {
                 print_ast(static_cast<AstNegate *>(ast)->operand, indent);
+            } else if (ast->operation == Operation::LogicalNot) {
+                print_ast(static_cast<AstLogicalNot *>(ast)->operand, indent);
             } else if (ast->operation == Operation::Cast) {
                 print_ast(static_cast<AstCast *>(ast)->expr, indent);
             }

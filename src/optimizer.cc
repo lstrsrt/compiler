@@ -1,4 +1,5 @@
 #include "diagnose.hh"
+#include "parser.hh"
 #include "verify.hh"
 
 #include <limits>
@@ -95,12 +96,12 @@ Ast *try_fold_logical_chain(
     AstBinary *binary, const std::vector<Ast *> &operands, Operation operation)
 {
     std::vector<Ast *> chain;
-    uint64_t constant;
+    std::optional<uint64_t> constant{};
 
     for (size_t i = 0; i < operands.size(); ++i) {
         auto *ast = operands[i];
         if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
-            constant = get_int_literal(ast);
+            constant.emplace(get_int_literal(ast));
             // The break condition is "not 0" for LogicalOr and 0 for LogicalAnd.
             if ((constant == 0) ^ (operation == Operation::LogicalOr)) {
                 if (i != 0) {
@@ -118,7 +119,12 @@ Ast *try_fold_logical_chain(
 
     if (chain.empty()) {
         // This happens if we broke on the first operand
-        return new AstLiteral(constant != 0, binary->location);
+        return new AstLiteral(*constant != 0, binary->location);
+    }
+
+    if (chain.size() == operands.size() && !constant.has_value()) {
+        // No rebuild necessary
+        return chain[0];
     }
 
     auto *ret = chain[0];
@@ -309,11 +315,6 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         return try_partial_fold_associative(binary, constant_ast, variable_ast, constant, expected);
     }
 
-    if (binary->operation == Operation::LogicalOr || binary->operation == Operation::LogicalAnd) {
-        // TODO: does anything need to be verified here?
-        return try_fold_logical_chain(cc, binary);
-    }
-
     // TODO: non-associative folding
 
     return binary;
@@ -333,6 +334,12 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
     if (ast->type == AstType::Unary) {
         if (ast->operation == Operation::Cast) {
             return static_cast<AstCast *>(ast)->expr;
+        }
+        if (ast->operation == Operation::LogicalNot) {
+            auto *operand = static_cast<AstLogicalNot *>(ast)->operand;
+            if (operand->type == AstType::Integer || operand->type == AstType::Boolean) {
+                return new AstLiteral(expected, !get_int_literal(operand), {});
+            }
         }
     }
     return ast;
