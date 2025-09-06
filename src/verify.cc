@@ -534,7 +534,8 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
             return;
         }
         if (type->get_kind() == TypeFlags::Integer) {
-            insert_cast(ast, expected);
+            static_cast<AstLiteral *>(ast)->u.u64
+                = std::clamp<uint64_t>(get_int_literal(ast), 0, 1);
             return;
         }
     } else if (!types_match(type, expected)) {
@@ -604,7 +605,10 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 return;
             }
             if (type->get_kind() == TypeFlags::Integer) {
-                insert_cast(ast, expected);
+                // TODO: this is important for assignments, but not necessary for CondBranches
+                ast = new AstBinary(
+                    Operation::NotEquals, ast, new AstLiteral(type, 0, {}), ast->location);
+                ast->expr_type = bool_type();
                 return;
             }
         } else if (types_match(type, expected)) {
