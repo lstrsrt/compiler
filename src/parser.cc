@@ -860,7 +860,7 @@ void free_ast(Ast *ast)
 }
 
 template<class T>
-T *find__helper(Scope *scope, Scope **result_scope, SearchParents search_parents, auto &&callback)
+T *find_helper(Scope *scope, Scope **result_scope, SearchParents search_parents, auto &&callback)
 {
     if (result_scope) {
         *result_scope = nullptr;
@@ -884,7 +884,7 @@ T *find__helper(Scope *scope, Scope **result_scope, SearchParents search_parents
 Type *find_type(
     Scope *scope, std::string_view name, Scope **result_scope, SearchParents search_parents)
 {
-    return find__helper<Type>(scope, result_scope, search_parents, [name](Scope *s) -> Type * {
+    return find_helper<Type>(scope, result_scope, search_parents, [name](Scope *s) -> Type * {
         if (auto res = s->types.find(name); res != s->types.end()) {
             return res->second;
         }
@@ -895,12 +895,11 @@ Type *find_type(
 AstVariableDecl *find_variable(
     Scope *scope, std::string_view name, Scope **result_scope, SearchParents search_parents)
 {
-    return find__helper<AstVariableDecl>(
-        scope, result_scope, search_parents, [name](Scope *s) -> AstVariableDecl * {
-            for (size_t i = 0; i < s->variables.size(); i++) {
-                auto *var_decl = s->variables[i];
-                // TODO - hash? turn this into a map lookup like the type map already did?
-                if (var_decl && var_decl->var.name == name) {
+    auto wanted_hash = ::hash(name);
+    return find_helper<AstVariableDecl>(
+        scope, result_scope, search_parents, [wanted_hash](Scope *s) -> AstVariableDecl * {
+            for (auto *var_decl : s->variables) {
+                if (var_decl && hash(var_decl->var.name) == wanted_hash) {
                     return var_decl;
                 }
             }
@@ -911,7 +910,7 @@ AstVariableDecl *find_variable(
 AstFunction *find_function(Scope *scope, std::string_view unmangled_name, Scope **result_scope,
     SearchParents search_parents)
 {
-    return find__helper<AstFunction>(
+    return find_helper<AstFunction>(
         scope, result_scope, search_parents, [unmangled_name](Scope *s) -> AstFunction * {
             if (auto res = s->functions.find(unmangled_name); res != s->functions.end()) {
                 return res->second;
