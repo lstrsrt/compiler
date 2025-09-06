@@ -148,6 +148,7 @@ void generate_ir_return(Compiler &cc, Ast *ast)
         generate_ir(cc, ir, ir->left, ret->expr);
     }
     add_ir(ir, bb);
+    ir_fn->current_block = add_block(ir_fn);
 }
 
 enum class ComparisonKind {
@@ -270,6 +271,7 @@ void generate_ir_cond_branch(Compiler &cc, IRArg cond, BasicBlock *bb1, BasicBlo
         bb2->reachable = true;
     }
     add_ir(ir, bb);
+    ir_fn->current_block = add_block(ir_fn);
 }
 
 void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
@@ -282,6 +284,7 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
         bb1->reachable = true;
     }
     add_ir(ir, bb);
+    ir_fn->current_block = add_block(ir_fn);
 }
 
 AstLiteral *null_s32()
@@ -596,43 +599,6 @@ void free_bb(BasicBlock *bb)
     delete bb;
 }
 
-void optimize_ir(Compiler &cc, IRFunction &ir_fn)
-{
-    auto &bbs = ir_fn.basic_blocks;
-
-    const auto killable = [&](BasicBlock *bb) {
-        if (bb->code.empty()) {
-            return true;
-        }
-        if (!bb->reachable) {
-            if (bb->code.back()->ast) {
-                diag_ast_warning(cc, bb->code.back()->ast, "unreachable code");
-            }
-            return true;
-        }
-        return false;
-    };
-
-    for (size_t i = 0; i < ir_fn.basic_blocks.size();) {
-        auto *bb = bbs[i];
-        if (killable(bb)) {
-            free_bb(bb);
-            auto [beg, end] = std::ranges::remove(bbs, bb);
-            bbs.erase(beg, end);
-        } else {
-            ++i;
-        }
-    }
-
-    for (size_t i = 0; auto *bb : ir_fn.basic_blocks) {
-        bb->index = i;
-        for (auto *ir : bb->code) {
-            ir->basic_block_index = i;
-        }
-        ++i;
-    }
-}
-
 AstLiteral *s32_literal(int value)
 {
     return new AstLiteral{ s32_type(), static_cast<uint64_t>(value), {} };
@@ -719,8 +685,6 @@ void optimize_ir(Compiler &cc)
         }
     }
 
-    // TODO: use this to insert ret for void functions with no explicit return
-    // also need to always ret from main
     build_successor_lists(cc);
 
     for (size_t i = 0; i < cc.ir_builder.functions.size();) {

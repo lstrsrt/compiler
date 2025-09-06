@@ -199,6 +199,8 @@ void emit_jump(IR *ir, BasicBlock *target)
 {
     if (ir->basic_block_index + 1 != target->index) {
         emit("jmp {}", target->label_name);
+    } else {
+        emit("; jump to next block (fallthrough)");
     }
 }
 
@@ -355,16 +357,10 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
                 }
             };
             auto cond = static_cast<IRBranch *>(ir)->cond;
-            if (cond.arg_type == IRArgType::Constant) {
-                if (cond.u.constant->u.u64) {
-                    emit_jump(ir, ir->left.u.basic_block);
-                } else {
-                    emit_jump(ir, ir->right.u.basic_block);
-                }
-            } else {
-                emit("cmp qword {}, 0", extract_ir_arg(ir_fn, cond));
-                cond_jump(ir, ir->left.u.basic_block, ir->right.u.basic_block);
-            }
+            // this should not be possible due to new optimizer code
+            assert(cond.arg_type != IRArgType::Constant);
+            emit("cmp qword {}, 0", extract_ir_arg(ir_fn, cond));
+            cond_jump(ir, ir->left.u.basic_block, ir->right.u.basic_block);
             break;
         }
         default:
@@ -397,6 +393,9 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
     int stack_size = allocate_stack(ir_fn);
     emit_prologue(stack_size);
     for (auto *bb : ir_fn.basic_blocks) {
+        if (!bb->reachable) {
+            continue;
+        }
         __emit("{}:\n", bb->label_name);
         for (auto *ir : bb->code) {
             if (bb->code.empty()) {
