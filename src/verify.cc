@@ -1,5 +1,6 @@
 #include "verify.hh"
 #include "diagnose.hh"
+#include "parser.hh"
 
 #define verification_error(ast, msg, ...) \
     diag_error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
@@ -202,7 +203,7 @@ void traverse_postorder(Ast *&ast, auto &&callback)
 }
 
 Type *get_binary_expression_type(
-    Compiler &cc, Ast *&ast, ExprConstness *constness, TypeOverridable overridable)
+    Compiler &cc, Ast *&ast, ExprConstness &constness, TypeOverridable overridable)
 {
     auto *binary = static_cast<AstBinary *>(ast);
 
@@ -245,12 +246,10 @@ Type *get_binary_expression_type(
             verification_type_error(ast->location,
                 "invalid types `{}` and `{}` in binary operation", ret->name, current->name);
         }
-        if (constness) {
-            *constness |= expr_constness;
-        }
+        constness |= expr_constness;
     }
 
-    if (!expr_has_no_constants(*constness) && !(ast->flags & AstFlags::FOLDED)) {
+    if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
         // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
         // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
         // overflowing add.
@@ -268,6 +267,7 @@ Type *get_expression_type(
     if (!ast) {
         return nullptr;
     }
+    assert(constness);
 
     ast->expr_type = [&]() -> Type * {
         switch (ast->type) {
@@ -293,7 +293,7 @@ Type *get_expression_type(
                 }
                 return static_cast<AstIdentifier *>(ast)->var->type;
             case AstType::Binary: {
-                return get_binary_expression_type(cc, ast, constness, overridable);
+                return get_binary_expression_type(cc, ast, *constness, overridable);
             }
             case AstType::Unary:
                 if (ast->operation == Operation::Call) {
@@ -378,8 +378,7 @@ enum class WarnDiscardedReturn {
     Yes
 };
 
-void verify_expr(
-    Compiler &cc, Ast *&expr, WarnDiscardedReturn warn_discarded, Type *expected = nullptr);
+void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullptr);
 
 uint64_t max_for_type(Type *t)
 {
@@ -484,7 +483,8 @@ void verify_binary(
 
 Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
 {
-    ExprConstness lhs_constness{}, rhs_constness{};
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
     auto *lhs = get_expression_type(cc, ast->left, &lhs_constness, TypeOverridable::No);
     auto *rhs = get_expression_type(cc, ast->right, &rhs_constness, TypeOverridable::No);
     Type *exp = rhs;
@@ -503,7 +503,8 @@ bool types_match(Type *t1, Type *t2)
             return get_unaliased_type(t1) == get_unaliased_type(t2);
         }
         return get_unaliased_type(t1) == t2;
-    } else if (t2->has_flag(TypeFlags::ALIAS)) {
+    }
+    if (t2->has_flag(TypeFlags::ALIAS)) {
         return t1 == get_unaliased_type(t2);
     }
     return t1 == t2;
@@ -572,7 +573,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             }
             break;
         case AstType::Binary: {
-            auto binary = static_cast<AstBinary *>(ast);
+            auto *binary = static_cast<AstBinary *>(ast);
             switch (binary->operation) {
                 case Operation::Equals:
                 case Operation::NotEquals:

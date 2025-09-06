@@ -85,7 +85,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
         consume(cc.lexer, token);
     }
 
-    return new AstCall(function, std::move(args), location);
+    return new AstCall(function, args, location);
 }
 
 enum class IntConversionError {
@@ -154,7 +154,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     if (is_group(token.kind, TokenKind::GroupOperator)) {
         if (token.kind == TokenKind::LParen) {
             consume(cc.lexer, token);
-            auto ast = parse_expr(cc);
+            auto *ast = parse_expr(cc);
             token = lex(cc);
             consume_expected(cc, TokenKind::RParen, token);
             return ast;
@@ -323,7 +323,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
     auto prev_col = cc.lexer.column;
     auto prev_pos = cc.lexer.position;
 
-    auto root = parse_atom(cc, allow_var_decl);
+    auto *root = parse_atom(cc, allow_var_decl);
 
     for (;;) {
         const auto token = lex(cc);
@@ -337,9 +337,8 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
                 cc.lexer.column = prev_col;
                 cc.lexer.position = prev_pos;
                 return parse_var_decl(cc);
-            } else {
-                break;
             }
+            break;
         }
 
         const auto info = get_operator_info(token.kind);
@@ -350,7 +349,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
         consume(cc.lexer, token);
         const auto new_precedence = info.precedence + to_underlying(info.associativity);
         // Place the current expression on the left and the next on the right, recursively.
-        const auto rhs = parse_expr(cc, allow_var_decl, new_precedence);
+        auto *const rhs = parse_expr(cc, allow_var_decl, new_precedence);
         root = parse_binary(cc, token, root, rhs);
     }
 
@@ -430,7 +429,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
         }
         stmts.emplace_back(stmt);
     }
-    return new AstBlock(std::move(stmts));
+    return new AstBlock(stmts);
 }
 
 AstFunction *parse_function(Compiler &cc)
@@ -468,7 +467,7 @@ AstFunction *parse_function(Compiler &cc)
     }
 
     // This expects { + (newline + stmts)? + }
-    auto function = new AstFunction(name, ret_type, std::move(params), {}, location);
+    auto *function = new AstFunction(name, ret_type, params, {}, location);
     current_scope->parent->add_function(cc, function, name);
     function->body = parse_block(cc, function);
     function->scope = current_scope->parent;
@@ -678,23 +677,22 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             cc.lexer.position = prev_pos;
             cc.lexer.column = prev_col;
             auto *var_decl = parse_var_decl(cc);
-            current_scope->add_variable(cc, static_cast<AstVariableDecl *>(var_decl));
+            current_scope->add_variable(cc, var_decl);
             consume_newline_or_eof(cc, lex(cc));
             cc.lexer.ignore_newlines = true;
             return var_decl;
-        } else {
-            // It's not a var decl, go back
-            cc.lexer.position = prev_pos;
-            cc.lexer.column = prev_col;
         }
+        // It's not a var decl, go back
+        cc.lexer.position = prev_pos;
+        cc.lexer.column = prev_col;
     } else if (token.kind == TokenKind::LBrace) {
         enter_new_scope();
-        auto block = parse_block(cc, current_function);
+        auto *block = parse_block(cc, current_function);
         leave_scope();
         return block;
     }
     cc.lexer.ignore_newlines = false;
-    auto maybe_expr = parse_expr(cc);
+    auto *maybe_expr = parse_expr(cc);
     cc.lexer.ignore_newlines = true;
     if (maybe_expr) {
         if (maybe_expr->operation != Operation::Assign
@@ -766,7 +764,7 @@ void Scope::add_variable(Compiler &cc, AstVariableDecl *var_decl)
 {
     diagnose_redeclaration_or_shadowing(
         cc, this, var_decl->var.name, "variable", ErrorOnShadowing::No);
-    var_decl->var.index_in_scope = variables.size();
+    var_decl->var.index_in_scope = ssize(variables);
     variables.push_back(var_decl);
 }
 
