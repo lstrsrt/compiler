@@ -124,7 +124,7 @@ Ast *try_fold_logical_chain(
 
     if (chain.size() == operands.size() && !constant.has_value()) {
         // No rebuild necessary
-        return chain[0];
+        return binary;
     }
 
     auto *ret = chain[0];
