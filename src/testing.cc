@@ -25,7 +25,6 @@ int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cm
     cmdline.push_back(nullptr);
 
     pid_t pid;
-    extern char **environ;
     if (posix_spawn(&pid, exe_path.string().data(), nullptr, nullptr, cmdline.data(), environ)) {
         std::println("error spawning {}", exe_path.string());
         perror("posix_spawn");
@@ -39,9 +38,9 @@ int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cm
         }
         if (WIFEXITED(status)) {
             return WEXITSTATUS(status);
-        } else {
-            return -1;
         }
+        return -1;
+
     } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     return -1;
 }
@@ -53,7 +52,7 @@ void run_test(const fs::path &file)
     const auto report_result = [&]() {
         if (total_tests == 1) {
             auto color = passed_tests ? Green : Red;
-            auto str = passed_tests ? "passed" : "failed";
+            const auto *str = passed_tests ? "passed" : "failed";
             std::println("{}{}{} {}{}", color, str, DefaultBold, file.string(), Default);
         }
     };

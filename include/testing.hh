@@ -23,11 +23,11 @@ enum class ErrorType {
 #undef __ENUMERATE_ERROR_TYPE
 };
 
-void run_tests(const fs::path &dir);
-void run_single_test(const fs::path &file);
+void run_tests(const fs::path &);
+void run_single_test(const fs::path &);
 
 struct TestingException : std::runtime_error {
-    TestingException(const char *const msg, ErrorType _type) throw()
+    TestingException(const char *const msg, ErrorType _type) noexcept
         : std::runtime_error(msg)
         , type(_type)
     {
@@ -38,6 +38,6 @@ struct TestingException : std::runtime_error {
 
 struct TestMode {
     TestType test_type = TestType::CanCompile;
-    ErrorType error_type;
-    uint64_t return_value;
+    ErrorType error_type{};
+    uint64_t return_value = 0;
 };

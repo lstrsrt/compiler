@@ -25,7 +25,7 @@ void process_cmdline(ArgumentParser &ap)
             case hash("-h"):
                 [[fallthrough]];
             case hash("--help"):
-                usage(0);
+                usage(EXIT_SUCCESS);
                 break;
             default:
                 if (i < ap.arguments.size() - 1) {
@@ -36,22 +36,10 @@ void process_cmdline(ArgumentParser &ap)
     }
 }
 
-template<typename... Args>
-[[noreturn]] void die(std::string_view msg, Args &&...args)
-{
-    if constexpr (sizeof...(args)) {
-        std::println(
-            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
-    } else {
-        std::println("{}", msg);
-    }
-    exit(EXIT_FAILURE);
-}
-
 int main(int argc, char **argv)
 {
     if (argc < 2) {
-        usage(1);
+        usage(EXIT_FAILURE);
     }
 
     ArgumentParser arg_parser;
@@ -59,7 +47,7 @@ int main(int argc, char **argv)
     process_cmdline(arg_parser);
 
     if (opts.testing) {
-        auto dir_or_file = arg_parser.arguments.back();
+        auto *dir_or_file = arg_parser.arguments.back();
         if (!fs::exists(dir_or_file)) {
             die("test file or directory '{}' not found", dir_or_file);
         }

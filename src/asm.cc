@@ -107,7 +107,7 @@ void debug_stack_location(int location, ssize_t target)
 
 void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
 {
-    if (ir_fn.stack_offsets.find(get_key(src)) != ir_fn.stack_offsets.end()) {
+    if (ir_fn.stack_offsets.contains(get_key(src))) {
         return;
     }
 

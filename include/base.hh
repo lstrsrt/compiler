@@ -33,10 +33,23 @@ struct Defer {
 
     ~Defer()
     {
-        fn();
+        if (!disabled) {
+            fn();
+        }
+    }
+
+    void disable()
+    {
+        disabled = true;
+    }
+
+    void enable()
+    {
+        disabled = false;
     }
 
     Fn fn;
+    bool disabled = false;
 };
 
 #define AST_ALLOC_PARANOID 0
@@ -94,6 +107,18 @@ constexpr size_t align_up(size_t value, size_t alignment)
 }
 
 #define TODO() todo(__func__)
+
+template<typename... Args>
+[[noreturn]] void die(std::string_view msg, Args &&...args)
+{
+    if constexpr (sizeof...(args)) {
+        std::println(
+            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+    } else {
+        std::println("{}", msg);
+    }
+    exit(EXIT_FAILURE);
+}
 
 #define DEFINE_ENUM_OPERATOR(type, op)                                            \
     constexpr type operator op(const type lhs, const type rhs) noexcept           \

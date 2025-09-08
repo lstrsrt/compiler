@@ -428,19 +428,20 @@ void generate_ir_logical_and(
     flatten_binary(ast, Operation::LogicalAnd, flattened);
 
     for (size_t i = 0; i < flattened.size(); ++i) {
+        bool is_final = i == flattened.size() - 1;
         if (flattened[i]->operation == Operation::LogicalOr) {
             auto *true_or = new_block();
             generate_ir_logical_or(
                 cc, static_cast<AstBinary *>(flattened[i]), true_or, false_block);
             add_block(ir_fn, true_or);
             ir_fn->current_block = true_or;
-            if (i == flattened.size() - 1) {
+            if (is_final) {
                 generate_ir_branch(cc, true_block);
             }
         } else {
             ComparisonKind kind;
             auto *cmp = generate_ir_logical(cc, flattened[i], &kind);
-            if (i == flattened.size() - 1) {
+            if (is_final) {
                 if (cmp) {
                     generate_ir_cond_branch(
                         cc, IRArg::make_vreg(cmp->target), true_block, false_block);
@@ -483,19 +484,19 @@ void generate_ir_logical_or(
     flatten_binary(ast, Operation::LogicalOr, flattened);
 
     for (size_t i = 0; i < flattened.size(); ++i) {
+        bool is_final = i == flattened.size() - 1;
         if (flattened[i]->operation == Operation::LogicalAnd) {
             auto *false_and = new_block();
             generate_ir_logical_and(
                 cc, static_cast<AstBinary *>(flattened[i]), true_block, false_and);
             add_block(ir_fn, false_and);
             ir_fn->current_block = false_and;
-            if (i == flattened.size() - 1) {
+            if (is_final) {
                 generate_ir_branch(cc, false_block);
             }
         } else {
             ComparisonKind kind;
             auto *cmp = generate_ir_logical(cc, flattened[i], &kind);
-            auto is_final = i == flattened.size() - 1;
             auto *next = is_final ? false_block : add_block(ir_fn);
             if (cmp) {
                 generate_ir_cond_branch(cc, IRArg::make_vreg(cmp->target), true_block, next);
@@ -618,7 +619,7 @@ void insert_return(IRFunction *ir_fn, int32_t return_value)
 void visit_successors(Compiler &cc, IRFunction *fn, BasicBlock *block,
     std::unordered_set<BasicBlock *> &visited, bool is_main)
 {
-    if (visited.find(block) != visited.end()) {
+    if (visited.contains(block)) {
         return;
     }
 

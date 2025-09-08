@@ -1,6 +1,8 @@
 #include "lexer.hh"
 #include "diagnose.hh"
 
+#include <algorithm>
+
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -18,13 +20,8 @@ constexpr bool is_valid_char_in_identifier(char c)
 
 constexpr bool is_start_of_operator(char c)
 {
-    constexpr const char ops[]{ "+-*/%(){}<>=!,:#" };
-    for (char x : ops) {
-        if (c == x) {
-            return true;
-        }
-    }
-    return false;
+    constexpr std::array<char, 17> ops{ "+-*/%(){}<>=!,:#" };
+    return std::ranges::any_of(ops, [c](char x) { return c == x; });
 }
 
 enum class Radix {
@@ -170,14 +167,14 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
 Token lex_operator(Lexer &lexer)
 {
     TokenKind kind;
-    const auto str = lex_operator_impl(lexer, kind);
+    const auto *const str = lex_operator_impl(lexer, kind);
     return Token::make_operator(str, kind, lexer.location());
 }
 
 TokenKind get_keyword_or_identifier_kind(std::string_view str)
 {
     using enum TokenKind;
-    static std::unordered_map<std::string_view, TokenKind> keyword_map{
+    static const std::unordered_map<std::string_view, TokenKind> keyword_map{
         { "fn", Fn },
         { "return", Return },
         { "if", If },
@@ -450,37 +447,44 @@ void InputFile::open(std::string_view name)
     this->file_handle = ::open(name.data(), O_RDONLY);
     if (file_handle == -1) {
         perror("open");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
-    struct stat stat;
+
+    Defer fail_defer{ [&] {
+        ::close(file_handle);
+        exit(EXIT_FAILURE);
+    } };
+
+    struct stat stat{};
     if (fstat(file_handle, &stat) < 0) {
         perror("fstat");
-        ::close(file_handle);
-        exit(1);
+        return;
     }
+
     if (!stat.st_size) {
         std::println("input '{}' is empty", name);
-        ::close(file_handle);
-        exit(1);
     }
-    this->map = static_cast<char *>(mmap(0, stat.st_size, PROT_READ, MAP_SHARED, file_handle, 0));
+
+    this->map
+        = static_cast<char *>(mmap(nullptr, stat.st_size, PROT_READ, MAP_SHARED, file_handle, 0));
     if (map == MAP_FAILED) {
         perror("mmap");
-        ::close(file_handle);
-        exit(1);
+        return;
     }
+
     file_size = stat.st_size;
+    fail_defer.disable();
 }
 
 void InputFile::close()
 {
     if (file_handle != -1) {
-        munmap(const_cast<char *>(map), file_size);
         ::close(file_handle);
-        filename = {};
-        file_handle = -1;
-        file_size = 0;
     }
+    munmap(map, file_size);
+    filename = {};
+    file_handle = -1;
+    file_size = 0;
 }
 
 void Lexer::set_input(std::string_view filename)
