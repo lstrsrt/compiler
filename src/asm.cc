@@ -1,10 +1,13 @@
 #include "asm.hh"
 #include "compiler.hh"
+#include "debug.hh"
 #include "frontend.hh"
 #include "ir.hh"
+#include "parser.hh"
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <utility>
 
 // #define ONLY_PRINT_ASM
 
@@ -192,7 +195,9 @@ void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
         }
         emit_epilogue();
         emit("ret");
+        return;
     }
+    TODO();
 }
 
 void emit_jump(IR *ir, BasicBlock *target)
@@ -200,7 +205,33 @@ void emit_jump(IR *ir, BasicBlock *target)
     if (ir->basic_block_index + 1 != target->index) {
         emit("jmp {}", target->label_name);
     } else {
-        emit("; jump to next block (fallthrough)");
+        emit("; fallthrough");
+    }
+}
+
+std::string invert_jcc(const std::string &jcc)
+{
+    static const std::unordered_map<std::string, std::string> opposites
+        = { { "je", "jne" }, { "jne", "je" }, { "jg", "jle" }, { "jle", "jg" }, { "jge", "jl" },
+              { "jl", "jge" }, { "ja", "jbe" }, { "jbe", "ja" }, { "jae", "jb" }, { "jb", "jae" } };
+    if (auto it = opposites.find(jcc); it != opposites.end()) {
+        return it->second;
+    }
+    TODO();
+    return {};
+}
+
+void emit_cond_jump(IR *ir, const std::string &jcc, BasicBlock *false_block, BasicBlock *true_block)
+{
+    if (ir->basic_block_index + 1 == true_block->index) {
+        emit("; true block fallthrough");
+        emit("{} {}", jcc, false_block->label_name);
+    } else if (ir->basic_block_index + 1 == false_block->index) {
+        emit("; false block fallthrough");
+        emit("{} {}", invert_jcc(jcc), true_block->label_name);
+    } else {
+        emit("{} {}", jcc, false_block->label_name);
+        emit("jmp {}", true_block->label_name);
     }
 }
 
@@ -250,6 +281,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             assert(reg_restores == 0);
             break;
         case Operation::Cast:
+            // TODO: implement properly and skip if avoidable
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
@@ -343,24 +375,37 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::LessEquals:
             emit_asm_comparison(ir_fn, ir);
             break;
-        case Operation::CondBranch: {
-            const auto cond_jump = [](IR *ir, BasicBlock *true_block, BasicBlock *false_block) {
-                if (ir->basic_block_index + 1 != false_block->index) {
-                    emit("je {}", false_block->label_name);
-                    // Fall through if we dominate the true block
-                    if (ir->basic_block_index + 1 != true_block->index) {
-                        emit("jmp {}", true_block->label_name);
-                    }
-                } else {
-                    emit("jne {}", true_block->label_name);
-                    // Fall through if we dominate the false block
+        case Operation::BranchEq:
+        case Operation::BranchNe:
+        case Operation::BranchGt:
+        case Operation::BranchGe:
+        case Operation::BranchLt:
+            [[fallthrough]];
+        case Operation::BranchLe: {
+            auto pick_jcc = [ir] {
+                bool is_unsigned = ir->ast->expr_type->has_flag(TypeFlags::UNSIGNED);
+                switch (ir->operation) {
+                    case Operation::BranchEq:
+                        return "je";
+                    case Operation::BranchNe:
+                        return "jne";
+                    case Operation::BranchGt:
+                        return is_unsigned ? "ja" : "jg";
+                    case Operation::BranchGe:
+                        return is_unsigned ? "jae" : "jge";
+                    case Operation::BranchLt:
+                        return is_unsigned ? "jb" : "jl";
+                    case Operation::BranchLe:
+                        return is_unsigned ? "jbe" : "jle";
+                    default:
+                        std::unreachable();
                 }
             };
-            auto cond = static_cast<IRBranch *>(ir)->cond;
-            // this should not be possible due to new optimizer code
-            assert(cond.arg_type != IRArgType::Constant);
-            emit("cmp qword {}, 0", extract_ir_arg(ir_fn, cond));
-            cond_jump(ir, ir->left.u.basic_block, ir->right.u.basic_block);
+            auto *br = dynamic_cast<IRCondBranch *>(ir);
+            const char *jcc = pick_jcc();
+            emit("mov rax, {}", extract_ir_arg(ir_fn, br->left));
+            emit("cmp rax, {}", extract_ir_arg(ir_fn, br->right));
+            emit_cond_jump(ir, jcc, br->true_block, br->false_block);
             break;
         }
         default:
@@ -381,6 +426,8 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
             emit_asm_stmt(cc, ir_fn, ir);
             break;
         default:
+            dbgln("got unknown IR:");
+            print_ir(ir);
             TODO();
     }
 }

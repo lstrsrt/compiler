@@ -116,14 +116,19 @@ struct IR {
     {
     }
 
+    virtual ~IR() = default;
+
     bool has_vreg_target() const
     {
         return operation != Operation::PushArg && target > 0;
     }
 };
 
-struct IRBranch : IR {
-    IRArg cond{};
+struct IRCondBranch : IR {
+    BasicBlock *true_block{};
+    BasicBlock *false_block{};
+
+    ~IRCondBranch() override = default;
 };
 
 struct BasicBlock {

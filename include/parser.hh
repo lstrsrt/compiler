@@ -52,7 +52,12 @@ enum class AstType {
     __ENUMERATE_OPERATION(Cast)          \
     __ENUMERATE_OPERATION(PushArg)       \
     __ENUMERATE_OPERATION(Branch)        \
-    __ENUMERATE_OPERATION(CondBranch)    \
+    __ENUMERATE_OPERATION(BranchEq)      \
+    __ENUMERATE_OPERATION(BranchNe)      \
+    __ENUMERATE_OPERATION(BranchGt)      \
+    __ENUMERATE_OPERATION(BranchGe)      \
+    __ENUMERATE_OPERATION(BranchLt)      \
+    __ENUMERATE_OPERATION(BranchLe)      \
     __ENUMERATE_OPERATION(Fallthrough)
 
 enum class Operation {
