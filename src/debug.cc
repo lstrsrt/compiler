@@ -1,4 +1,5 @@
 #include "debug.hh"
+#include "parser.hh"
 
 std::string to_string(AstType type)
 {
@@ -62,19 +63,24 @@ std::string type_flags_to_string(TypeFlags flags)
     return ret;
 }
 
+void print_type(Type *type)
+{
+    std::println("{} {}", type->name, type_flags_to_string(type->flags));
+    if (type->real) {
+        auto *real = type->real;
+        std::string indent = "    ";
+        while (real) {
+            std::println("{}{} {}", indent, real->name, type_flags_to_string(real->flags));
+            real = real->real;
+            indent += "    ";
+        }
+    }
+}
+
 void print_types(Scope *scope)
 {
     for (const auto &[name, type] : scope->types) {
-        std::println("{} {}", name, type_flags_to_string(type->flags));
-        if (type->real) {
-            auto *real = type->real;
-            std::string indent = "    ";
-            while (real) {
-                std::println("{}{} {}", indent, real->name, type_flags_to_string(real->flags));
-                real = real->real;
-                indent += "    ";
-            }
-        }
+        print_type(type);
     }
 }
 
@@ -123,10 +129,10 @@ static void print_node(Ast *ast, std::string_view indent)
 
     std::print("{}[{}", indent, to_string(ast->operation));
     if (ast->operation == Operation::Call) {
-        auto call = static_cast<AstCall *>(ast);
+        auto *call = static_cast<AstCall *>(ast);
         std::println(" {} ({} args)]", call->name, call->args.size());
     } else if (ast->operation == Operation::FunctionDecl) {
-        auto function = static_cast<AstFunction *>(ast);
+        auto *function = static_cast<AstFunction *>(ast);
         std::println(" {} -> {}]", function->name, function->return_type->name);
         for (size_t i = 0; i < function->params.size(); i++) {
             std::print("{}[Param: ", indent);
@@ -165,7 +171,7 @@ void print_ast(Ast *ast, std::string indent)
     switch (ast->type) {
         case AstType::Unary: {
             if (ast->operation == Operation::Call) {
-                auto call = static_cast<AstCall *>(ast);
+                auto *call = static_cast<AstCall *>(ast);
                 for (Ast *arg : call->args) {
                     print_ast(arg, indent);
                 }
