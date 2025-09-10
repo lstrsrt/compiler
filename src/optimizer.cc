@@ -335,12 +335,6 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
         if (ast->operation == Operation::Cast) {
             return static_cast<AstCast *>(ast)->expr;
         }
-        if (ast->operation == Operation::LogicalNot) {
-            auto *operand = static_cast<AstLogicalNot *>(ast)->operand;
-            if (operand->type == AstType::Integer || operand->type == AstType::Boolean) {
-                return new AstLiteral(expected, !get_int_literal(operand), {});
-            }
-        }
     }
     return ast;
 }
