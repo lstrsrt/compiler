@@ -91,10 +91,6 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
         generate_ir(cc, ir, ir->left, static_cast<AstNegate *>(ast)->operand);
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, get_current_block(ir_fn));
-    } else if (ast->operation == Operation::LogicalNot) {
-        generate_ir(cc, ir, ir->left, static_cast<AstLogicalNot *>(ast)->operand);
-        ir->target = ++ir_fn->temp_regs;
-        add_ir(ir, get_current_block(ir_fn));
     } else if (ast->operation == Operation::Cast) {
         auto *cast = static_cast<AstCast *>(ast);
         ir->left.arg_type = IRArgType::Type;

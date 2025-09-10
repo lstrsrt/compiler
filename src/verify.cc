@@ -308,8 +308,7 @@ Type *get_expression_type(
                         cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
                 }
                 if (ast->operation == Operation::LogicalNot) {
-                    return get_expression_type(
-                        cc, static_cast<AstLogicalNot *>(ast)->operand, constness, overridable);
+                    return bool_type();
                 }
                 if (ast->operation == Operation::Cast) {
                     return static_cast<AstCast *>(ast)->cast_type;
@@ -448,29 +447,13 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
-void verify_negate(
-    Compiler &cc, AstNegate *unary, WarnDiscardedReturn warn_discarded, Type *expected)
+void verify_negate(Compiler &cc, AstNegate *unary, WarnDiscardedReturn warn_discarded)
 {
-    verify_expr(cc, unary->operand, warn_discarded, expected);
-    // TODO: is this needed or can we use `expected`?
+    verify_expr(cc, unary->operand, warn_discarded);
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
-    // Must be a signed integer.
     if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
         verification_type_error(unary->location, "negation of unsupported type `{}`", type->name);
-    }
-}
-
-void verify_logical_not(
-    Compiler &cc, AstLogicalNot *unary, WarnDiscardedReturn warn_discarded, Type *expected)
-{
-    verify_expr(cc, unary->operand, warn_discarded, expected);
-    // TODO: is this needed or can we use `expected`?
-    ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
-    if (type->get_kind() != TypeFlags::Integer && type->get_kind() != TypeFlags::Boolean) {
-        verification_type_error(
-            unary->location, "logical negation of unsupported type `{}`", type->name);
     }
 }
 
@@ -522,6 +505,18 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     }
 }
 
+void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+{
+    // Canonicalize into a binary Equals
+    ExprConstness constness;
+    auto *type = get_expression_type(
+        cc, static_cast<AstLogicalNot *>(ast)->operand, &constness, TypeOverridable::No);
+    ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
+        new AstLiteral(type, 0, {}), ast->location);
+    ast->expr_type = type;
+    verify_comparison(cc, static_cast<AstBinary *>(ast), warn_discarded);
+}
+
 void verify_int(Compiler &cc, Ast *&ast, Type *expected)
 {
     if (!expected) {
@@ -566,9 +561,9 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (ast->operation == Operation::Call) {
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
             } else if (ast->operation == Operation::Negate) {
-                verify_negate(cc, static_cast<AstNegate *>(ast), warn_discarded, expected);
+                verify_negate(cc, static_cast<AstNegate *>(ast), warn_discarded);
             } else if (ast->operation == Operation::LogicalNot) {
-                verify_logical_not(cc, static_cast<AstLogicalNot *>(ast), warn_discarded, expected);
+                verify_logical_not(cc, ast, warn_discarded);
                 ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             }
             break;

@@ -167,9 +167,9 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
                 parser_error(token.location, "missing operand");
             }
             // Double negate isn't allowed
-            if (arg->operation == Operation::Negate) {
+            if (arg->operation == Operation::Negate || arg->operation == Operation::LogicalNot) {
                 cc.lexer.column = prev_col;
-                parser_ast_error(arg, "only one `unary minus` is allowed");
+                parser_ast_error(arg, "only one unary operator is allowed here");
             }
             return new AstNegate(Operation::Negate, arg, token.location);
         }
@@ -183,7 +183,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             // Double LogicalNot isn't allowed
             if (arg->operation == Operation::LogicalNot) {
                 cc.lexer.column = prev_col;
-                parser_ast_error(arg, "only one `logical NOT` is allowed");
+                parser_ast_error(arg, "only one `logical NOT` is allowed here");
             }
             return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
         }
