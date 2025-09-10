@@ -1,0 +1,5 @@
+#{error(type)}
+x := "str"
+if !x {
+    return 1
+}
