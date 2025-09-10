@@ -79,8 +79,7 @@ void emit_prologue(int stack_size)
 
 void emit_epilogue()
 {
-    emit("mov rsp, rbp\n"
-         "    pop rbp");
+    emit("leave");
 }
 
 uint64_t get_key(IRArg src)
@@ -191,7 +190,9 @@ void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
     if (ir->operation == Operation::Return) {
         if (ir->left.arg_type != IRArgType::Empty) {
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            if (ir->left.arg_type != IRArgType::Vreg || ir->left.u.vreg != -1) {
+                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            }
         }
         emit_epilogue();
         emit("ret");

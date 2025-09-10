@@ -140,7 +140,6 @@ void generate_ir_return(Compiler &cc, Ast *ast)
     bb->terminal = true;
     auto *ir = new IR(ast);
     if (ret->expr) {
-        // TODO: void call needs special handling
         generate_ir(cc, ir, ir->left, ret->expr);
     }
     add_ir(ir, bb);
