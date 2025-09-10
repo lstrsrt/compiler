@@ -68,6 +68,7 @@ enum class AllowVarDecl {
 };
 
 Ast *parse_expr(Compiler &, AllowVarDecl = AllowVarDecl::No, Precedence = prec::Lowest);
+static bool inside_call = false;
 
 AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation location)
 {
@@ -76,6 +77,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
     }
 
     std::vector<Ast *> args{};
+    inside_call = true;
     for (;;) {
         args.emplace_back(parse_expr(cc, AllowVarDecl::No, prec::Comma + 1));
         auto token = lex(cc);
@@ -84,6 +86,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
         }
         consume(cc.lexer, token);
     }
+    inside_call = false;
 
     return new AstCall(function, args, location);
 }
@@ -222,12 +225,13 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             return call;
         }
         auto *var_decl = find_variable(current_scope, token.string);
-        if (!var_decl) {
+        if (!var_decl && !inside_call) {
             cc.lexer.column = prev_col;
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
         }
-        return new AstIdentifier(token.string, var_decl ? &var_decl->var : nullptr, token.location);
+        return new AstIdentifier(
+            token.string, var_decl ? &var_decl->var : unresolved_var(token.string), token.location);
     }
 
     if (is_group(token.kind, TokenKind::GroupKeyword)) {

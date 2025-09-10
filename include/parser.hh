@@ -330,6 +330,8 @@ struct Variable {
     }
 };
 
+Variable *unresolved_var(std::string_view name);
+
 struct AstVariableDecl : Ast {
     Variable var;
     Ast *init_expr;

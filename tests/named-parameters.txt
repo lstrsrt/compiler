@@ -1,0 +1,5 @@
+#{returns(35)}
+fn arithmetic(a: s32, b: s32, c: s32, d: s32, e: s32, f: s32) -> s32 {
+    return a - (b + c) - (d * e) + f
+}
+return arithmetic(f=3, a=100, b=16, d=10, c=32, e=2)

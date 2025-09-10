@@ -79,6 +79,11 @@ Type *get_unaliased_type(Type *type)
     return tmp;
 }
 
+Variable *unresolved_var(std::string_view name)
+{
+    return new Variable(unresolved_type(), name);
+}
+
 AstFunction *get_callee(Compiler &cc, AstCall *call)
 {
     if (!call->fn) {
@@ -434,10 +439,62 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
         verification_error(call, "function `{}` takes {} argument{} but was called with {}",
             fn->name, fn->params.size(), plural, call->args.size());
     }
+    std::vector<bool> filled(call->args.size());
+    size_t skip = 0;
+    auto is_named_param = [](Ast *ast) {
+        return ast->operation == Operation::Assign;
+    };
+    bool named_call = !call->args.empty() && is_named_param(call->args[0]);
     for (size_t i = 0; i < call->args.size(); ++i) {
         auto *&arg = call->args[i];
-        auto *wanted_type = fn->params[i]->var.type;
-        verify_expr(cc, arg, WarnDiscardedReturn::No, wanted_type);
+        if (is_named_param(arg) ^ named_call) {
+            verification_error(arg, "either no or all parameters must be named");
+        }
+        if (is_named_param(arg)) {
+            // Named parameter
+            auto *named_param = static_cast<AstBinary *>(arg);
+            if (named_param->left->type != AstType::Identifier) {
+                verification_error(
+                    named_param, "named parameter needs a valid parameter name on the left");
+            }
+            // At this point, the identifier's type is still unresolved, but it will be set and
+            // checked by verify_expr. Here we only check that the call expr itself is valid.
+            auto *ident = static_cast<AstIdentifier *>(named_param->left);
+            int j = -1;
+            for (auto *param : fn->params) {
+                if (param->var.name == ident->var->name) {
+                    j = param->var.param_index;
+                    if (filled[j]) {
+                        verification_error(ident, "repeated named parameter");
+                    }
+                    filled[j] = true;
+                    break;
+                }
+            }
+            if (j == -1) {
+                // TODO: print out function definition
+                verification_error(
+                    ident, "named parameter doesn't match any function parameter name");
+            }
+            if (std::cmp_not_equal(i, j)) {
+                std::swap(call->args[i], call->args[j]);
+                --i;
+                ++skip;
+            } else {
+                i += (skip + 1);
+            }
+            auto *expected = fn->params[j]->var.type;
+            verify_expr(cc, named_param->right, WarnDiscardedReturn::No, expected);
+        } else {
+            auto *wanted_type = fn->params[i]->var.type;
+            verify_expr(cc, arg, WarnDiscardedReturn::No, wanted_type);
+        }
+    }
+    if (named_call) {
+        // Replace "assignments" with right-hand expression
+        for (auto *&arg : call->args) {
+            arg = static_cast<AstBinary *>(arg)->right;
+        }
     }
     if (warn_discarded == WarnDiscardedReturn::Yes && !fn->returns_void()) {
         diag_ast_warning(
