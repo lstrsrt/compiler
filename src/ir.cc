@@ -52,11 +52,6 @@ void new_ir_function(IRBuilder &irb, AstFunction *ast)
 void generate_ir(Compiler &cc, [[maybe_unused]] IR *ir, IRArg &arg, Ast *ast)
 {
     arg = generate_ir_impl(cc, ast);
-    // FIXME wtf
-    /*
-    if (arg.type == IRArgType::Vreg && arg.vreg > 0) {
-        cc.ir_builder.current_function->basic_blocks[arg.vreg - 1]->target_used_by.push_back(ir);
-    }*/
 }
 
 IRArg generate_ir_unary(Compiler &cc, Ast *ast)
@@ -206,7 +201,6 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
         bb1->reachable = true;
     }
     add_ir(ir, bb);
-    ir_fn->current_block = add_block(ir_fn);
 }
 
 AstLiteral *null_s32()
