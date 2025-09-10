@@ -521,21 +521,6 @@ void verify_binary(
     verify_expr(cc, binary->right, warn_discarded, expected);
 }
 
-Type *resolve_binary_type(Compiler &cc, AstBinary *ast)
-{
-    ExprConstness lhs_constness{};
-    ExprConstness rhs_constness{};
-    auto *lhs = get_expression_type(cc, ast->left, &lhs_constness, TypeOverridable::No);
-    auto *rhs = get_expression_type(cc, ast->right, &rhs_constness, TypeOverridable::No);
-    Type *exp = rhs;
-    if (expr_is_constexpr_int(lhs, lhs_constness) && expr_is_constexpr_int(rhs, rhs_constness)) {
-        exp = get_common_integer_type(lhs, rhs);
-    } else if (expr_is_fully_constant(rhs_constness)) {
-        exp = lhs;
-    }
-    return exp;
-}
-
 bool types_match(Type *t1, Type *t2)
 {
     if (t1->has_flag(TypeFlags::ALIAS)) {
@@ -552,7 +537,22 @@ bool types_match(Type *t1, Type *t2)
 
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
 {
-    cmp->expr_type = resolve_binary_type(cc, cmp);
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
+    auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness, TypeOverridable::No);
+    auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::No);
+
+    auto *exp = rhs_type;
+    if (expr_is_constexpr_int(lhs_type, lhs_constness)
+        && expr_is_constexpr_int(rhs_type, rhs_constness)) {
+        exp = get_common_integer_type(lhs_type, rhs_type);
+    } else if (!types_match(lhs_type, rhs_type)) {
+        type_error(cc, cmp, lhs_type, rhs_type, TypeError::Unspecified);
+    } else if (expr_is_fully_constant(rhs_constness)) {
+        exp = lhs_type;
+    }
+
+    cmp->expr_type = exp;
     auto kind = cmp->expr_type->get_kind();
     if (kind == TypeFlags::Integer || kind == TypeFlags::Boolean) {
         verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
@@ -765,6 +765,7 @@ void verify_assign(Compiler &cc, Ast *ast)
     if (binary->left->type != AstType::Identifier) {
         verification_error(ast, "assignment to invalid value");
     }
+    verify_expr(cc, binary->left, WarnDiscardedReturn::No);
     auto *expected = static_cast<AstIdentifier *>(binary->left)->var->type;
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
 }
