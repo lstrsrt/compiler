@@ -297,7 +297,7 @@ void skip_comments(Compiler &cc)
         return;
     }
 
-    if (lexer.get(1) == '/') {
+    while (lexer.get(1) == '/') {
         advance_column(lexer, 2);
         while (lexer.get() != '\n') {
             advance_column(lexer);
@@ -306,10 +306,13 @@ void skip_comments(Compiler &cc)
             return;
         }
         advance_line(lexer);
+        skip_whitespace(lexer);
+        if (lexer.get() != '/') {
+            break;
+        }
     }
-
-    size_t nesting = 0;
     if (lexer.get(1) == '*') {
+        size_t nesting = 0;
         const auto loc = lexer.location();
         advance_column(lexer, 2);
         ++nesting;
