@@ -384,7 +384,13 @@ enum class WarnDiscardedReturn {
     Yes
 };
 
-void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullptr);
+enum class InConditional {
+    No,
+    Yes
+};
+
+void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullptr,
+    InConditional = InConditional::No);
 
 uint64_t max_for_type(Type *t)
 {
@@ -516,11 +522,11 @@ void verify_negate(Compiler &cc, AstNegate *unary, WarnDiscardedReturn warn_disc
     }
 }
 
-void verify_binary(
-    Compiler &cc, AstBinary *binary, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
+    WarnDiscardedReturn warn_discarded, InConditional in_conditional)
 {
-    verify_expr(cc, binary->left, warn_discarded, expected);
-    verify_expr(cc, binary->right, warn_discarded, expected);
+    verify_expr(cc, binary->left, warn_discarded, expected, in_conditional);
+    verify_expr(cc, binary->right, warn_discarded, expected, in_conditional);
 }
 
 bool types_match(Type *t1, Type *t2)
@@ -545,13 +551,13 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::No);
 
     auto *exp = rhs_type;
-    if (expr_is_constexpr_int(lhs_type, lhs_constness)
-        && expr_is_constexpr_int(rhs_type, rhs_constness)) {
+    bool one_side_const
+        = expr_is_fully_constant(lhs_constness) || expr_is_fully_constant(rhs_constness);
+    if (one_side_const && lhs_type->has_flag(TypeFlags::Integer)
+        && rhs_type->has_flag(TypeFlags::Integer)) {
         exp = get_common_integer_type(lhs_type, rhs_type);
     } else if (!types_match(lhs_type, rhs_type)) {
         type_error(cc, cmp, lhs_type, rhs_type, TypeError::Unspecified);
-    } else if (expr_is_fully_constant(rhs_constness)) {
-        exp = lhs_type;
     }
 
     cmp->expr_type = exp;
@@ -571,7 +577,7 @@ void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discar
     auto *type = get_expression_type(
         cc, static_cast<AstLogicalNot *>(ast)->operand, &constness, TypeOverridable::No);
     ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
-        new AstLiteral(type, 0, {}), ast->location);
+        new AstLiteral(type, 0, ast->location), ast->location);
     ast->expr_type = type;
     verify_comparison(cc, static_cast<AstBinary *>(ast), warn_discarded);
 }
@@ -605,7 +611,10 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
     type_error(cc, ast, expected, type, TypeError::Unspecified);
 }
 
-void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
+void convert_expr_to_boolean(Compiler &, Ast *&);
+
+void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected,
+    InConditional in_conditional)
 {
     Type *type;
     switch (ast->type) {
@@ -640,7 +649,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                     verify_comparison(cc, binary, warn_discarded);
                     break;
                 default:
-                    verify_binary(cc, binary, expected, warn_discarded);
+                    verify_binary(cc, binary, expected, warn_discarded, in_conditional);
                     break;
             }
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
@@ -663,14 +672,10 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (type->get_kind() == TypeFlags::Boolean) {
                 return;
             }
-            if (type->get_kind() == TypeFlags::Integer) {
-                // TODO: this is important for assignments, but not necessary for CondBranches
-                ast = new AstBinary(
-                    Operation::NotEquals, ast, new AstLiteral(type, 0, {}), ast->location);
-                ast->expr_type = bool_type();
-                return;
-            }
-        } else if (types_match(type, expected)) {
+            convert_expr_to_boolean(cc, ast);
+            return;
+        }
+        if (types_match(type, expected)) {
             return;
         }
         type_error(cc, ast, expected, type, TypeError::Unspecified);
@@ -745,12 +750,35 @@ void verify_return(
     verify_expr(cc, return_stmt->expr, WarnDiscardedReturn::No, expected);
 }
 
+// if x +   123      and    y
+//    ^ s32 ^ s32    ^ bool ^ s32
+//    ((x + 123) != 0) and (y != 0)
+
+void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
+{
+    ExprConstness constness{};
+    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness, TypeOverridable::No));
+    if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
+        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);
+        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
+    } else if (type->get_kind() == TypeFlags::Integer) {
+        expr = new AstBinary(
+            Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
+        expr->expr_type = type;
+    } else if (!types_match(type, bool_type())) {
+        type_error(cc, expr, bool_type(), type, TypeError::Unspecified);
+    }
+}
+
 void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
 {
     if (if_stmt->expr->operation == Operation::VariableDecl) {
         verify_var_decl(cc, static_cast<AstVariableDecl *>(if_stmt->expr));
     } else {
-        verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type());
+        // If verify_expr was called immediately, "x + 123" would be converted to "(x != 0) + 123"
+        // The conversion has to happen on the uppermost level instead: "(x + 123) != 0".
+        convert_expr_to_boolean(cc, if_stmt->expr);
+        verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type(), InConditional::Yes);
     }
     verify_ast(cc, if_stmt->body, current_function);
     if (if_stmt->else_body) {
@@ -761,6 +789,8 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
 void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *while_stmt = static_cast<AstWhile *>(ast);
+    // See verify_if for explanation
+    convert_expr_to_boolean(cc, while_stmt->expr);
     verify_expr(cc, while_stmt->expr, WarnDiscardedReturn::No, bool_type());
     verify_ast(cc, while_stmt->body, current_function);
 }
