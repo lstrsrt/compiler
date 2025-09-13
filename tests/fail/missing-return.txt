@@ -1,3 +1,4 @@
 #{error(verify)}
 fn f() -> s32 {
 }
+f()

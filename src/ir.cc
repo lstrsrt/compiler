@@ -4,7 +4,6 @@
 #include "parser.hh"
 #include "verify.hh"
 
-#include <algorithm> // std::ranges::remove
 #include <unordered_set>
 
 IRArg generate_ir_impl(Compiler &, Ast *);
@@ -237,7 +236,7 @@ void generate_ir_cond_branch(
     Compiler &cc, Ast *ast, BasicBlock *true_block, BasicBlock *false_block)
 {
     auto *ir_fn = cc.ir_builder.current_function;
-    auto get_branch_type = [&](Operation operation) {
+    auto get_branch_type = [&, func = __func__](Operation operation) {
         switch (operation) {
             case Operation::Equals:
                 return Operation::BranchEq;
@@ -252,7 +251,7 @@ void generate_ir_cond_branch(
             case Operation::LessEquals:
                 return Operation::BranchLe;
             default:
-                TODO();
+                todo(func);
         }
     };
     auto update_bb_state = [&] {
@@ -645,6 +644,15 @@ void build_successor_lists(Compiler &cc)
 
 void optimize_ir(Compiler &cc)
 {
+    std::erase_if(cc.ir_builder.functions, [&cc](IRFunction *fn) {
+        if (!fn->ast->call_count) {
+            diag_ast_warning(cc, fn->ast, "unused function");
+            free_ir_function(fn);
+            return true;
+        }
+        return false;
+    });
+
     for (auto *ir_fn : cc.ir_builder.functions) {
         for (size_t i = 0; auto *bb : ir_fn->basic_blocks) {
             if (!bb->reachable) {
