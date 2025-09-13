@@ -1,5 +1,7 @@
 #include "verify.hh"
 #include "diagnose.hh"
+#include "lexer.hh"
+#include "optimizer.hh"
 #include "parser.hh"
 
 #define verification_error(ast, msg, ...) \
@@ -622,6 +624,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             } else if (ast->operation == Operation::LogicalNot) {
                 verify_logical_not(cc, ast, warn_discarded);
                 ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
+                ast = apply_de_morgan_laws(ast);
             }
             break;
         case AstType::Binary: {
@@ -643,6 +646,9 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
                 ast = try_fold_logical_chain(cc, binary);
+            } else if (ast->operation == Operation::Equals
+                || ast->operation == Operation::NotEquals) {
+                ast = apply_de_morgan_laws(static_cast<AstBinary *>(ast));
             }
             break;
         }

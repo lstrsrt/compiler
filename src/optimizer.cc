@@ -1,7 +1,9 @@
+#include "optimizer.hh"
 #include "diagnose.hh"
 #include "parser.hh"
 #include "verify.hh"
 
+#include <algorithm>
 #include <limits>
 
 void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened)
@@ -34,12 +36,12 @@ Ast *partial_fold_associative(
     }
 
     if (accumulator != 0 || non_constants.empty()) {
-        non_constants.push_back(new AstLiteral(expected, accumulator, {}));
+        non_constants.push_back(new AstLiteral(expected, accumulator, operands[0]->location));
     }
 
     auto *ret = non_constants[0];
     for (size_t i = 1; i < non_constants.size(); ++i) {
-        ret = new AstBinary(operation, ret, non_constants[i], {});
+        ret = new AstBinary(operation, ret, non_constants[i], ret->location);
     }
     return ret;
 }
@@ -129,9 +131,110 @@ Ast *try_fold_logical_chain(
 
     auto *ret = chain[0];
     for (size_t i = 1; i < chain.size(); ++i) {
-        ret = new AstBinary(operation, ret, chain[i], {});
+        ret = new AstBinary(operation, ret, chain[i], ret->location);
     }
     return ret;
+}
+
+void get_binary_operations(Ast *ast, Operation op, std::vector<Ast *> &asts)
+{
+    if (ast->operation == op) {
+        asts.push_back(ast);
+        get_binary_operations(static_cast<AstBinary *>(ast)->left, op, asts);
+        get_binary_operations(static_cast<AstBinary *>(ast)->right, op, asts);
+    }
+}
+
+bool is_equals_x(Ast *ast, bool value)
+{
+    uint64_t cmp1 = value ? 1 : 0;
+    uint64_t cmp2 = value ? 0 : 1;
+    // Return true for "Equals x, 1" and "NotEquals x, 0"
+    if (ast->operation == Operation::Equals || ast->operation == Operation::NotEquals) {
+        auto *cmp = static_cast<AstBinary *>(ast)->right;
+        return (cmp->type == AstType::Boolean || cmp->type == AstType::Integer)
+            && get_int_literal(cmp) == (ast->operation == Operation::Equals ? cmp1 : cmp2);
+    }
+    return false;
+}
+
+bool is_logical(Operation operation)
+{
+    return operation == Operation::LogicalAnd || operation == Operation::LogicalOr
+        || (operation >= Operation::Equals && operation <= Operation::GreaterEquals);
+}
+
+void invert_logical(Ast *ast)
+{
+    using enum Operation;
+    static const std::unordered_map<Operation, Operation> opposites{
+        { Equals, NotEquals },
+        { NotEquals, Equals },
+        { Greater, LessEquals },
+        { LessEquals, Greater },
+        { GreaterEquals, Less },
+        { Less, GreaterEquals },
+    };
+    auto it = opposites.find(ast->operation);
+    assert(it != opposites.end());
+    ast->operation = it->second;
+}
+
+Ast *apply_de_morgan_laws(Ast *ast)
+{
+    auto *outer = static_cast<AstBinary *>(ast);
+    auto *operand = outer->left;
+    if (!is_logical(operand->operation)) {
+        return ast;
+    }
+
+    if (operand->operation == Operation::LogicalAnd || operand->operation == Operation::LogicalOr) {
+        // Multiple operands.
+        bool is_and = operand->operation == Operation::LogicalAnd;
+        std::vector<Ast *> operands;
+        flatten_binary(operand, operand->operation, operands);
+        // If another inner operand is of a different chain type than this one, give up.
+        if (std::ranges::any_of(operands, [is_and](Ast *a) {
+                return a->operation == (is_and ? Operation::LogicalOr : Operation::LogicalAnd);
+            })) {
+            return ast;
+        }
+        std::vector<Ast *> operations;
+        get_binary_operations(operand, operand->operation, operations);
+        if (is_equals_x(ast, false)) {
+            for (auto *op : operands) {
+                invert_logical(op);
+            }
+            for (auto *op : operations) {
+                if (is_and) {
+                    op->operation = Operation::LogicalOr;
+                } else {
+                    op->operation = Operation::LogicalAnd;
+                }
+            }
+            delete ast;
+            return operand;
+        }
+        if (is_equals_x(ast, true)) {
+            delete ast;
+            return operand;
+        }
+        return ast;
+    }
+
+    // Single operand.
+    if (is_equals_x(ast, false)) {
+        // Transform !(x != 0) i.e. (x != 0) == 0 into just x == 0.
+        invert_logical(operand);
+        delete ast;
+        return operand;
+    }
+    if (is_equals_x(ast, true)) {
+        // Transform (x != 0) == true i.e. (x != 0) == 1 into just x != 0.
+        delete ast;
+        return operand;
+    }
+    return ast;
 }
 
 Ast *try_fold_logical_chain(Compiler &, AstBinary *binary)

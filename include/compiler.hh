@@ -20,4 +20,4 @@ struct Compiler {
     void cleanup(AstFunction *root);
 };
 
-void compiler_main(Compiler &, AstFunction *root);
+void compiler_main(Compiler &, AstFunction *main);

@@ -412,20 +412,13 @@ Ast *parse_stmt(Compiler &, AstFunction *);
 void free_ast(Ast *);
 void free_ast(std::vector<Ast *> &);
 
-enum class TypeOverridable {
-    No,
-    Yes
-};
-Ast *try_constant_fold(Compiler &, Ast *, Type *&expected, TypeOverridable);
-Ast *try_fold_logical_chain(Compiler &, AstBinary *);
-
 struct Scope {
     Scope *parent;
     std::unordered_map<std::string_view, Type *> types{};
     std::unordered_map<std::string_view, AstFunction *> functions{};
     std::vector<AstVariableDecl *> variables{};
 
-    Scope(Scope *_parent)
+    explicit Scope(Scope *_parent)
         : parent(_parent)
     {
     }
