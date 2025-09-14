@@ -173,18 +173,23 @@ IR *generate_ir_logical(Compiler &cc, Ast *ast)
 void mangle_function_name(AstFunction *fn)
 {
     auto &name = fn->name;
-    name += std::to_string(fn->params.size());
+    name += "_" + std::to_string(fn->params.size());
 }
 
 void generate_ir_function(Compiler &cc, Ast *ast)
 {
     auto *function = static_cast<AstFunction *>(ast);
     auto *last = cc.ir_builder.current_function;
-    mangle_function_name(function);
     new_ir_function(cc.ir_builder, function);
     for (auto *stmt : function->body->stmts) {
         generate_ir_impl(cc, stmt);
     }
+    if (has_flag(function->attributes, FunctionAttributes::DumpIR)) {
+        std::println("{}============= {}IR for `{}`{} ============={}", colors::Cyan,
+            colors::DefaultBold, function->name, colors::Cyan, colors::Default);
+        print_ir(*cc.ir_builder.current_function);
+    }
+    mangle_function_name(function);
     cc.ir_builder.current_function = last;
 }
 

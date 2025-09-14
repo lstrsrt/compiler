@@ -10,6 +10,7 @@
 
 struct Compiler {
     Lexer lexer;
+    ParseState parse_state;
     IRBuilder ir_builder;
     TestMode test_mode;
 

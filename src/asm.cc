@@ -9,12 +9,13 @@
 #include <utility>
 
 File output_file;
+bool write_stdout = false;
 
 void emit_impl(std::string_view fmt, auto &&...args)
 {
     auto str = std::vformat(fmt, std::make_format_args(args...));
-    if (!opts.testing) {
-        dbg("{}", str);
+    if (!opts.testing && write_stdout) {
+        std::print("{}", str);
     }
     output_file.write(str);
 }
@@ -43,7 +44,7 @@ uint64_t get_key(IRArg src)
     if (src.arg_type == IRArgType::Variable) {
         return reinterpret_cast<uint64_t>(src.u.variable);
     }
-    assert(!"get_key unhandled source type");
+    TODO();
 }
 
 void debug_stack_location(int location, IRArg src)
@@ -165,9 +166,18 @@ void emit_jump(IR *ir, BasicBlock *target)
 
 std::string invert_jcc(const std::string &jcc)
 {
-    static const std::unordered_map<std::string, std::string> opposites
-        = { { "je", "jne" }, { "jne", "je" }, { "jg", "jle" }, { "jle", "jg" }, { "jge", "jl" },
-              { "jl", "jge" }, { "ja", "jbe" }, { "jbe", "ja" }, { "jae", "jb" }, { "jb", "jae" } };
+    static const std::unordered_map<std::string, std::string> opposites = {
+        { "je", "jne" },
+        { "jne", "je" },
+        { "jg", "jle" },
+        { "jle", "jg" },
+        { "jge", "jl" },
+        { "jl", "jge" },
+        { "ja", "jbe" },
+        { "jbe", "ja" },
+        { "jae", "jb" },
+        { "jb", "jae" },
+    };
     if (auto it = opposites.find(jcc); it != opposites.end()) {
         return it->second;
     }
@@ -246,7 +256,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 
 void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
 {
-    const char *op = [ir]() {
+    const char *op = [ir, func = __func__]() {
         auto *type = ir->ast->expr_type;
         assert(type);
         bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
@@ -264,7 +274,7 @@ void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
             case Operation::LessEquals:
                 return is_unsigned ? "setbe" : "setle";
             default:
-                TODO();
+                todo(func);
         }
     }();
     emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
@@ -381,9 +391,27 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
     }
 }
 
+std::string demangled_name(const std::string &s)
+{
+    if (s == "main") {
+        return s;
+    }
+    auto ret = s;
+    while (ret.back() != '_') {
+        ret.pop_back();
+    }
+    ret.pop_back();
+    return ret;
+}
+
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
-    emit_impl("\nglobal {0}\n"
+    if (has_flag(ir_fn.ast->attributes, FunctionAttributes::DumpAsm)) {
+        write_stdout = true;
+        std::println("{}============= {}ASM for `{}`{} ============={}", colors::Cyan,
+            colors::DefaultBold, demangled_name(ir_fn.ast->name), colors::Cyan, colors::Default);
+    }
+    emit_impl("global {0}\n"
               "{0}:\n",
         ir_fn.ast->name);
     int stack_size = allocate_stack(ir_fn);
@@ -399,6 +427,10 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
             }
             emit_asm(cc, ir_fn, ir);
         }
+    }
+    emit_impl("\n");
+    if (write_stdout) {
+        write_stdout = false;
     }
 }
 

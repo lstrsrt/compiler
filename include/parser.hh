@@ -374,6 +374,12 @@ struct AstWhile : Ast {
     }
 };
 
+enum_flags(FunctionAttributes, int){
+    DumpAst = (1 << 0),
+    DumpIR = (1 << 1),
+    DumpAsm = (1 << 2),
+};
+
 struct AstFunction : Ast {
     std::string name;
     Type *return_type;
@@ -383,6 +389,7 @@ struct AstFunction : Ast {
     // we also put them into this vector.
     std::vector<AstReturn *> return_stmts;
     uint64_t call_count = 0;
+    FunctionAttributes attributes{};
 
     explicit AstFunction(std::string_view _name, Type *_return_type,
         const std::vector<AstVariableDecl *> &_params, AstBlock *_body, SourceLocation _location)
@@ -436,6 +443,11 @@ inline void leave_scope()
     }
 }
 
+inline bool at_top_level()
+{
+    return !current_scope->parent;
+}
+
 inline void free_scopes()
 {
     for (auto *scope : g_scopes) {
@@ -466,3 +478,7 @@ enum class ErrorOnShadowing {
 
 void diagnose_redeclaration_or_shadowing(
     Compiler &, Scope *, std::string_view name, std::string_view type, ErrorOnShadowing);
+
+struct ParseState {
+    bool inside_call = false;
+};

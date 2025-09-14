@@ -1,4 +1,5 @@
 #include "parser.hh"
+#include "compiler.hh"
 #include "diagnose.hh"
 
 #define parser_ast_error(ast, msg, ...) \
@@ -68,7 +69,6 @@ enum class AllowVarDecl {
 };
 
 Ast *parse_expr(Compiler &, AllowVarDecl = AllowVarDecl::No, Precedence = prec::Lowest);
-static bool inside_call = false;
 
 AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation location)
 {
@@ -77,7 +77,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
     }
 
     std::vector<Ast *> args{};
-    inside_call = true;
+    cc.parse_state.inside_call = true;
     for (;;) {
         args.emplace_back(parse_expr(cc, AllowVarDecl::No, prec::Comma + 1));
         auto token = lex(cc);
@@ -86,7 +86,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
         }
         consume(cc.lexer, token);
     }
-    inside_call = false;
+    cc.parse_state.inside_call = false;
 
     return new AstCall(function, args, location);
 }
@@ -225,7 +225,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             return call;
         }
         auto *var_decl = find_variable(current_scope, token.string);
-        if (!var_decl && !inside_call) {
+        if (!var_decl && !cc.parse_state.inside_call) {
             cc.lexer.column = prev_col;
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
@@ -436,6 +436,8 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
     return new AstBlock(stmts);
 }
 
+FunctionAttributes parse_fn_attributes(Compiler &);
+
 AstFunction *parse_function(Compiler &cc)
 {
     auto token = lex(cc); // Name
@@ -467,11 +469,23 @@ AstFunction *parse_function(Compiler &cc)
     if (token.kind == TokenKind::Arrow) {
         consume(cc.lexer, token);
         ret_type = parse_type(cc);
-        token = lex(cc); // {
+        token = lex(cc); // `#` or `{`
     }
 
-    // This expects { + (newline + stmts)? + }
     auto *function = new AstFunction(name, ret_type, params, {}, location);
+
+    if (token.kind == TokenKind::Hash) {
+        consume(cc.lexer, token);
+        consume_expected(cc, TokenKind::LBrace, lex(cc));
+        token = lex(cc);
+        if (token.string != "dump") {
+            parser_error(token.location, "unknown function attribute");
+        }
+        consume(cc.lexer, token);
+        function->attributes = parse_fn_attributes(cc);
+        consume_expected(cc, TokenKind::RBrace, lex(cc));
+    }
+
     current_scope->parent->add_function(cc, function, name);
     function->body = parse_block(cc, function);
     function->scope = current_scope->parent;
@@ -580,12 +594,36 @@ void parse_error_attribute(Compiler &cc)
     consume(cc.lexer, token);
     consume_expected(cc, TokenKind::RParen, lex(cc));
     cc.test_mode.test_type = TestType::Error;
-    if (!opts.testing) {
-        // TODO: output a warning or skip?
-    }
 }
 
-void parse_attribute_list(Compiler &cc)
+FunctionAttributes parse_fn_attributes(Compiler &cc)
+{
+    FunctionAttributes attrs{};
+    static const std::unordered_map<std::string_view, FunctionAttributes> dump_attr_map{
+        { "ast", FunctionAttributes::DumpAst },
+        { "ir", FunctionAttributes::DumpIR },
+        { "asm", FunctionAttributes::DumpAsm },
+    };
+    consume_expected(cc, TokenKind::LParen, lex(cc));
+    for (;;) {
+        auto token = lex(cc);
+        if (auto it = dump_attr_map.find(token.string); it != dump_attr_map.end()) {
+            attrs |= it->second;
+        } else {
+            parser_error(token.location, "unknown attribute");
+        }
+        consume(cc.lexer, token);
+        token = lex(cc);
+        if (token.kind != TokenKind::Comma) {
+            break;
+        }
+        consume(cc.lexer, token);
+    }
+    consume_expected(cc, TokenKind::RParen, lex(cc));
+    return attrs;
+}
+
+void parse_attribute_list(Compiler &cc, AstFunction *current_function)
 {
     auto token = lex(cc);
     if (token.kind == TokenKind::RBrace) {
@@ -609,6 +647,13 @@ void parse_attribute_list(Compiler &cc)
             consume(cc.lexer, token);
             cc.test_mode.test_type = TestType::ReturnsValue;
             consume_expected(cc, TokenKind::RParen, lex(cc));
+            break;
+        case hash("dump"):
+            consume(cc.lexer, token);
+            current_function->attributes = parse_fn_attributes(cc);
+            break;
+        default:
+            parser_error(token.location, "invalid attribute `{}`", token.string);
     }
     consume_expected(cc, TokenKind::RBrace, lex(cc));
 }
@@ -618,10 +663,16 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
     auto token = lex(cc);
 
     if (token.kind == TokenKind::Hash) {
-        consume(cc.lexer, token);
-        consume_expected(cc, TokenKind::LBrace, lex(cc));
-        parse_attribute_list(cc);
-        token = lex(cc);
+        if (at_top_level()) {
+            consume(cc.lexer, token);
+            consume_expected(cc, TokenKind::LBrace, lex(cc));
+            parse_attribute_list(cc, current_function);
+            token = lex(cc);
+        } else {
+            parser_error(token.location,
+                "attributes need to be at top level or after the return type of a function "
+                "declaration");
+        }
     }
 
     if (is_group(token.kind, TokenKind::GroupKeyword)) {
