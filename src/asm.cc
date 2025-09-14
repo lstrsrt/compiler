@@ -436,8 +436,11 @@ std::string escape_string(const std::string &s)
 
 void emit_asm(Compiler &cc)
 {
-    output_file.open(
-        "output.asm", OpenFlags::OpenOrCreate | OpenFlags::WRITE | OpenFlags::TRUNCATE);
+    std::string output = "output.asm";
+    if (!output_file.open(
+            output, OpenFlags::OpenOrCreate | OpenFlags::WRITE | OpenFlags::TRUNCATE)) {
+        die("unable to open or create output file '{}'", output);
+    }
     emit_impl("section .text\n");
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
@@ -446,5 +449,7 @@ void emit_asm(Compiler &cc)
     for (size_t i = 0; i < string_map.size(); ++i) {
         emit_impl("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
     }
-    output_file.close();
+    if (!output_file.close()) {
+        die("unable to write to output file '{}'", output);
+    }
 }
