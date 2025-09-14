@@ -437,8 +437,7 @@ std::string escape_string(const std::string &s)
 void emit_asm(Compiler &cc)
 {
     std::string output = "output.asm";
-    if (!output_file.open(
-            output, OpenFlags::OpenOrCreate | OpenFlags::WRITE | OpenFlags::TRUNCATE)) {
+    if (!output_file.open(output, OpenFlags::OpenOrCreate | OpenFlags::TRUNCATE)) {
         die("unable to open or create output file '{}'", output);
     }
     emit_impl("section .text\n");

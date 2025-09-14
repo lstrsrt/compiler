@@ -16,8 +16,8 @@ enum_flags(OpenFlags, int){
     //
     READ = (1 << 4),
     WRITE = (1 << 5),
-    APPEND = (1 << 6),
-    TRUNCATE = (1 << 7),
+    APPEND = WRITE | (1 << 6),
+    TRUNCATE = WRITE | (1 << 7),
 };
 
 struct File {
@@ -44,5 +44,5 @@ struct File {
     off_t file_size = 0;
     char *map = nullptr;
     std::string write_buffer;
-    OpenFlags flags = static_cast<OpenFlags>(0);
+    OpenFlags flags{};
 };

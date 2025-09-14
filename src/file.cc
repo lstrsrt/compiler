@@ -88,7 +88,9 @@ void File::write(std::string_view str)
 
 bool File::commit()
 {
-    if (::write(file_handle, write_buffer.c_str(), write_buffer.length()) < 0) {
+    if (!has_flag(this->flags, OpenFlags::WRITE)
+        || ::write(this->file_handle, this->write_buffer.c_str(), this->write_buffer.length())
+            < 0) {
         return false;
     }
 
@@ -99,7 +101,7 @@ bool File::commit()
 bool File::close(File::Commit commit)
 {
     bool ret = true;
-    if (commit == Commit::Yes) {
+    if (has_flag(this->flags, OpenFlags::WRITE) && commit == Commit::Yes) {
         if (::write(file_handle, write_buffer.c_str(), write_buffer.length()) < 0) {
             ret = false;
         }
