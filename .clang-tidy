@@ -18,6 +18,7 @@ Checks: >
   -misc-no-recursion,
   -misc-include-cleaner,
   -misc-use-internal-linkage,
+  -misc-use-anonymous-namespace,
   -modernize-use-trailing-return-type,
   -modernize-use-designated-initializers,
   -performance-enum-size,

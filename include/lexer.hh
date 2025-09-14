@@ -197,7 +197,7 @@ struct Lexer {
     void set_input(const std::string &filename);
     void free_input();
 
-    InputFile input;
+    File input;
     std::string_view string;
     size_t position = 0;
     size_t line = 1;

@@ -269,13 +269,6 @@ enum_flags(TypeFlags, int){
     UNSIGNED = (1 << 7),
 };
 
-template<typename E>
-requires std::is_enum_v<E>
-inline bool has_flag(E value, E flag)
-{
-    return static_cast<bool>(to_underlying(value) & to_underlying(flag));
-}
-
 struct Type {
     std::string name{};
     TypeFlags flags{};

@@ -441,10 +441,10 @@ Token lex(Compiler &cc)
 
 void Lexer::set_input(const std::string &filename)
 {
-    input.open(filename);
-    if (input.file_handle != -1) {
-        string = input.map;
+    if (!input.open(filename, OpenFlags::Open | OpenFlags::READ)) {
+        die("unable to open or read input file '{}'", filename);
     }
+    string = input.map;
 }
 
 void Lexer::free_input()

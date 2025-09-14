@@ -8,9 +8,9 @@
 
 #include <utility>
 
-OutputFile output_file;
+File output_file;
 
-void __emit(std::string_view fmt, auto &&...args)
+void emit_impl(std::string_view fmt, auto &&...args)
 {
     auto str = std::vformat(fmt, std::make_format_args(args...));
     if (!opts.testing) {
@@ -19,7 +19,7 @@ void __emit(std::string_view fmt, auto &&...args)
     output_file.write(str);
 }
 
-#define emit(_s_, ...) __emit("    " _s_ "\n" __VA_OPT__(, __VA_ARGS__))
+#define emit(_s_, ...) emit_impl("    " _s_ "\n" __VA_OPT__(, __VA_ARGS__))
 
 void emit_prologue(int stack_size)
 {
@@ -383,8 +383,8 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
 
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
-    __emit("\nglobal {0}\n"
-           "{0}:\n",
+    emit_impl("\nglobal {0}\n"
+              "{0}:\n",
         ir_fn.ast->name);
     int stack_size = allocate_stack(ir_fn);
     emit_prologue(stack_size);
@@ -392,7 +392,7 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
         if (!bb->reachable) {
             continue;
         }
-        __emit("{}:\n", bb->label_name);
+        emit_impl("{}:\n", bb->label_name);
         for (auto *ir : bb->code) {
             if (bb->code.empty()) {
                 continue;
@@ -436,14 +436,15 @@ std::string escape_string(const std::string &s)
 
 void emit_asm(Compiler &cc)
 {
-    output_file.create("output.asm");
-    __emit("section .text\n");
+    output_file.open(
+        "output.asm", OpenFlags::OpenOrCreate | OpenFlags::WRITE | OpenFlags::TRUNCATE);
+    emit_impl("section .text\n");
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
     }
-    __emit("\nsection .data\n");
+    emit_impl("\nsection .data\n");
     for (size_t i = 0; i < string_map.size(); ++i) {
-        __emit("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
+        emit_impl("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
     }
     output_file.close();
 }

@@ -152,6 +152,21 @@ template<typename... Args>
     enum class name : underlying
 #endif
 
+template<typename E>
+requires std::is_enum_v<E>
+inline bool has_flag(E value, E flag)
+{
+    return static_cast<bool>(to_underlying(value) & to_underlying(flag));
+}
+
+template<typename E, typename... Es>
+requires std::is_enum_v<E>
+inline bool has_flags(E value, Es... flags)
+{
+    auto e = (to_underlying(flags) | ...);
+    return (to_underlying(value) & e) == e;
+}
+
 using hash_t = uint32_t;
 
 inline constexpr hash_t hash(const char *s, size_t len)
