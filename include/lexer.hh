@@ -1,6 +1,6 @@
 #pragma once
 
-#include "base.hh"
+#include "file.hh"
 
 //
 // Lexer
@@ -8,37 +8,37 @@
 
 static constexpr size_t MAX_IDENT_LENGTH = 150;
 
-inline constexpr bool is_digit(char c)
+constexpr bool is_digit(char c)
 {
     return c >= '0' && c <= '9';
 }
 
-inline constexpr bool is_lower(char c)
+constexpr bool is_lower(char c)
 {
     return c >= 'a' && c <= 'z';
 }
 
-inline constexpr bool is_upper(char c)
+constexpr bool is_upper(char c)
 {
     return c >= 'A' && c <= 'Z';
 }
 
-inline constexpr bool is_alpha(char c)
+constexpr bool is_alpha(char c)
 {
     return is_lower(c) || is_upper(c);
 }
 
-inline constexpr bool is_space(char c)
+constexpr bool is_space(char c)
 {
     return c == ' ' || c == '\t' || c == '\f' || c == '\v';
 }
 
-inline constexpr bool is_control_char(char c)
+constexpr bool is_control_char(char c)
 {
     return (c >= 0 && c <= 31) || c == 127;
 }
 
-inline constexpr char to_upper(char c)
+constexpr char to_upper(char c)
 {
     return is_lower(c) ? (c - ('a' - 'A')) : c;
 }
@@ -157,23 +157,13 @@ struct Token {
         return Token{ .string = _string, .kind = _kind, .location = _location };
     }
 
-    std::string_view string{}; // use for AstIdentifier?
+    std::string_view string; // use for AstIdentifier?
     TokenKind kind = TokenKind::GroupEmpty;
     SourceLocation location{};
 
     // For strings
-    std::unique_ptr<std::string> real_string{};
+    std::unique_ptr<std::string> real_string;
     size_t real_length{};
-};
-
-struct InputFile {
-    void open(std::string_view name);
-    void close();
-
-    std::string filename;
-    int file_handle = -1;
-    off_t file_size;
-    char *map;
 };
 
 struct Lexer {
@@ -204,7 +194,7 @@ struct Lexer {
         return { line, column, position };
     }
 
-    void set_input(std::string_view filename);
+    void set_input(const std::string &filename);
     void free_input();
 
     InputFile input;

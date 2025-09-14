@@ -3,11 +3,6 @@
 
 #include <algorithm>
 
-#include <fcntl.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 constexpr bool is_start_of_identifier(char c)
 {
     return is_alpha(c) || c == '_' || c == '$';
@@ -444,53 +439,7 @@ Token lex(Compiler &cc)
     diag_lexer_error(cc, "unknown character `{}`", c);
 }
 
-void InputFile::open(std::string_view name)
-{
-    this->filename = name;
-    this->file_handle = ::open(name.data(), O_RDONLY);
-    if (file_handle == -1) {
-        perror("open");
-        exit(EXIT_FAILURE);
-    }
-
-    Defer fail_defer{ [&] {
-        ::close(file_handle);
-        exit(EXIT_FAILURE);
-    } };
-
-    struct stat stat{};
-    if (fstat(file_handle, &stat) < 0) {
-        perror("fstat");
-        return;
-    }
-
-    if (!stat.st_size) {
-        std::println("input '{}' is empty", name);
-    }
-
-    this->map
-        = static_cast<char *>(mmap(nullptr, stat.st_size, PROT_READ, MAP_SHARED, file_handle, 0));
-    if (map == MAP_FAILED) {
-        perror("mmap");
-        return;
-    }
-
-    file_size = stat.st_size;
-    fail_defer.disable();
-}
-
-void InputFile::close()
-{
-    if (file_handle != -1) {
-        ::close(file_handle);
-    }
-    munmap(map, file_size);
-    filename = {};
-    file_handle = -1;
-    file_size = 0;
-}
-
-void Lexer::set_input(std::string_view filename)
+void Lexer::set_input(const std::string &filename)
 {
     input.open(filename);
     if (input.file_handle != -1) {

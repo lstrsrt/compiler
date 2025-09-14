@@ -1,59 +1,12 @@
 #include "asm.hh"
 #include "compiler.hh"
 #include "debug.hh"
+#include "file.hh"
 #include "frontend.hh"
 #include "ir.hh"
 #include "parser.hh"
 
-#include <fcntl.h>
-#include <unistd.h>
 #include <utility>
-
-// #define ONLY_PRINT_ASM
-
-#ifdef ONLY_PRINT_ASM
-struct OutputFile {
-    void create(std::string_view) { }
-
-    void write(std::string_view) { }
-
-    void close() { }
-};
-#else
-struct OutputFile {
-    void create(std::string_view _name)
-    {
-        name = _name;
-        file_handle = creat(name.data(), 0644);
-        if (file_handle == -1) {
-            perror("creat");
-            exit(1);
-        }
-    }
-
-    void write(std::string_view str)
-    {
-        write_buffer += str;
-    }
-
-    void close()
-    {
-        if (file_handle >= 0) {
-            ::write(file_handle, write_buffer.c_str(), write_buffer.length());
-            // fsync(fd); // TODO - is this necessary?
-            ::close(file_handle);
-        }
-        name = {};
-        file_handle = -1;
-        write_buffer = {};
-    }
-
-private:
-    std::string name;
-    int file_handle = -1;
-    std::string write_buffer;
-};
-#endif
 
 OutputFile output_file;
 
