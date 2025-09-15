@@ -1,5 +1,4 @@
 #include "verify.hh"
-#include "base.hh"
 #include "debug.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
@@ -763,6 +762,8 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
     if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
         convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);
         convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
+    } else if (expr->operation == Operation::LogicalNot) {
+        convert_expr_to_boolean(cc, static_cast<AstLogicalNot *>(expr)->operand);
     } else if (type->get_kind() == TypeFlags::Integer) {
         expr = new AstBinary(
             Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
