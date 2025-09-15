@@ -89,81 +89,82 @@ static std::string var_type_name(Variable *var)
     return var->type->name.empty() ? "<auto>" : var->type->name;
 }
 
-static void print_var_decl(AstVariableDecl *var_decl)
+static void print_var_decl(File &file, AstVariableDecl *var_decl)
 {
     auto *type = var_decl->var.type;
     if (type->name.empty()) {
-        std::print("{}: <auto>", var_decl->var.name);
+        file.fwrite("{}: <auto>", var_decl->var.name);
     } else {
         const auto flags_str = type_flags_to_string(type->flags);
-        std::print("{}: {} {}", var_decl->var.name, type->name, flags_str);
+        file.fwrite("{}: {} {}", var_decl->var.name, type->name, flags_str);
         if (type->has_flag(TypeFlags::ALIAS)) {
-            std::print("-> {}", get_unaliased_type(type)->name);
+            file.fwrite("-> {}", get_unaliased_type(type)->name);
         } else if (!type->has_flag(TypeFlags::UNRESOLVED)) {
-            std::print("size {}", type->size);
+            file.fwrite("size {}", type->size);
         }
     }
-    std::print("]\n");
+    file.fwrite("]\n");
 }
 
-static void print_node(Ast *ast, std::string_view indent)
+static void print_node(File &file, Ast *ast, std::string_view indent)
 {
     if (ast->operation == Operation::None) {
-        std::print("{}", indent);
+        file.fwrite("{}", indent);
         if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
             auto *literal = static_cast<AstLiteral *>(ast);
-            std::print("{} ({})", extract_integer_constant(literal), literal->expr_type->name);
+            file.fwrite("{} ({})", extract_integer_constant(literal), literal->expr_type->name);
         } else if (ast->type == AstType::String) {
             auto *string = static_cast<AstString *>(ast);
             // TODO - print escaped?
-            std::print("{} (string)", string->string);
+            file.fwrite("{} (string)", string->string);
         } else if (ast->type == AstType::Identifier) {
             auto *ident = static_cast<AstIdentifier *>(ast);
-            std::print("{} ({})", ident->string, var_type_name(ident->var));
+            file.fwrite("{} ({})", ident->string, var_type_name(ident->var));
         } else {
-            std::print("[{}]", to_string(ast->type));
+            file.fwrite("[{}]", to_string(ast->type));
         }
-        std::print("\n");
+        file.fwrite("\n");
         return;
     }
 
-    std::print("{}[{}", indent, to_string(ast->operation));
+    file.fwrite("{}[{}", indent, to_string(ast->operation));
     if (ast->operation == Operation::Call) {
         auto *call = static_cast<AstCall *>(ast);
-        std::println(" {} ({} args)]", call->name, call->args.size());
+        file.fwriteln(" {} ({} args)]", call->name, call->args.size());
     } else if (ast->operation == Operation::FunctionDecl) {
         auto *function = static_cast<AstFunction *>(ast);
-        std::println(" {} -> {}]", function->name, function->return_type->name);
+        file.fwriteln(" {} -> {}]", function->name, function->return_type->name);
         for (size_t i = 0; i < function->params.size(); i++) {
-            std::print("{}[Param: ", indent);
+            file.fwrite("{}[Param: ", indent);
             auto *p = function->params[i];
-            print_var_decl(p);
+            print_var_decl(file, p);
         }
     } else if (ast->operation == Operation::VariableDecl) {
-        std::print(" ");
-        print_var_decl(static_cast<AstVariableDecl *>(ast));
+        file.fwrite(" ");
+        print_var_decl(file, static_cast<AstVariableDecl *>(ast));
     } else if (ast->operation == Operation::Cast) {
-        std::println(" {}]", static_cast<AstCast *>(ast)->cast_type->name);
+        file.fwriteln(" {}]", static_cast<AstCast *>(ast)->cast_type->name);
     } else {
-        std::println("]");
+        file.fwriteln("]");
     }
 }
 
-void print_ast(const std::vector<Ast *> &ast_vec, std::string indent)
+void print_ast(File &file, const std::vector<Ast *> &ast_vec, std::string indent)
 {
     for (auto *ast : ast_vec) {
-        print_ast(ast, indent);
+        print_ast(file, ast, indent);
     }
+    file.commit();
 }
 
-void print_ast(Ast *ast, std::string indent)
+void print_ast(File &file, Ast *ast, std::string indent)
 {
     if (!ast) {
         return;
     }
 
     auto prev_indent = indent;
-    print_node(ast, indent);
+    print_node(file, ast, indent);
     if (ast->operation != Operation::None) {
         indent += "    ";
     }
@@ -173,48 +174,48 @@ void print_ast(Ast *ast, std::string indent)
             if (ast->operation == Operation::Call) {
                 auto *call = static_cast<AstCall *>(ast);
                 for (Ast *arg : call->args) {
-                    print_ast(arg, indent);
+                    print_ast(file, arg, indent);
                 }
             } else if (ast->operation == Operation::Negate) {
-                print_ast(static_cast<AstNegate *>(ast)->operand, indent);
+                print_ast(file, static_cast<AstNegate *>(ast)->operand, indent);
             } else if (ast->operation == Operation::LogicalNot) {
-                print_ast(static_cast<AstLogicalNot *>(ast)->operand, indent);
+                print_ast(file, static_cast<AstLogicalNot *>(ast)->operand, indent);
             } else if (ast->operation == Operation::Cast) {
-                print_ast(static_cast<AstCast *>(ast)->expr, indent);
+                print_ast(file, static_cast<AstCast *>(ast)->expr, indent);
             }
             break;
         }
         case AstType::Binary: {
             auto binop = static_cast<AstBinary *>(ast);
-            print_ast(binop->left, indent);
-            print_ast(binop->right, indent);
+            print_ast(file, binop->left, indent);
+            print_ast(file, binop->right, indent);
             break;
         }
         case AstType::Statement: {
             if (ast->operation == Operation::Return) {
-                print_ast(static_cast<AstReturn *>(ast)->expr, indent);
+                print_ast(file, static_cast<AstReturn *>(ast)->expr, indent);
             } else if (ast->operation == Operation::FunctionDecl) {
-                print_ast(static_cast<AstFunction *>(ast)->body, indent);
+                print_ast(file, static_cast<AstFunction *>(ast)->body, indent);
             } else if (ast->operation == Operation::VariableDecl) {
-                print_ast(static_cast<AstVariableDecl *>(ast)->init_expr, indent);
+                print_ast(file, static_cast<AstVariableDecl *>(ast)->init_expr, indent);
             } else if (ast->operation == Operation::If) {
                 auto *if_stmt = static_cast<AstIf *>(ast);
-                print_ast(if_stmt->expr, indent);
-                print_ast(if_stmt->body, indent);
+                print_ast(file, if_stmt->expr, indent);
+                print_ast(file, if_stmt->body, indent);
                 if (if_stmt->else_body) {
                     // HACK:
-                    std::println("{}[Else]", prev_indent);
-                    print_ast(if_stmt->else_body, indent);
+                    file.fwriteln("{}[Else]", prev_indent);
+                    print_ast(file, if_stmt->else_body, indent);
                 }
             } else if (ast->operation == Operation::While) {
-                print_ast(static_cast<AstWhile *>(ast)->expr, indent);
-                print_ast(static_cast<AstWhile *>(ast)->body, indent);
+                print_ast(file, static_cast<AstWhile *>(ast)->expr, indent);
+                print_ast(file, static_cast<AstWhile *>(ast)->body, indent);
             }
             break;
         }
         case AstType::Block: {
             indent += "    ";
-            print_ast(static_cast<AstBlock *>(ast)->stmts, indent);
+            print_ast(file, static_cast<AstBlock *>(ast)->stmts, indent);
             break;
         }
         // Leaf nodes are fully handled in print_node
@@ -226,6 +227,7 @@ void print_ast(Ast *ast, std::string indent)
         default:
             TODO();
     }
+    file.commit();
 }
 
 std::string to_string(IRArgType type)

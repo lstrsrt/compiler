@@ -20,8 +20,9 @@ namespace colors {
     constexpr std::string Cyan = "\033[36;1m";
     constexpr std::string Default = "\033[0m";
     constexpr std::string DefaultBold = Default + "\033[1m";
-    constexpr std::string Green = "\033[32;1m";
     constexpr std::string Red = "\033[31;1m";
+    constexpr std::string Green = "\033[32;1m";
+    constexpr std::string Yellow = "\033[33;1m";
 } // namespace colors
 
 template<typename Fn>

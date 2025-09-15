@@ -1,6 +1,7 @@
 #include "file.hh"
 
 #include <fcntl.h>
+#include <linux/limits.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -27,6 +28,33 @@ static int open_flags_to_posix(OpenFlags flags)
         posix |= O_APPEND;
     }
     return posix;
+}
+
+File File::from_fd(int fd)
+{
+    using enum OpenFlags;
+    File ret;
+    auto perms = fcntl(fd, F_GETFL);
+    switch (perms & O_ACCMODE) {
+        case O_RDWR:
+            ret.flags |= (READ | WRITE);
+            break;
+        case O_RDONLY:
+            ret.flags |= READ;
+            break;
+        case O_WRONLY:
+            ret.flags |= WRITE;
+            break;
+    }
+    std::string path(PATH_MAX, '\0');
+    auto fd_path = std::format("/proc/self/fd/{}", fd);
+    auto len = readlink(fd_path.c_str(), path.data(), path.size() - 1);
+    if (len != -1) {
+        ret.filename = path;
+    }
+    ret.file_handle = fd;
+    // TODO file size, mmap
+    return ret;
 }
 
 bool File::open(const std::string &name, OpenFlags flags)
@@ -83,6 +111,9 @@ bool File::open(const std::string &name, OpenFlags flags)
 
 void File::write(std::string_view str)
 {
+    if (!has_flag(this->flags, OpenFlags::WRITE)) {
+        return;
+    }
     this->write_buffer += str;
 }
 
@@ -101,12 +132,13 @@ bool File::commit()
 bool File::close(File::Commit commit)
 {
     bool ret = true;
-    if (has_flag(this->flags, OpenFlags::WRITE) && commit == Commit::Yes) {
+    if (has_flag(this->flags, OpenFlags::WRITE) && !write_buffer.empty() && commit == Commit::Yes) {
         if (::write(file_handle, write_buffer.c_str(), write_buffer.length()) < 0) {
             ret = false;
         }
     }
     this->filename = {};
+    ::close(this->file_handle);
     this->file_handle = -1;
     this->file_size = 0;
     if (this->map) {
@@ -115,6 +147,5 @@ bool File::close(File::Commit commit)
     this->map = nullptr;
     this->write_buffer = {};
     this->flags = static_cast<OpenFlags>(0);
-    ::close(file_handle);
     return ret;
 }

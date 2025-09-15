@@ -14,8 +14,8 @@ std::string to_string(IRArgType);
 std::string type_kind_to_string(TypeFlags);
 std::string type_flags_to_string(TypeFlags); // Including the kind
 std::string to_string(ErrorType);
-void print_ast(Ast *, std::string indent = "");
-void print_ast(const std::vector<Ast *> &, std::string indent = "");
+void print_ast(File &, Ast *, std::string indent = "");
+void print_ast(File &, const std::vector<Ast *> &, std::string indent = "");
 void print_types(Scope *);
 void print_type(Type *);
 void print_ir(IR *);

@@ -4,6 +4,8 @@
 #include "frontend.hh"
 #include "verify.hh"
 
+#include <unistd.h>
+
 void compiler_main(Compiler &cc, AstFunction *main)
 {
     using namespace colors;
@@ -26,16 +28,16 @@ void compiler_main(Compiler &cc, AstFunction *main)
     if (!testing) {
         dbgln("{}pre inference tree:{}", Cyan, Default);
 #ifdef _DEBUG
-        print_ast(main);
+        print_ast(cc.stdout_file, main);
 #endif
     };
 
     verify_main(cc, main);
 
     if (!testing) {
-        dbgln("{}post inference tree:{}", Cyan, Default);
+        dbgln("\n{}post inference tree:{}", Cyan, Default);
 #ifdef _DEBUG
-        print_ast(main);
+        print_ast(cc.stdout_file, main);
 #endif
     }
 
@@ -96,6 +98,7 @@ void Compiler::initialize()
 {
     enter_new_scope();
     add_default_types();
+    this->stdout_file = File::from_fd(STDOUT_FILENO);
 }
 
 // can we have builtin types somewhere else so lookup during verification stage is faster?

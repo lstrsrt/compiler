@@ -413,8 +413,11 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
     if (has_flag(ir_fn.ast->attributes, FunctionAttributes::DumpAsm)) {
         write_stdout = true;
-        std::println("{}============= {}ASM for `{}`{} ============={}", colors::Cyan,
-            colors::DefaultBold, demangled_name(ir_fn.ast->name), colors::Cyan, colors::Default);
+        if (!opts.testing) {
+            std::println("{}============= {}ASM for `{}`{} ============={}", colors::Cyan,
+                colors::DefaultBold, demangled_name(ir_fn.ast->name), colors::Cyan,
+                colors::Default);
+        }
     }
     emit_impl("global {0}\n"
               "{0}:\n",

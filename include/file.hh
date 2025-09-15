@@ -21,17 +21,42 @@ enum_flags(OpenFlags, int){
 };
 
 struct File {
-    enum Commit {
+    enum class Commit {
         No,
         Yes,
     };
+
+    static File from_fd(int fd);
 
     bool open(const std::string &name, OpenFlags);
 
     // This function only appends to the write buffer,
     // it does not actually write to the file yet.
     // Call commit() to flush the write buffer to the file.
-    void write(std::string_view str);
+    void write(std::string_view);
+
+    template<class... Args>
+    void fwrite(std::string_view fmt, Args... args)
+    {
+        if constexpr (sizeof...(args)) {
+            auto s = std::vformat(fmt, std::make_format_args(args...));
+            write(s);
+        } else {
+            write(std::format("{}", fmt));
+        }
+    }
+
+    template<class... Args>
+    void fwriteln(std::string_view fmt, Args... args)
+    {
+        if constexpr (sizeof...(args)) {
+            auto s = std::vformat(fmt, std::make_format_args(args...));
+            s += '\n';
+            write(s);
+        } else {
+            write(std::format("{}\n", fmt));
+        }
+    }
 
     // Commit changes to file. This clears the write buffer!
     bool commit();
