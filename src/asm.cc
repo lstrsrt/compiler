@@ -8,7 +8,7 @@
 
 #include <utility>
 
-File output_file;
+std::string write_buffer;
 bool write_stdout = false;
 
 void emit_impl(std::string_view fmt, auto &&...args)
@@ -23,7 +23,7 @@ void emit_impl(std::string_view fmt, auto &&...args)
         std::print("{}", str);
     }
 #endif
-    output_file.write(str);
+    write_buffer += str;
 }
 
 #define emit(_s_, ...) emit_impl("    " _s_ "\n" __VA_OPT__(, __VA_ARGS__))
@@ -391,22 +391,9 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
             break;
         default:
             dbgln("got unknown IR:");
-            print_ir(ir);
+            print_ir(cc.stdout_file, ir);
             TODO();
     }
-}
-
-std::string demangled_name(const std::string &s)
-{
-    if (s == "main") {
-        return s;
-    }
-    auto ret = s;
-    while (ret.back() != '_') {
-        ret.pop_back();
-    }
-    ret.pop_back();
-    return ret;
 }
 
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
@@ -477,18 +464,30 @@ std::string escape_string(const std::string &s)
 void emit_asm(Compiler &cc)
 {
     std::string output = "output.asm";
+    File dump_file;
+    File output_file;
+    output_file.buffered = false;
     if (!output_file.open(output, OpenFlags::OpenOrCreate | OpenFlags::TRUNCATE)) {
-        die("unable to open or create output file '{}'", output);
+        die("{}: unable to open or create output file '{}'", cc.lexer.input.filename, output);
     }
+
     emit_impl("section .text\n");
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
     }
+
     emit_impl("\nsection .data\n");
     for (size_t i = 0; i < string_map.size(); ++i) {
         emit_impl("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
     }
+
+    if (cc.test_mode.compare_type == CompareType::Asm) {
+        cc.test_mode.compare_file = write_comparison_file(
+            ".asm", nullptr, [](File &f, void *) { f.write(write_buffer); });
+    }
+    output_file.write(write_buffer);
+    write_buffer.clear();
     if (!output_file.close()) {
-        die("unable to write to output file '{}'", output);
+        die("{}: unable to write to output file '{}'", cc.lexer.input.filename, output);
     }
 }

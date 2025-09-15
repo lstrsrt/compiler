@@ -1,9 +1,11 @@
 #include "testing.hh"
 #include "compiler.hh"
 #include "debug.hh"
+#include "parser.hh"
 
 #include <algorithm>
 
+#include <filesystem>
 #include <linux/limits.h>
 #include <spawn.h>
 #include <sys/wait.h>
@@ -45,11 +47,77 @@ int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cm
     return -1;
 }
 
+bool files_are_equal(const std::string &path1, const std::string &path2)
+{
+    File file1, file2;
+
+    if (!file1.open(path1, OpenFlags::Open | OpenFlags::READ)) {
+        std::println("couldn't open file '{}'", path1);
+        return false;
+    }
+    if (!file2.open(path2, OpenFlags::Open | OpenFlags::READ)) {
+        std::println("couldn't open file '{}'", path2);
+        file1.close();
+        return false;
+    }
+
+    std::string_view s1 = file1.map;
+    std::string_view s2 = file2.map;
+    bool equals = std::equal(s1.begin(), s1.end(), s2.begin());
+    file1.close();
+    file2.close();
+    return equals;
+}
+
+bool extensions_match(const fs::path &a, const fs::path &b)
+{
+    if (a.has_extension() && b.has_extension()) {
+        return a.extension() == b.extension();
+    }
+    return false;
+}
+
+bool run_compare_test(Compiler &cc)
+{
+    if (cc.test_mode.compare_type == CompareType::None) {
+        return true;
+    }
+
+    auto cmp_file = fs::path(cc.test_mode.compare_file);
+    auto ref_file = fs::path(cc.test_mode.reference_file);
+    if (!fs::exists(ref_file)) {
+        // Maybe it's in the input path?
+        auto alt = fs::path(cc.lexer.input.filename).relative_path().replace_filename(ref_file);
+        if (!fs::exists(alt)) {
+            std::println("{}testing error{}: reference file '{}' not found.\n"
+                         "place the reference file in the working directory or in the directory of "
+                         "the file being compiled.",
+                colors::Red, colors::Default, ref_file.string());
+        } else {
+            ref_file = alt;
+        }
+    }
+    if (!extensions_match(cmp_file, ref_file)) {
+        std::println("{}test warning{}: extensions for files '{}' and '{}' don't match",
+            colors::Yellow, colors::Default, cmp_file.string(), ref_file.string());
+    }
+    if (files_are_equal(cmp_file, ref_file)) {
+        fs::remove(cmp_file);
+        return true;
+    }
+
+    // TODO: print diff
+    std::println("{}testing error{}: files '{}' and '{}' not equal", colors::Red, colors::Default,
+        cmp_file.string(), ref_file.string());
+
+    return false;
+}
+
 void run_test(const fs::path &file)
 {
     using namespace colors;
 
-    const auto report_result = [&]() {
+    const auto report_single_test_result = [&]() {
         if (total_tests == 1) {
             auto color = passed_tests ? Green : Red;
             const auto *str = passed_tests ? "passed" : "failed";
@@ -59,7 +127,7 @@ void run_test(const fs::path &file)
 
     Compiler cc;
     bool compiled = false;
-    cc.lexer.set_input(file.string());
+    cc.lexer.set_input(file);
     auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
     try {
         ++current_test;
@@ -85,14 +153,17 @@ void run_test(const fs::path &file)
     }
 
     if (!compiled) {
-        return report_result();
+        return report_single_test_result();
     }
 
-    if (cc.test_mode.test_type == TestType::Error) {
+    if (cc.test_mode.test_type == TestType::CanCompile) {
+        if (run_compare_test(cc)) {
+            ++passed_tests;
+        }
+    } else if (cc.test_mode.test_type == TestType::Error) {
         std::println("{}testing error{}: should have failed compilation", Red, Default);
-    } else if (cc.test_mode.test_type == TestType::CanCompile) {
-        ++passed_tests;
     } else if (cc.test_mode.test_type == TestType::ReturnsValue) {
+        bool ok = run_compare_test(cc);
         auto prev_wd = fs::current_path();
         Defer _{ [&] {
             fs::current_path(prev_wd);
@@ -106,16 +177,17 @@ void run_test(const fs::path &file)
         } else {
             int status = spawn_and_wait("./output", {});
             if (status == static_cast<int>(cc.test_mode.return_value)) {
-                ++passed_tests;
+                if (ok) {
+                    ++passed_tests;
+                }
             } else {
                 std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
                     Default, status, cc.test_mode.return_value);
             }
         }
-        //  TODO: add AST walk verification, etc
     }
 
-    report_result();
+    report_single_test_result();
 }
 
 void run_single_test(const fs::path &path)
@@ -124,7 +196,7 @@ void run_single_test(const fs::path &path)
     run_test(path);
 }
 
-void run_tests(const fs::path &path)
+void run_tests(const fs::path &path, bool root)
 {
     using namespace colors;
 
@@ -144,19 +216,18 @@ void run_tests(const fs::path &path)
         }
     }
 
-    std::ranges::sort(files, [](const fs::directory_entry &a, const fs::directory_entry &b) {
-        return a.path().filename() < b.path().filename();
-    });
+    std::ranges::sort(files);
+    std::ranges::sort(subdirs);
 
     for (const auto &file : files) {
         run_test(file.path());
     }
 
     for (const auto &dir : subdirs) {
-        run_tests(dir.path());
+        run_tests(dir.path(), false);
     }
 
-    if (!printed_result && current_test == total_tests) {
+    if (root && !printed_result && current_test == total_tests) {
         auto color = (passed_tests == total_tests) ? Green : Red;
         std::println("{}passed {}{}/{}{} tests{}", DefaultBold, color, passed_tests, total_tests,
             DefaultBold, Default);

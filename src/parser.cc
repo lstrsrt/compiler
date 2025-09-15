@@ -1,6 +1,7 @@
 #include "parser.hh"
 #include "compiler.hh"
 #include "diagnose.hh"
+#include "lexer.hh"
 
 #define parser_ast_error(ast, msg, ...) \
     diag_error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
@@ -650,8 +651,31 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
             break;
         case hash("dump"):
             consume(cc.lexer, token);
-            current_function->attributes = parse_fn_attributes(cc);
+            current_function->attributes |= parse_fn_attributes(cc);
             break;
+        case hash("compare"): {
+            consume(cc.lexer, token);
+            consume_expected(cc, TokenKind::LParen, lex(cc));
+            static const std::unordered_map<std::string_view, CompareType> cmp_attr_map{
+                { "ast", CompareType::Ast },
+                { "ir", CompareType::IR },
+                { "asm", CompareType::Asm },
+            };
+            auto token = lex(cc);
+            if (auto it = cmp_attr_map.find(token.string); it != cmp_attr_map.end()) {
+                cc.test_mode.compare_type = it->second;
+            }
+            consume(cc.lexer, token);
+            consume_expected(cc, TokenKind::Comma, lex(cc));
+            token = lex(cc);
+            if (!is_group(token.kind, TokenKind::GroupString)) {
+                parser_error(token.location, "expected filename");
+            }
+            cc.test_mode.reference_file = *token.real_string;
+            consume_string(cc.lexer, token);
+            consume_expected(cc, TokenKind::RParen, lex(cc));
+            break;
+        }
         default:
             parser_error(token.location, "invalid attribute `{}`", token.string);
     }
@@ -662,7 +686,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {
     auto token = lex(cc);
 
-    if (token.kind == TokenKind::Hash) {
+    while (token.kind == TokenKind::Hash) {
         if (at_top_level()) {
             consume(cc.lexer, token);
             consume_expected(cc, TokenKind::LBrace, lex(cc));

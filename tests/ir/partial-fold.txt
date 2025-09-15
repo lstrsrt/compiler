@@ -1,4 +1,5 @@
 #{returns(129)}
+#{compare(ir, "partial-fold.ir")}
 x := 123
 y := x + 1 + 2 + 3
 return y

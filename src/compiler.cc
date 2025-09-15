@@ -50,14 +50,23 @@ void compiler_main(Compiler &cc, AstFunction *main)
     timer.reset();
 
     generate_ir(cc, main);
+
+    if (!testing) {
+#ifdef _DEBUG
+        dbgln("\n{}generated ir:{}", Cyan, Default);
+        for (const auto *fn : cc.ir_builder.functions) {
+            print_ir(cc.stdout_file, *fn);
+        }
+#endif
+    }
+
     optimize_ir(cc);
 
     if (!testing) {
 #ifdef _DEBUG
-        dbgln("{}intermediate code:{}", Cyan, Default);
+        dbgln("{}optimized ir:{}", Cyan, Default);
         for (const auto *fn : cc.ir_builder.functions) {
-            dbgln("{}:", fn->ast->name);
-            print_ir(*fn);
+            print_ir(cc.stdout_file, *fn);
         }
 #endif
     }

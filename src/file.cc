@@ -1,5 +1,7 @@
 #include "file.hh"
 
+#include <random>
+
 #include <fcntl.h>
 #include <linux/limits.h>
 #include <sys/mman.h>
@@ -57,6 +59,28 @@ File File::from_fd(int fd)
     return ret;
 }
 
+File File::make_temporary(const std::string &extension, OpenFlags flags)
+{
+    std::mt19937 rng{ std::random_device{}() };
+    std::string out = "compiler-";
+    constexpr const auto &chars = "0123456789"
+                                  "abcdefghijklmnopqrstuvwxyz"
+                                  "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    std::uniform_int_distribution<size_t> dist(0, std::size(chars) - 2);
+    for (size_t i = 0; i <= 6; ++i) {
+        out += chars[dist(rng)];
+    }
+    out = fs::temp_directory_path() / (out + extension);
+    File ret;
+    ret.open(out, OpenFlags::Create | (flags & ~OpenFlags::behavior_mask));
+    return ret;
+}
+
+bool File::is_valid() const
+{
+    return this->file_handle != -1 && fcntl(this->file_handle, F_GETFD) >= 0;
+}
+
 bool File::open(const std::string &name, OpenFlags flags)
 {
     using enum OpenFlags;
@@ -102,29 +126,35 @@ bool File::open(const std::string &name, OpenFlags flags)
     }
 
     fail_defer.disable();
-    if (has_flag(flags, WRITE)) {
+    if (has_flag(flags, WRITE) && !this->buffered) {
         this->write_buffer.reserve(4096);
     }
     this->flags = flags;
     return true;
 }
 
-void File::write(std::string_view str)
+bool File::write(std::string_view str)
 {
     if (!has_flag(this->flags, OpenFlags::WRITE)) {
-        return;
+        return false;
     }
-    this->write_buffer += str;
+    if (this->buffered) {
+        this->write_buffer += str;
+        return true;
+    }
+    return ::write(this->file_handle, str.data(), str.length()) == ssize(str);
 }
 
 bool File::commit()
 {
-    if (!has_flag(this->flags, OpenFlags::WRITE)
+    if (!this->buffered) {
+        return true;
+    }
+    if (!is_valid() || !has_flag(this->flags, OpenFlags::WRITE)
         || ::write(this->file_handle, this->write_buffer.c_str(), this->write_buffer.length())
-            < 0) {
+            < ssize(this->write_buffer)) {
         return false;
     }
-
     this->write_buffer.clear();
     return true;
 }
@@ -132,12 +162,10 @@ bool File::commit()
 bool File::close(File::Commit commit)
 {
     bool ret = true;
-    if (has_flag(this->flags, OpenFlags::WRITE) && !write_buffer.empty() && commit == Commit::Yes) {
-        if (::write(file_handle, write_buffer.c_str(), write_buffer.length()) < 0) {
-            ret = false;
-        }
+    if (commit == Commit::Yes) {
+        ret = this->commit();
     }
-    this->filename = {};
+    // Keep the filename on purpose
     ::close(this->file_handle);
     this->file_handle = -1;
     this->file_size = 0;
@@ -147,5 +175,6 @@ bool File::close(File::Commit commit)
     this->map = nullptr;
     this->write_buffer = {};
     this->flags = static_cast<OpenFlags>(0);
+    this->buffered = true;
     return ret;
 }

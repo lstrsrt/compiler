@@ -857,12 +857,6 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 get_expression_type(cc, ast, &constness, TypeOverridable::No));
         }
     }
-    if (has_flag(current_function->attributes, FunctionAttributes::DumpAst)) {
-        std::println("{}============= {}AST for `{}`{} ============={}", colors::Cyan,
-            colors::DefaultBold, current_function->name, colors::Cyan, colors::Default);
-        print_ast(current_function);
-        current_function->attributes &= ~FunctionAttributes::DumpAst;
-    }
 }
 
 void verify_main(Compiler &cc, AstFunction *main)

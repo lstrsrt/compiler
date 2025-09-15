@@ -1,7 +1,10 @@
 #include "ir.hh"
+#include "base.hh"
 #include "debug.hh"
 #include "diagnose.hh"
+#include "file.hh"
 #include "parser.hh"
+#include "testing.hh"
 #include "verify.hh"
 
 #include <unordered_set>
@@ -38,10 +41,18 @@ void add_ir(IR *ir, BasicBlock *bb)
     bb->code.push_back(ir);
 }
 
-void new_ir_function(IRBuilder &irb, AstFunction *ast)
+void new_ir_function(Compiler &cc, AstFunction *ast)
 {
+    if (has_flag(ast->attributes, FunctionAttributes::DumpAst)) {
+        if (!opts.testing) {
+            std::println("{}============= {}AST for `{}`{} ============={}", colors::Cyan,
+                colors::DefaultBold, ast->name, colors::Cyan, colors::Default);
+            print_ast(cc.stdout_file, ast);
+        }
+    }
     auto *fn = new IRFunction;
     fn->ast = ast;
+    auto &irb = cc.ir_builder;
     irb.functions.push_back(fn);
     irb.current_function = fn;
     irb.current_function->current_block = add_block(fn);
@@ -176,18 +187,26 @@ void mangle_function_name(AstFunction *fn)
     name += "_" + std::to_string(fn->params.size());
 }
 
+std::string demangled_name(const std::string &s)
+{
+    if (s == "main") {
+        return s;
+    }
+    auto ret = s;
+    while (ret.back() != '_') {
+        ret.pop_back();
+    }
+    ret.pop_back();
+    return ret;
+}
+
 void generate_ir_function(Compiler &cc, Ast *ast)
 {
     auto *function = static_cast<AstFunction *>(ast);
     auto *last = cc.ir_builder.current_function;
-    new_ir_function(cc.ir_builder, function);
+    new_ir_function(cc, function);
     for (auto *stmt : function->body->stmts) {
         generate_ir_impl(cc, stmt);
-    }
-    if (has_flag(function->attributes, FunctionAttributes::DumpIR)) {
-        std::println("{}============= {}IR for `{}`{} ============={}", colors::Cyan,
-            colors::DefaultBold, function->name, colors::Cyan, colors::Default);
-        print_ir(*cc.ir_builder.current_function);
     }
     mangle_function_name(function);
     cc.ir_builder.current_function = last;
@@ -571,9 +590,18 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
 
 void generate_ir(Compiler &cc, AstFunction *main)
 {
-    new_ir_function(cc.ir_builder, main);
+    new_ir_function(cc, main);
+    if (cc.test_mode.compare_type == CompareType::Ast) {
+        cc.test_mode.compare_file
+            = write_comparison_file(".ast", main, [](File &f, Ast *a) { print_ast(f, a); });
+    }
     main->call_count = 1;
     generate_ir_impl(cc, main->body);
+    // TODO: pre or post optimize_ir?
+    if (cc.test_mode.compare_type == CompareType::IR) {
+        cc.test_mode.compare_file = write_comparison_file(
+            ".ir", cc.ir_builder.current_function, [](File &f, IRFunction *i) { print_ir(f, *i); });
+    }
 }
 
 void free_bb(BasicBlock *bb)
@@ -676,24 +704,21 @@ void optimize_ir(Compiler &cc)
 
     build_successor_lists(cc);
 
-    for (size_t i = 0; i < cc.ir_builder.functions.size();) {
-        auto *fn = cc.ir_builder.functions[i];
-        if (!fn->ast->call_count) {
-            diag_ast_warning(cc, fn->ast, "unused function");
-            free_ir_function(fn);
-            // Why
-            auto [beg, end] = std::ranges::remove(cc.ir_builder.functions, fn);
-            cc.ir_builder.functions.erase(beg, end);
-        } else {
-            ++i;
+    for (auto *ir_fn : cc.ir_builder.functions) {
+        if (has_flag(ir_fn->ast->attributes, FunctionAttributes::DumpIR)) {
+            if (!opts.testing) {
+                std::println("{}============= {}IR for `{}`{} ============={}", colors::Cyan,
+                    colors::DefaultBold, ir_fn->ast->name, colors::Cyan, colors::Default);
+                print_ir(cc.stdout_file, *cc.ir_builder.current_function);
+            }
         }
     }
 }
 
-void print_bb(BasicBlock *bb)
+void print_bb(File &file, BasicBlock *bb)
 {
     for (auto *ir : bb->code) {
-        print_ir(ir);
+        print_ir(file, ir);
     }
 }
 

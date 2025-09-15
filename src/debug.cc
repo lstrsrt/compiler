@@ -104,6 +104,7 @@ static void print_var_decl(File &file, AstVariableDecl *var_decl)
         }
     }
     file.fwrite("]\n");
+    file.commit();
 }
 
 static void print_node(File &file, Ast *ast, std::string_view indent)
@@ -147,6 +148,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
     } else {
         file.fwriteln("]");
     }
+    file.commit();
 }
 
 void print_ast(File &file, const std::vector<Ast *> &ast_vec, std::string indent)
@@ -270,47 +272,45 @@ std::string get_ir_arg_value(const IRArg &src)
     assert(!"get_ir_arg_value unhandled source type");
 }
 
-void print_ir(BasicBlock *bb)
+void print_ir(File &file, BasicBlock *bb)
 {
     for (auto *code : bb->code) {
-        print_ir(code);
+        print_ir(file, code);
     }
-    /*if (!bb->successors.empty()) {
-        std::println("successors:");
-        for (auto *s : bb->successors) {
-            std::println("    {}", s->index);
-        }
-    }*/
+    file.commit();
 }
 
-void print_ir(IR *ir)
+void print_ir(File &file, IR *ir)
 {
     std::string target = ir->has_vreg_target() ? std::format("v{} = ", ir->target) : "";
-    std::print("    {}{} ", target, to_string(ir->operation));
+    file.fwrite("    {}{} ", target, to_string(ir->operation));
     if (auto *br = dynamic_cast<IRCondBranch *>(ir)) {
-        std::print("{} <BasicBlock>, ", std::to_string(br->true_block->index));
+        file.fwrite("{} <BasicBlock>, ", std::to_string(br->true_block->index));
         if (br->false_block) {
-            std::print("{} <BasicBlock>, ", std::to_string(br->false_block->index));
+            file.fwrite("{} <BasicBlock>, ", std::to_string(br->false_block->index));
         }
-        std::print("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
-        std::println(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
+        file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
+        file.fwriteln(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
         return;
     }
-    std::print("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
+    file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
     if (ir->type == AstType::Binary || ir->operation == Operation::Cast) {
-        std::print(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
+        file.fwrite(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
     }
-    std::print("\n");
+    file.fwrite("\n");
+    file.commit();
 }
 
-void print_ir(const IRFunction &ir_fn)
+void print_ir(File &file, const IRFunction &ir_fn)
 {
+    file.fwriteln("{}:", ir_fn.ast->name);
     for (size_t i = 0; i < ir_fn.basic_blocks.size(); ++i) {
         auto *bb = ir_fn.basic_blocks[i];
         const char *s = bb->reachable ? "live" : "dead";
         const char *s2 = bb->terminal ? "terminal" : "non-terminal";
-        std::println("{} ({}, {}):", i, s, s2);
-        print_ir(bb);
+        file.fwriteln("{} ({}, {}):", i, s, s2);
+        print_ir(file, bb);
     }
-    std::print("\n");
+    file.fwrite("\n");
+    file.commit();
 }

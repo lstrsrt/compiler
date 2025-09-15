@@ -1,0 +1,19 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [VariableDecl x: s32 Integer size 4]
+            1 (s32)
+        [VariableDecl y: s32 Integer size 4]
+            1 (s32)
+        [If]
+            [LogicalOr]
+                [Equals]
+                    x (s32)
+                    0 (s32)
+                [Equals]
+                    y (s32)
+                    0 (s32)
+            [Block]
+                [Return]
+                    1 (s32)
+        [Return]
+            0 (s32)

@@ -27,13 +27,17 @@ struct File {
     };
 
     static File from_fd(int fd);
+    static File make_temporary(const std::string &extension, OpenFlags);
+
+    // Did a factory function/open() call succeed?
+    bool is_valid() const;
 
     bool open(const std::string &name, OpenFlags);
 
-    // This function only appends to the write buffer,
-    // it does not actually write to the file yet.
+    // In buffered mode (default), this function only appends to the write buffer and returns true
+    // without actually writing to the file.
     // Call commit() to flush the write buffer to the file.
-    void write(std::string_view);
+    bool write(std::string_view);
 
     template<class... Args>
     void fwrite(std::string_view fmt, Args... args)
@@ -70,4 +74,5 @@ struct File {
     char *map = nullptr;
     std::string write_buffer;
     OpenFlags flags{};
+    bool buffered = true;
 };
