@@ -14,9 +14,15 @@ bool write_stdout = false;
 void emit_impl(std::string_view fmt, auto &&...args)
 {
     auto str = std::vformat(fmt, std::make_format_args(args...));
+#ifndef _DEBUG
     if (!opts.testing && write_stdout) {
         std::print("{}", str);
     }
+#else
+    if (!opts.testing) {
+        std::print("{}", str);
+    }
+#endif
     output_file.write(str);
 }
 
@@ -225,7 +231,6 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             }
             break;
         case Operation::Call:
-            emit("xor eax, eax");
             emit("call {}", ir->left.u.function->name);
             if (stack_balance > 0) {
                 emit("add rsp, {}", stack_balance);
