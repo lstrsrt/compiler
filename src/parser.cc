@@ -40,8 +40,12 @@ OperatorInfo get_operator_info(TokenKind kind)
         case Plus:
         case Minus:
             return { prec::AdditiveArithmetic, Associativity::Left };
+        case EqualsEquals:
+        case ExclEquals:
         case LAngle:
+        case LAngleEquals:
         case RAngle:
+        case RAngleEquals:
             return { prec::Comparison, Associativity::Left };
         case ColonEquals:
         case Equals:
@@ -52,11 +56,6 @@ OperatorInfo get_operator_info(TokenKind kind)
             return { prec::LogicalAnd, Associativity::Left };
         case Comma:
             return { prec::Comma, Associativity::Left };
-        case EqualsEquals:
-        case ExclEquals:
-        case LAngleEquals:
-        case RAngleEquals:
-            return { prec::Comparison, Associativity::Left };
         default:
             // Invalid operators are handled in parse_atom.
             // Return something big so we make it there.
