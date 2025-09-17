@@ -1,0 +1,11 @@
+# self explanatory
+build/
+compile_commands.json
+.cache/
+.xmake/
+
+# my todo lists and test files
+*.asm
+*.py
+*.txt
+output*
