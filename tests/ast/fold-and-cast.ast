@@ -1,0 +1,8 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [VariableDecl x: u64 unsigned Integer size 8]
+            [Cast u64]
+                123 (s32)
+        [VariableDecl y: u64 unsigned Integer size 8]
+            2 (u64)
+

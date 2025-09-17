@@ -1,0 +1,3 @@
+#{compare(ast, "fold-and-cast.ast")}
+x: u64 = 123
+y := 0 * x + 1 * 2
