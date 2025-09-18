@@ -413,7 +413,7 @@ std::vector<AstVariableDecl *> parse_fn_params(Compiler &cc)
     return ret;
 }
 
-AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
+AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
 {
     // TODO: keep track of the last token so we don't have to call lex again
     consume_expected(cc, TokenKind::LBrace, lex(cc));
@@ -425,14 +425,19 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function = nullptr)
         auto token = lex(cc);
         if (token.kind == TokenKind::RBrace) {
             consume(cc.lexer, token);
-            break;
+            return new AstBlock(stmts);
         }
         auto *stmt = parse_stmt(cc, current_function);
-        if (!stmt) {
-            parser_error(cc.lexer.location(), "unexpected end of input. maybe missing a brace?");
+        if (stmt) {
+            stmts.emplace_back(stmt);
+        } else {
+            token = lex(cc);
+            if (is_group(token.kind, TokenKind::GroupEmpty)) {
+                break;
+            }
         }
-        stmts.emplace_back(stmt);
     }
+    consume_expected(cc, TokenKind::RBrace, lex(cc));
     return new AstBlock(stmts);
 }
 
@@ -768,6 +773,8 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         auto *block = parse_block(cc, current_function);
         leave_scope();
         return block;
+    } else if (is_group(token.kind, TokenKind::GroupEmpty)) {
+        return nullptr;
     }
     cc.lexer.ignore_newlines = false;
     auto *maybe_expr = parse_expr(cc);

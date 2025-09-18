@@ -193,10 +193,10 @@ Token lex_identifier_or_keyword(Compiler &cc)
     const auto loc = lexer.location();
     const auto start = lexer.position;
     const auto count = lexer.count_while(is_valid_char_in_identifier);
-    if (count > MAX_IDENT_LENGTH) {
+    if (count > MaxIdentifierLength) {
         diag_lexer_error(cc,
             "identifier is {} chars long, which exceeds the maximum allowed length of {}", count,
-            MAX_IDENT_LENGTH);
+            MaxIdentifierLength);
     }
     const auto str = lexer.string.substr(start, count);
     const auto kind = get_keyword_or_identifier_kind(str);
@@ -281,61 +281,78 @@ void skip_whitespace(Lexer &lexer)
     }
 }
 
+void skip_single_line_comment(Compiler &cc)
+{
+    auto &lexer = cc.lexer;
+    advance_column(lexer, 2);
+    while (lexer.get() != '\n') {
+        advance_column(lexer);
+    }
+    if (!lexer.ignore_newlines) {
+        return;
+    }
+    advance_line(lexer);
+    skip_whitespace(lexer);
+}
+
+void skip_multi_line_comment(Compiler &cc)
+{
+    auto &lexer = cc.lexer;
+    size_t nesting = 0;
+    const auto loc = lexer.location();
+    advance_column(lexer, 2);
+    ++nesting;
+    for (;;) {
+        const char c = lexer.get();
+        if (c == '/' && lexer.get(1) == '*') {
+            ++nesting;
+            advance_column(lexer, 2);
+            continue;
+        }
+        if (c == '*' && lexer.get(1) == '/') {
+            --nesting;
+            advance_column(lexer, 2);
+            if (nesting == 0) {
+                return;
+            }
+            continue;
+        }
+        if (c == '\n') {
+            advance_line(lexer);
+            continue;
+        }
+        advance_column(lexer);
+        if (lexer.out_of_bounds()) {
+            diag_error_at(cc, loc, ErrorType::Lexer, "unterminated comment starting at ({},{})",
+                loc.line, loc.column + 1);
+        }
+    }
+}
+
 void skip_comments(Compiler &cc)
 {
     auto &lexer = cc.lexer;
 
-    if (lexer.out_of_bounds()) {
-        return;
-    }
-    if (lexer.get() != '/') {
-        return;
-    }
-
-    while (lexer.get(1) == '/') {
-        advance_column(lexer, 2);
-        while (lexer.get() != '\n') {
-            advance_column(lexer);
-        }
-        if (!lexer.ignore_newlines) {
+    for (;;) {
+        if (lexer.out_of_bounds()) {
             return;
         }
-        advance_line(lexer);
-        skip_whitespace(lexer);
         if (lexer.get() != '/') {
-            break;
+            return;
         }
-    }
-    if (lexer.get(1) == '*') {
-        size_t nesting = 0;
-        const auto loc = lexer.location();
-        advance_column(lexer, 2);
-        ++nesting;
-        for (;;) {
-            const char c = lexer.get();
-            if (c == '/' && lexer.get(1) == '*') {
-                ++nesting;
-                advance_column(lexer, 2);
-                continue;
-            }
-            if (c == '*' && lexer.get(1) == '/') {
-                --nesting;
-                advance_column(lexer, 2);
-                if (nesting == 0) {
-                    return;
+        if (lexer.get(1) == '/') {
+            do {
+                skip_single_line_comment(cc);
+                if (lexer.get() != '/') {
+                    break;
                 }
-                continue;
-            }
-            if (c == '\n') {
-                advance_line(lexer);
-                continue;
-            }
-            advance_column(lexer);
-            if (lexer.out_of_bounds()) {
-                diag_error_at(cc, loc, ErrorType::Lexer, "unterminated comment starting at ({},{})",
-                    loc.line, loc.column + 1);
-            }
+            } while (lexer.get(1) == '/');
+        } else if (lexer.get(1) == '*') {
+            skip_multi_line_comment(cc);
+        } else {
+            return;
         }
+        skip_whitespace(lexer);
     }
 }
 

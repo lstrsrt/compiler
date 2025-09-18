@@ -6,7 +6,7 @@
 // Lexer
 //
 
-static constexpr size_t MAX_IDENT_LENGTH = 150;
+static constexpr size_t MaxIdentifierLength = 150;
 
 constexpr bool is_digit(char c)
 {
