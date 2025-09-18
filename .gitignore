@@ -5,7 +5,7 @@ compile_commands.json
 .xmake/
 
 # my todo lists and test files
-*.asm
-*.py
-*.txt
+/*.asm
+/*.py
+/*.txt
 output*

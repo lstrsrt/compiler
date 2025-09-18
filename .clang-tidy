@@ -9,6 +9,7 @@ Checks: >
   google-explicit-constructor,
   -cppcoreguidelines-init-variables,
   -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-avoid-do-while,
   -cppcoreguidelines-avoid-magic-numbers,
   -cppcoreguidelines-macro-usage,
   -cppcoreguidelines-owning-memory,
