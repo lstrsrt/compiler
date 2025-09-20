@@ -205,11 +205,10 @@ void emit_cond_jump(IR *ir, const std::string &jcc, BasicBlock *false_block, Bas
     }
 }
 
-int stack_balance = 0;
-int reg_restores = 0;
-
 void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
+    static int stack_balance = 0;
+    static int reg_restores = 0;
     switch (ir->operation) {
         case Operation::Negate:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
@@ -279,7 +278,7 @@ void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
             case Operation::LessEquals:
                 return is_unsigned ? "setbe" : "setle";
             default:
-                todo(func);
+                todo(func, __FILE__, __LINE__);
         }
     }();
     emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
@@ -464,7 +463,6 @@ std::string escape_string(const std::string &s)
 void emit_asm(Compiler &cc)
 {
     std::string output = "output.asm";
-    File dump_file;
     File output_file;
     output_file.buffered = false;
     if (!output_file.open(output, OpenFlags::OpenOrCreate | OpenFlags::TRUNCATE)) {

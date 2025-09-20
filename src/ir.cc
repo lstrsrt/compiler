@@ -276,7 +276,7 @@ void generate_ir_cond_branch(
             case Operation::LessEquals:
                 return Operation::BranchLe;
             default:
-                todo(func);
+                todo(func, __FILE__, __LINE__);
         }
     };
     auto update_bb_state = [&] {

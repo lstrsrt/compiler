@@ -97,9 +97,9 @@ constexpr size_t align_up(size_t value, size_t alignment)
     return (value + (alignment - 1)) & ~(alignment - 1);
 }
 
-[[noreturn]] inline void todo(const char *func)
+[[noreturn]] inline void todo(const char *func, const char *file, int line)
 {
-    std::println("\n{}TODO{}: {}", colors::Red, colors::Default, func);
+    std::println("\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
     __builtin_trap();
 #else
@@ -107,7 +107,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 #endif
 }
 
-#define TODO() todo(__func__)
+#define TODO() todo(__func__, __FILE__, __LINE__)
 
 template<typename... Args>
 [[noreturn]] void die(std::string_view msg, Args &&...args)
