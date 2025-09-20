@@ -410,6 +410,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     auto cmp_kind = get_if_comparison_kind(cc, if_stmt);
 
     if (cmp_kind == ComparisonKind::ConstantTrue) {
+        diag_ast_warning(cc, if_stmt->expr, "condition is always true");
         generate_ir_impl(cc, if_stmt->body);
         auto *after_block = add_block(ir_fn);
         generate_ir_branch(cc, after_block);
@@ -418,6 +419,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     }
 
     if (cmp_kind == ComparisonKind::ConstantFalse) {
+        diag_ast_warning(cc, if_stmt->expr, "condition is always false");
         if (if_stmt->else_body) {
             generate_ir_impl(cc, if_stmt->else_body);
         }
@@ -434,21 +436,18 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     generate_ir_condition(cc, if_stmt->expr, true_block, false_block);
 
     add_block(ir_fn, true_block);
-    if (else_block) {
-        add_block(ir_fn, else_block);
-    }
-    add_block(ir_fn, after_block);
-
     ir_fn->current_block = true_block;
     generate_ir_impl(cc, if_stmt->body);
     generate_ir_branch(cc, after_block);
 
     if (else_block) {
+        add_block(ir_fn, else_block);
         ir_fn->current_block = else_block;
         generate_ir_impl(cc, if_stmt->else_body);
         generate_ir_branch(cc, after_block);
     }
 
+    add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
 }
 
