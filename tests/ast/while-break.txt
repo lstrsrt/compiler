@@ -1,0 +1,6 @@
+#{compare(ast, "while-break.ast")}
+x := 3
+while x < 10 {
+    x = x + 1
+    break
+}

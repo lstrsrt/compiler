@@ -49,6 +49,8 @@ enum class AstType {
     __ENUMERATE_OPERATION(FunctionDecl)  \
     __ENUMERATE_OPERATION(If)            \
     __ENUMERATE_OPERATION(While)         \
+    __ENUMERATE_OPERATION(Break)         \
+    __ENUMERATE_OPERATION(Continue)      \
     __ENUMERATE_OPERATION(Cast)          \
     __ENUMERATE_OPERATION(PushArg)       \
     __ENUMERATE_OPERATION(Branch)        \
@@ -364,12 +366,31 @@ struct AstIf : Ast {
 
 struct AstWhile : Ast {
     Ast *expr;
-    AstBlock *body;
+    AstBlock *body = nullptr;
 
-    explicit AstWhile(Ast *_expr, AstBlock *_body, SourceLocation _location)
+    explicit AstWhile(Ast *_expr, SourceLocation _location)
         : Ast(AstType::Statement, Operation::While, _location)
         , expr(_expr)
-        , body(_body)
+    {
+    }
+};
+
+struct AstBreak : Ast {
+    AstWhile *while_stmt;
+
+    explicit AstBreak(AstWhile *_while_stmt, SourceLocation _location)
+        : Ast(AstType::Statement, Operation::Break, _location)
+        , while_stmt(_while_stmt)
+    {
+    }
+};
+
+struct AstContinue : Ast {
+    AstWhile *while_stmt;
+
+    explicit AstContinue(AstWhile *_while_stmt, SourceLocation _location)
+        : Ast(AstType::Statement, Operation::Continue, _location)
+        , while_stmt(_while_stmt)
     {
     }
 };
@@ -385,9 +406,6 @@ struct AstFunction : Ast {
     Type *return_type;
     std::vector<AstVariableDecl *> params;
     AstBlock *body;
-    // Return statements are all contained somewhere in the body, but to speed up verification
-    // we also put them into this vector.
-    std::vector<AstReturn *> return_stmts;
     uint64_t call_count = 0;
     FunctionAttributes attributes{};
 
@@ -481,4 +499,5 @@ void diagnose_redeclaration_or_shadowing(
 
 struct ParseState {
     bool inside_call = false;
+    AstWhile *current_loop = nullptr;
 };

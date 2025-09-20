@@ -153,6 +153,8 @@ inline std::vector<std::string> string_map;
 struct IRBuilder {
     std::vector<IRFunction *> functions;
     IRFunction *current_function;
+    BasicBlock *while_cmp_block = nullptr;
+    BasicBlock *while_after_block = nullptr;
 };
 
 void generate_ir(Compiler &, AstFunction *);

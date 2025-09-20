@@ -1,0 +1,16 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [VariableDecl x: s32 Integer size 4]
+            3 (s32)
+        [While]
+            [Less]
+                x (s32)
+                10 (s32)
+            [Block]
+                [Assign]
+                    x (s32)
+                    [Add]
+                        x (s32)
+                        1 (s32)
+                [Break]
+

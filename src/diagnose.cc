@@ -90,6 +90,10 @@ std::string to_string(TokenKind kind)
             return "false";
         case TokenKind::True:
             return "true";
+        case TokenKind::Continue:
+            return "continue";
+        case TokenKind::Break:
+            return "break";
         default:
             TODO();
     }

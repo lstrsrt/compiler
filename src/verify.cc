@@ -839,6 +839,9 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
             case Operation::While:
                 verify_while(cc, ast, current_function);
                 break;
+            case Operation::Break:
+            case Operation::Continue:
+                break;
             default:
                 TODO();
         }

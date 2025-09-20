@@ -92,6 +92,8 @@ enum class TokenKind : uint32_t {
     Alias,
     False,
     True,
+    Continue,
+    Break,
 };
 
 struct SourceLocation {

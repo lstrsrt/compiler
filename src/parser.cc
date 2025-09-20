@@ -575,10 +575,13 @@ AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
     }
 
     enter_new_scope();
-    AstBlock *body = parse_block(cc, current_function);
+    auto *while_stmt = new AstWhile(expr, loc);
+    cc.parse_state.current_loop = while_stmt;
+    while_stmt->body = parse_block(cc, current_function);
+    cc.parse_state.current_loop = nullptr;
     leave_scope();
 
-    return new AstWhile(expr, body, loc);
+    return while_stmt;
 }
 
 void parse_error_attribute(Compiler &cc)
@@ -730,9 +733,6 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             if (ret->expr && ret->expr->operation == Operation::Assign) {
                 parser_ast_error(ret, "assignments are not allowed in return statements");
             }
-            if (current_function) {
-                current_function->return_stmts.push_back(ret);
-            }
             consume_newline_or_eof(cc, lex(cc));
             cc.lexer.ignore_newlines = true;
             return ret;
@@ -747,6 +747,20 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             consume_newline_or_eof(cc, lex(cc));
             cc.lexer.ignore_newlines = true;
             return nullptr;
+        }
+        if (token.kind == TokenKind::Continue) {
+            if (!cc.parse_state.current_loop) {
+                parser_error(token.location, "`continue` must be inside loop");
+            }
+            consume(cc.lexer, token);
+            return new AstContinue(cc.parse_state.current_loop, token.location);
+        }
+        if (token.kind == TokenKind::Break) {
+            if (!cc.parse_state.current_loop) {
+                parser_error(token.location, "`break` must be inside loop");
+            }
+            consume(cc.lexer, token);
+            return new AstBreak(cc.parse_state.current_loop, token.location);
         }
         assert(!"unhandled keyword");
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {

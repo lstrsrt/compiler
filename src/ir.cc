@@ -219,6 +219,7 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
     auto *ir = new IR;
     ir->type = AstType::Unary;
     ir->operation = Operation::Branch;
+    // TODO: set AST so we can produce unreachable code warnings
     ir->left = IRArg::make_block(bb1);
     if (bb->reachable && !bb->terminal) {
         bb1->reachable = true;
@@ -463,26 +464,44 @@ BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
     return bb;
 }
 
+void generate_ir_break(Compiler &cc, Ast *)
+{
+    assert(cc.ir_builder.while_after_block && "not in while");
+    auto *ir_fn = cc.ir_builder.current_function;
+    generate_ir_branch(cc, cc.ir_builder.while_after_block);
+    ir_fn->current_block = add_block(ir_fn);
+}
+
+void generate_ir_continue(Compiler &cc, Ast *)
+{
+    assert(cc.ir_builder.while_cmp_block && "not in while");
+    auto *ir_fn = cc.ir_builder.current_function;
+    generate_ir_branch(cc, cc.ir_builder.while_cmp_block);
+    ir_fn->current_block = add_block(ir_fn);
+}
+
 void generate_ir_while(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *while_stmt = static_cast<AstWhile *>(ast);
 
     auto *cmp_block = add_fallthrough_block(ir_fn, get_current_block(ir_fn));
+    cc.ir_builder.while_cmp_block = cmp_block;
     auto *true_block = new_block();
     auto *after_block = new_block();
+    cc.ir_builder.while_after_block = after_block;
     ir_fn->current_block = cmp_block;
     generate_ir_condition(cc, while_stmt->expr, true_block, after_block);
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
-    for (auto *ast : while_stmt->body->stmts) {
-        generate_ir_impl(cc, ast);
-    }
+    generate_ir_impl(cc, while_stmt->body);
     generate_ir_branch(cc, cmp_block);
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
+    cc.ir_builder.while_cmp_block = nullptr;
+    cc.ir_builder.while_after_block = nullptr;
 }
 
 IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)
@@ -582,6 +601,10 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
                 generate_ir_if(cc, ast);
             } else if (ast->operation == Operation::While) {
                 generate_ir_while(cc, ast);
+            } else if (ast->operation == Operation::Break) {
+                generate_ir_break(cc, ast);
+            } else if (ast->operation == Operation::Continue) {
+                generate_ir_continue(cc, ast);
             }
         }
     }
