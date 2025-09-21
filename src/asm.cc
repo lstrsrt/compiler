@@ -340,26 +340,37 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::BranchEq:
         case Operation::BranchNe:
-        case Operation::BranchGt:
-        case Operation::BranchGe:
-        case Operation::BranchLt:
+        case Operation::BranchUGt:
+        case Operation::BranchSGt:
+        case Operation::BranchUGe:
+        case Operation::BranchSGe:
+        case Operation::BranchULt:
+        case Operation::BranchSLt:
+        case Operation::BranchULe:
             [[fallthrough]];
-        case Operation::BranchLe: {
+        case Operation::BranchSLe: {
             auto pick_jcc = [ir] {
-                bool is_unsigned = ir->ast->expr_type->has_flag(TypeFlags::UNSIGNED);
                 switch (ir->operation) {
                     case Operation::BranchEq:
                         return "je";
                     case Operation::BranchNe:
                         return "jne";
-                    case Operation::BranchGt:
-                        return is_unsigned ? "ja" : "jg";
-                    case Operation::BranchGe:
-                        return is_unsigned ? "jae" : "jge";
-                    case Operation::BranchLt:
-                        return is_unsigned ? "jb" : "jl";
-                    case Operation::BranchLe:
-                        return is_unsigned ? "jbe" : "jle";
+                    case Operation::BranchUGt:
+                        return "ja";
+                    case Operation::BranchSGt:
+                        return "jg";
+                    case Operation::BranchUGe:
+                        return "jae";
+                    case Operation::BranchSGe:
+                        return "jge";
+                    case Operation::BranchULt:
+                        return "jb";
+                    case Operation::BranchSLt:
+                        return "jl";
+                    case Operation::BranchULe:
+                        return "jbe";
+                    case Operation::BranchSLe:
+                        return "jle";
                     default:
                         std::unreachable();
                 }

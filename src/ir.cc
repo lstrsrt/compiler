@@ -262,19 +262,22 @@ void generate_ir_cond_branch(
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto get_branch_type = [&, func = __func__](Operation operation) {
+        assert(ast->expr_type);
+        bool is_unsigned = ast->expr_type->has_flag(TypeFlags::UNSIGNED);
+        using enum Operation;
         switch (operation) {
-            case Operation::Equals:
-                return Operation::BranchEq;
-            case Operation::NotEquals:
-                return Operation::BranchNe;
-            case Operation::Greater:
-                return Operation::BranchGt;
-            case Operation::GreaterEquals:
-                return Operation::BranchGe;
-            case Operation::Less:
-                return Operation::BranchLt;
-            case Operation::LessEquals:
-                return Operation::BranchLe;
+            case Equals:
+                return BranchEq;
+            case NotEquals:
+                return BranchNe;
+            case Greater:
+                return is_unsigned ? BranchUGt : BranchSGt;
+            case GreaterEquals:
+                return is_unsigned ? BranchUGe : BranchSGe;
+            case Less:
+                return is_unsigned ? BranchULt : BranchSLt;
+            case LessEquals:
+                return is_unsigned ? BranchULe : BranchSLe;
             default:
                 todo(func, __FILE__, __LINE__);
         }

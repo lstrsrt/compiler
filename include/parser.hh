@@ -56,10 +56,14 @@ enum class AstType {
     __ENUMERATE_OPERATION(Branch)        \
     __ENUMERATE_OPERATION(BranchEq)      \
     __ENUMERATE_OPERATION(BranchNe)      \
-    __ENUMERATE_OPERATION(BranchGt)      \
-    __ENUMERATE_OPERATION(BranchGe)      \
-    __ENUMERATE_OPERATION(BranchLt)      \
-    __ENUMERATE_OPERATION(BranchLe)      \
+    __ENUMERATE_OPERATION(BranchUGt)     \
+    __ENUMERATE_OPERATION(BranchUGe)     \
+    __ENUMERATE_OPERATION(BranchULt)     \
+    __ENUMERATE_OPERATION(BranchULe)     \
+    __ENUMERATE_OPERATION(BranchSGt)     \
+    __ENUMERATE_OPERATION(BranchSGe)     \
+    __ENUMERATE_OPERATION(BranchSLt)     \
+    __ENUMERATE_OPERATION(BranchSLe)     \
     __ENUMERATE_OPERATION(Fallthrough)
 
 enum class Operation {
