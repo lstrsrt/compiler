@@ -614,6 +614,29 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
 
 void convert_expr_to_boolean(Compiler &, Ast *&);
 
+void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
+{
+    if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
+        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);
+        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
+    } else if (expr->operation == Operation::LogicalNot) {
+        convert_expr_to_boolean(cc, static_cast<AstLogicalNot *>(expr)->operand);
+    } else if (type->get_kind() == TypeFlags::Integer) {
+        expr = new AstBinary(
+            Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
+        expr->expr_type = type;
+    } else if (!types_match(type, bool_type())) {
+        type_error(cc, expr, bool_type(), type, TypeError::Unspecified);
+    }
+}
+
+void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
+{
+    ExprConstness constness{};
+    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness, TypeOverridable::No));
+    convert_expr_to_boolean(cc, expr, type);
+}
+
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected,
     InConditional in_conditional)
 {
@@ -673,7 +696,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (type->get_kind() == TypeFlags::Boolean) {
                 return;
             }
-            convert_expr_to_boolean(cc, ast);
+            convert_expr_to_boolean(cc, ast, type);
             return;
         }
         if (types_match(type, expected)) {
@@ -749,28 +772,6 @@ void verify_return(
     }
 
     verify_expr(cc, return_stmt->expr, WarnDiscardedReturn::No, expected);
-}
-
-// if x +   123      and    y
-//    ^ s32 ^ s32    ^ bool ^ s32
-//    ((x + 123) != 0) and (y != 0)
-
-void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
-{
-    ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness, TypeOverridable::No));
-    if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
-        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);
-        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
-    } else if (expr->operation == Operation::LogicalNot) {
-        convert_expr_to_boolean(cc, static_cast<AstLogicalNot *>(expr)->operand);
-    } else if (type->get_kind() == TypeFlags::Integer) {
-        expr = new AstBinary(
-            Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
-        expr->expr_type = type;
-    } else if (!types_match(type, bool_type())) {
-        type_error(cc, expr, bool_type(), type, TypeError::Unspecified);
-    }
 }
 
 void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
