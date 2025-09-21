@@ -430,9 +430,9 @@ void free_ast(std::vector<Ast *> &);
 
 struct Scope {
     Scope *parent;
-    std::unordered_map<std::string_view, Type *> types{};
-    std::unordered_map<std::string_view, AstFunction *> functions{};
-    std::vector<AstVariableDecl *> variables{};
+    std::unordered_map<std::string_view, Type *> types;
+    std::unordered_map<std::string_view, AstFunction *> functions;
+    std::unordered_map<std::string, AstVariableDecl *> variables;
 
     explicit Scope(Scope *_parent)
         : parent(_parent)
@@ -478,7 +478,7 @@ enum class SearchParents {
     Yes
 };
 
-AstVariableDecl *find_variable(Scope *, std::string_view name, Scope **result_scope = nullptr,
+AstVariableDecl *find_variable(Scope *, const std::string &name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
 AstFunction *find_function(Scope *, std::string_view name, Scope **result_scope = nullptr,

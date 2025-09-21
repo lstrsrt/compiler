@@ -739,7 +739,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
     // Update this scope's variables table.
     // Why? Because if this variable is assigned to another auto inferred variable,
     // it's going to get its type from the table via find_variable().
-    var_decl->scope->variables[var.index_in_scope]->var.type = var.type;
+    var_decl->scope->variables[var.name]->var.type = var.type;
 }
 
 void verify_ast(Compiler &, Ast *, AstFunction *);

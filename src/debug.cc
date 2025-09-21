@@ -255,7 +255,7 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::String:
             return src.u.string->string;
         case IRArgType::Vreg:
-            return std::to_string(src.u.vreg);
+            return "v" + std::to_string(src.u.vreg);
         case IRArgType::Parameter:
             [[fallthrough]];
         case IRArgType::Variable:

@@ -224,7 +224,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             consume_expected(cc, TokenKind::RParen, lex(cc));
             return call;
         }
-        auto *var_decl = find_variable(current_scope, token.string);
+        auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (!var_decl && !cc.parse_state.inside_call) {
             cc.lexer.column = prev_col;
             parser_error(
@@ -833,7 +833,7 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
     Scope *result_scope;
     AstFunction *existing_fn = nullptr;
     Type *existing_type = nullptr;
-    AstVariableDecl *existing_var = find_variable(scope, name, &result_scope);
+    AstVariableDecl *existing_var = find_variable(scope, std::string(name), &result_scope);
     if (!result_scope) {
         existing_fn = find_function(scope, name, &result_scope);
     }
@@ -864,7 +864,7 @@ void Scope::add_variable(Compiler &cc, AstVariableDecl *var_decl)
     diagnose_redeclaration_or_shadowing(
         cc, this, var_decl->var.name, "variable", ErrorOnShadowing::No);
     var_decl->var.index_in_scope = ssize(variables);
-    variables.push_back(var_decl);
+    variables[var_decl->var.name] = var_decl;
 }
 
 void Scope::add_function(Compiler &cc, Ast *ast, std::string_view unmangled_name)
@@ -990,15 +990,12 @@ Type *find_type(
 }
 
 AstVariableDecl *find_variable(
-    Scope *scope, std::string_view name, Scope **result_scope, SearchParents search_parents)
+    Scope *scope, const std::string &name, Scope **result_scope, SearchParents search_parents)
 {
-    auto wanted_hash = ::hash(name);
     return find_helper<AstVariableDecl>(
-        scope, result_scope, search_parents, [wanted_hash](Scope *s) -> AstVariableDecl * {
-            for (auto *var_decl : s->variables) {
-                if (var_decl && hash(var_decl->var.name) == wanted_hash) {
-                    return var_decl;
-                }
+        scope, result_scope, search_parents, [name](Scope *s) -> AstVariableDecl * {
+            if (auto res = s->variables.find(name); res != s->variables.end()) {
+                return res->second;
             }
             return nullptr;
         });
