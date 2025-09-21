@@ -1,3 +1,4 @@
+#{compare(ast, "while-break-continue.ast")}
 x := 0
 while true {
     x = x + 1

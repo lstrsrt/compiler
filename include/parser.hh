@@ -380,21 +380,15 @@ struct AstWhile : Ast {
 };
 
 struct AstBreak : Ast {
-    AstWhile *while_stmt;
-
-    explicit AstBreak(AstWhile *_while_stmt, SourceLocation _location)
+    explicit AstBreak(SourceLocation _location)
         : Ast(AstType::Statement, Operation::Break, _location)
-        , while_stmt(_while_stmt)
     {
     }
 };
 
 struct AstContinue : Ast {
-    AstWhile *while_stmt;
-
-    explicit AstContinue(AstWhile *_while_stmt, SourceLocation _location)
+    explicit AstContinue(SourceLocation _location)
         : Ast(AstType::Statement, Operation::Continue, _location)
-        , while_stmt(_while_stmt)
     {
     }
 };

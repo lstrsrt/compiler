@@ -753,14 +753,14 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
                 parser_error(token.location, "`continue` must be inside loop");
             }
             consume(cc.lexer, token);
-            return new AstContinue(cc.parse_state.current_loop, token.location);
+            return new AstContinue(token.location);
         }
         if (token.kind == TokenKind::Break) {
             if (!cc.parse_state.current_loop) {
                 parser_error(token.location, "`break` must be inside loop");
             }
             consume(cc.lexer, token);
-            return new AstBreak(cc.parse_state.current_loop, token.location);
+            return new AstBreak(token.location);
         }
         assert(!"unhandled keyword");
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
