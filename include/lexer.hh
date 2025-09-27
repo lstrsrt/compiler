@@ -96,10 +96,15 @@ enum class TokenKind : uint32_t {
     Break,
 };
 
+struct Lexer;
+
 struct SourceLocation {
-    size_t line;
-    size_t column;
-    size_t position; // This is the actual offset in the file, equivalent to Lexer::position.
+    uint32_t line;
+    uint32_t column;
+    uint32_t end; // End column.
+    uint32_t position; // This is the actual offset in the file, equivalent to Lexer::position.
+
+    static SourceLocation with_lexer(Lexer &, uint32_t end_offset);
 };
 
 inline TokenKind get_group(TokenKind kind)
@@ -193,7 +198,7 @@ struct Lexer {
 
     SourceLocation location() const
     {
-        return { line, column, position };
+        return { line, column, column + 1, position };
     }
 
     void set_input(const std::string &filename);
@@ -201,13 +206,14 @@ struct Lexer {
 
     File input;
     std::string_view string;
-    size_t position = 0;
-    size_t line = 1;
-    size_t column = 0;
+    uint32_t position = 0;
+    uint32_t line = 1;
+    uint32_t column = 0;
     bool ignore_newlines = true;
 };
 
-std::string_view get_line(std::string_view, ssize_t pos);
+std::string_view get_line(std::string_view, uint32_t pos);
+std::string get_line(std::string_view, uint32_t pos, uint32_t start, uint32_t end);
 
 struct Compiler;
 

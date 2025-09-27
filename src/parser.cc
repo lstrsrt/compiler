@@ -227,8 +227,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (!var_decl && !cc.parse_state.inside_call) {
             cc.lexer.column = prev_col;
-            parser_error(
-                token.location, "variable `{}` is not declared in this scope", token.string);
+            parser_error(token.location, "variable `{}` is not declared in this scope", token.string);
         }
         return new AstIdentifier(
             token.string, var_decl ? &var_decl->var : unresolved_var(token.string), token.location);

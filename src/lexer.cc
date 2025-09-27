@@ -1,5 +1,6 @@
 #include "lexer.hh"
 #include "diagnose.hh"
+#include "testing.hh"
 
 #include <algorithm>
 
@@ -17,6 +18,11 @@ constexpr bool is_start_of_operator(char c)
 {
     constexpr std::array<char, 17> ops{ "+-*/%(){}<>=!,:#" };
     return std::ranges::any_of(ops, [c](char x) { return c == x; });
+}
+
+SourceLocation SourceLocation::with_lexer(Lexer &lexer, uint32_t end_offset)
+{
+    return { lexer.line, lexer.column, lexer.column + end_offset, lexer.position };
 }
 
 enum class Radix {
@@ -73,7 +79,8 @@ Token lex_number(Compiler &cc)
         diag_lexer_error(cc, "this character is not a digit in this base");
     }
 
-    return Token::make_number(lexer.string.substr(start, count), lexer.location());
+    return Token::make_number(lexer.string.substr(start, count),
+        SourceLocation::with_lexer(lexer, static_cast<uint32_t>(count)));
 }
 
 const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
@@ -162,8 +169,8 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
 Token lex_operator(Lexer &lexer)
 {
     TokenKind kind;
-    const auto *const str = lex_operator_impl(lexer, kind);
-    return Token::make_operator(str, kind, lexer.location());
+    std::string_view str = lex_operator_impl(lexer, kind);
+    return Token::make_operator(str, kind, SourceLocation::with_lexer(lexer, str.size()));
 }
 
 TokenKind get_keyword_or_identifier_kind(std::string_view str)
@@ -192,26 +199,27 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
 Token lex_identifier_or_keyword(Compiler &cc)
 {
     auto &lexer = cc.lexer;
-    const auto loc = lexer.location();
     const auto start = lexer.position;
     const auto count = lexer.count_while(is_valid_char_in_identifier);
     if (count > MaxIdentifierLength) {
-        diag_lexer_error(cc,
+        diag_error_at(cc, SourceLocation::with_lexer(lexer, count), ErrorType::Lexer,
             "identifier is {} chars long, which exceeds the maximum allowed length of {}", count,
             MaxIdentifierLength);
     }
     const auto str = lexer.string.substr(start, count);
     const auto kind = get_keyword_or_identifier_kind(str);
     if (kind == TokenKind::GroupIdentifier) {
-        return Token::make_identifier(str, loc);
+        return Token::make_identifier(
+            str, SourceLocation::with_lexer(lexer, static_cast<uint32_t>(str.size())));
     }
-    return Token::make_keyword(str, kind, loc);
+    return Token::make_keyword(
+        str, kind, SourceLocation::with_lexer(lexer, static_cast<uint32_t>(str.size())));
 }
 
 Token lex_string(Compiler &cc)
 {
     Lexer &lexer = cc.lexer;
-    const auto loc = lexer.location();
+    auto loc = lexer.location();
     auto str = std::make_unique<std::string>();
     for (size_t i = 1; !lexer.out_of_bounds(i); ++i) {
         char c = lexer.get(i);
@@ -257,7 +265,8 @@ Token lex_string(Compiler &cc)
             }
             ++i;
         } else if (c == '"') {
-            return Token::make_string(std::move(str), i + 1, loc);
+            return Token::make_string(
+                std::move(str), i + 1, SourceLocation::with_lexer(lexer, i + 1));
         } else {
             str->push_back(c);
         }
@@ -301,7 +310,7 @@ void skip_multi_line_comment(Compiler &cc)
 {
     auto &lexer = cc.lexer;
     size_t nesting = 0;
-    const auto loc = lexer.location();
+    auto loc = lexer.location();
     advance_column(lexer, 2);
     ++nesting;
     for (;;) {
@@ -325,6 +334,7 @@ void skip_multi_line_comment(Compiler &cc)
         }
         advance_column(lexer);
         if (lexer.out_of_bounds()) {
+            ++loc.end; // Add one for the star
             diag_error_at(cc, loc, ErrorType::Lexer, "unterminated comment starting at ({},{})",
                 loc.line, loc.column + 1);
         }
@@ -402,9 +412,9 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
     }
 }
 
-std::string_view get_line(std::string_view string, ssize_t pos)
+std::string_view get_line(std::string_view string, uint32_t pos)
 {
-    ssize_t x = -1, start, end;
+    int32_t x = -1, start, end;
     // This is just get() but with pos as the base.
     auto get_at = [string, pos](ssize_t offset) {
         auto off = pos + offset;
@@ -416,13 +426,27 @@ std::string_view get_line(std::string_view string, ssize_t pos)
     while (get_at(x) != '\n' && get_at(x) != '\0') {
         --x;
     }
-    start = pos + x;
+    start = static_cast<int32_t>(pos) + x;
     x = 0;
     while (get_at(x) != '\n' && get_at(x) != '\0') {
         ++x;
     }
-    end = pos + x;
+    end = static_cast<int32_t>(pos) + x;
     return string.substr(start + 1, end - start - 1);
+}
+
+std::string get_line(std::string_view string, uint32_t pos, uint32_t start, uint32_t end)
+{
+    auto str = std::string(get_line(string, pos));
+    assert(start < end);
+    assert(start < str.size());
+    // Insert at end first so the start position doesn't have to be fixed
+    if (end > str.size()) {
+        str += colors::Default;
+    } else {
+        str.insert(end, colors::Default);
+    }
+    return str.insert(start, colors::Red);
 }
 
 Token lex(Compiler &cc)

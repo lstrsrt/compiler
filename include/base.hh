@@ -17,12 +17,14 @@ using namespace std::string_view_literals;
 int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
 
 namespace colors {
+    constexpr std::string Bold = "\033[1m";
     constexpr std::string Cyan = "\033[36;1m";
     constexpr std::string Default = "\033[0m";
-    constexpr std::string DefaultBold = Default + "\033[1m";
+    constexpr std::string DefaultBold = Default + Bold;
     constexpr std::string Red = "\033[31;1m";
     constexpr std::string Green = "\033[32;1m";
     constexpr std::string Yellow = "\033[33;1m";
+    constexpr std::string Blue = "\033[38;5;39m";
 } // namespace colors
 
 template<typename Fn>
