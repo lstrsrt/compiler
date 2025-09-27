@@ -150,11 +150,6 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     }
 }
 
-enum_flags(ExprConstness, uint8_t){
-    SawConstant = 1 << 0,
-    SawNonConstant = 1 << 1,
-};
-
 bool expr_has_no_constants(ExprConstness e)
 {
     return e == ExprConstness::SawNonConstant;
@@ -174,8 +169,6 @@ bool expr_is_constexpr_int(Type *t, ExprConstness e)
 {
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
-
-Type *get_expression_type(Compiler &, Ast *&, ExprConstness *, TypeOverridable);
 
 Type *get_common_integer_type(Type *t1, Type *t2)
 {
@@ -211,7 +204,7 @@ void traverse_postorder(Ast *&ast, auto &&callback)
 }
 
 Type *get_binary_expression_type(
-    Compiler &cc, Ast *&ast, ExprConstness &constness, TypeOverridable overridable)
+    Compiler &cc, Ast *ast, ExprConstness &constness, TypeOverridable overridable)
 {
     auto *binary = static_cast<AstBinary *>(ast);
 
@@ -261,8 +254,8 @@ Type *get_binary_expression_type(
         // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
         // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
         // overflowing add.
-        traverse_postorder(
-            ast, [&](Ast *&ast) { ast = try_constant_fold(cc, ast, ret, overridable); });
+        /*traverse_postorder(
+            ast, [&](Ast *&ast) { ast = try_constant_fold(cc, ast, ret, overridable); });*/
         ast->flags |= AstFlags::FOLDED;
     }
 
@@ -270,7 +263,7 @@ Type *get_binary_expression_type(
 }
 
 Type *get_expression_type(
-    Compiler &cc, Ast *&ast, ExprConstness *constness, TypeOverridable overridable)
+    Compiler &cc, Ast *ast, ExprConstness *constness, TypeOverridable overridable)
 {
     if (!ast) {
         return nullptr;
@@ -676,7 +669,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                     verify_binary(cc, binary, expected, warn_discarded, in_conditional);
                     break;
             }
-            ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
+            // ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
                 ast = try_fold_logical_chain(cc, binary);
             } else if (ast->operation == Operation::Equals

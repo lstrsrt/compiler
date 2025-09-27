@@ -98,7 +98,7 @@ struct Ast {
     AstType type;
     Operation operation;
     SourceLocation location;
-    Type *expr_type = nullptr; // Set during verification.
+    Type *expr_type = nullptr;
     AstFlags flags{};
 
     explicit Ast(
@@ -320,6 +320,11 @@ struct Variable {
     bool is_parameter() const
     {
         return param_index > -1;
+    }
+
+    Type *unaliased_type() const
+    {
+        return get_unaliased_type(this->type);
     }
 
     explicit Variable(Type *_type, std::string_view _name)

@@ -2,6 +2,7 @@
 #include "asm.hh"
 #include "debug.hh"
 #include "frontend.hh"
+#include "llvm.hh"
 #include "verify.hh"
 
 #include <unistd.h>
@@ -49,7 +50,10 @@ void compiler_main(Compiler &cc, AstFunction *main)
     [[maybe_unused]] auto frontend = timer.elapsed();
     timer.reset();
 
-    generate_ir(cc, main);
+    llvm_gen::run(cc, main);
+    llvm_gen::dump();
+
+    /*generate_ir(cc, main);
 
     if (!testing) {
 #ifdef _DEBUG
@@ -75,7 +79,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
         dbgln("{}assembly:{}", Cyan, Default);
     }
 
-    emit_asm(cc);
+    emit_asm(cc);*/
     [[maybe_unused]] auto backend = timer.elapsed();
 
 #if AST_ALLOC_PARANOID

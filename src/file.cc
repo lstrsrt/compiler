@@ -55,7 +55,12 @@ File File::from_fd(int fd)
         ret.filename = path;
     }
     ret.file_handle = fd;
-    // TODO file size, mmap
+    struct stat stat{};
+    if (fstat(fd, &stat) == 0) {
+        ret.file_size = stat.st_size;
+    }
+    ret.map = static_cast<char *>(
+        mmap(nullptr, stat.st_size, PROT_READ, MAP_SHARED, fd, 0));
     return ret;
 }
 
