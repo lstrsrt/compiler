@@ -1,15 +1,14 @@
 #include "verify.hh"
-#include "debug.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
 #include "optimizer.hh"
 #include "parser.hh"
 
 #define verification_error(ast, msg, ...) \
-    diag_error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
+    diag::error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
 
 #define verification_type_error(location, msg, ...) \
-    diag_error_at(cc, location, ErrorType::TypeCheck, msg __VA_OPT__(, __VA_ARGS__))
+    diag::error_at(cc, location, ErrorType::TypeCheck, msg __VA_OPT__(, __VA_ARGS__))
 
 Type *void_type()
 {
@@ -506,7 +505,7 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
         }
     }
     if (warn_discarded == WarnDiscardedReturn::Yes && !fn->returns_void()) {
-        diag_ast_warning(
+        diag::ast_warning(
             cc, call, "discarded return value for non-void function call `{}`", fn->name);
     }
     // FIXME: not entirely accurate (e.g. recursive calls)

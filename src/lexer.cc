@@ -76,7 +76,7 @@ Token lex_number(Compiler &cc)
     const auto c = lexer.get(count);
     if (!is_space(c) && c != '\n' && !is_start_of_operator(c)) {
         advance_column(lexer, count);
-        diag_lexer_error(cc, "this character is not a digit in this base");
+        diag::lexer_error(cc, "this character is not a digit in this base");
     }
 
     return Token::make_number(lexer.string.substr(start, count),
@@ -202,7 +202,7 @@ Token lex_identifier_or_keyword(Compiler &cc)
     const auto start = lexer.position;
     const auto count = lexer.count_while(is_valid_char_in_identifier);
     if (count > MaxIdentifierLength) {
-        diag_error_at(cc, SourceLocation::with_lexer(lexer, count), ErrorType::Lexer,
+        diag::error_at(cc, SourceLocation::with_lexer(lexer, count), ErrorType::Lexer,
             "identifier is {} chars long, which exceeds the maximum allowed length of {}", count,
             MaxIdentifierLength);
     }
@@ -271,7 +271,7 @@ Token lex_string(Compiler &cc)
             str->push_back(c);
         }
     }
-    diag_error_at(cc, loc, ErrorType::Lexer, "unterminated string starting at ({},{})", loc.line,
+    diag::error_at(cc, loc, ErrorType::Lexer, "unterminated string starting at ({},{})", loc.line,
         loc.column + 1);
 }
 
@@ -335,7 +335,7 @@ void skip_multi_line_comment(Compiler &cc)
         advance_column(lexer);
         if (lexer.out_of_bounds()) {
             ++loc.end; // Add one for the star
-            diag_error_at(cc, loc, ErrorType::Lexer, "unterminated comment starting at ({},{})",
+            diag::error_at(cc, loc, ErrorType::Lexer, "unterminated comment starting at ({},{})",
                 loc.line, loc.column + 1);
         }
     }
@@ -371,17 +371,17 @@ void skip_comments(Compiler &cc)
 void expect(Compiler &cc, const std::string &exp, const Token &tk)
 {
     if (tk.string != exp) {
-        const auto p1 = make_printable(exp);
-        const auto p2 = make_printable(tk.string);
-        diag_lexer_error(cc, "expected `{}`, got `{}`", p1, p2);
+        const auto p1 = diag::make_printable(exp);
+        const auto p2 = diag::make_printable(tk.string);
+        diag::lexer_error(cc, "expected `{}`, got `{}`", p1, p2);
     }
 }
 
 void expect(Compiler &cc, TokenKind kind, const Token &tk)
 {
     if (tk.kind != kind) {
-        const auto p = make_printable(tk.string);
-        diag_lexer_error(cc, "expected `{}`, got `{}`", to_string(kind), p);
+        const auto p = diag::make_printable(tk.string);
+        diag::lexer_error(cc, "expected `{}`, got `{}`", to_string(kind), p);
     }
 }
 
@@ -404,8 +404,8 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
     } else if (is_group(tk.kind, TokenKind::GroupEmpty)) {
         consume(cc.lexer, tk);
     } else {
-        const auto printable = make_printable(tk.string);
-        diag_lexer_error(cc,
+        const auto printable = diag::make_printable(tk.string);
+        diag::lexer_error(cc,
             "expected `<new line>`, got `{}`.\n"
             "only one statement per line is allowed.",
             printable);
@@ -479,7 +479,7 @@ Token lex(Compiler &cc)
         return lex_number(cc);
     }
 
-    diag_lexer_error(cc, "unknown character `{}`", c);
+    diag::lexer_error(cc, "unknown character `{}`", c);
 }
 
 void Lexer::set_input(const std::string &filename)

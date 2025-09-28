@@ -413,7 +413,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     auto cmp_kind = get_if_comparison_kind(cc, if_stmt);
 
     if (cmp_kind == ComparisonKind::ConstantTrue) {
-        diag_ast_warning(cc, if_stmt->expr, "condition is always true");
+        diag::ast_warning(cc, if_stmt->expr, "condition is always true");
         generate_ir_impl(cc, if_stmt->body);
         auto *after_block = add_block(ir_fn);
         generate_ir_branch(cc, after_block);
@@ -422,7 +422,7 @@ void generate_ir_if(Compiler &cc, Ast *ast)
     }
 
     if (cmp_kind == ComparisonKind::ConstantFalse) {
-        diag_ast_warning(cc, if_stmt->expr, "condition is always false");
+        diag::ast_warning(cc, if_stmt->expr, "condition is always false");
         if (if_stmt->else_body) {
             generate_ir_impl(cc, if_stmt->else_body);
         }
@@ -670,7 +670,7 @@ void visit_successors(Compiler &cc, IRFunction *fn, BasicBlock *block,
             insert_return(fn, 0);
         } else {
             // TODO: print demangled name
-            diag_error_at(cc, fn->ast->location, ErrorType::Verification,
+            diag::error_at(cc, fn->ast->location, ErrorType::Verification,
                 "non-void function does not return a value on all paths");
         }
     }
@@ -704,7 +704,7 @@ void optimize_ir(Compiler &cc)
 {
     std::erase_if(cc.ir_builder.functions, [&cc](IRFunction *fn) {
         if (!fn->ast->call_count) {
-            diag_ast_warning(cc, fn->ast, "unused function");
+            diag::ast_warning(cc, fn->ast, "unused function");
             free_ir_function(fn);
             return true;
         }
@@ -715,7 +715,7 @@ void optimize_ir(Compiler &cc)
         for (size_t i = 0; auto *bb : ir_fn->basic_blocks) {
             if (!bb->reachable) {
                 if (!bb->code.empty() && bb->code.back()->ast) {
-                    diag_ast_warning(cc, bb->code.back()->ast, "unreachable code");
+                    diag::ast_warning(cc, bb->code.back()->ast, "unreachable code");
                 }
             } else {
                 bb->index = i;

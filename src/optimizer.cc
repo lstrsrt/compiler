@@ -261,26 +261,26 @@ Type *get_integer_type(uint64_t x)
     return s32_type();
 }
 
-#define fold_and_warn_overflow(left_const, right_const, result, expected, fn)                    \
-    {                                                                                            \
-        bool overflows_u64 = fn(left_const, right_const, &result);                               \
-        bool overflows_type = get_unaliased_type(expected) != bool_type()                        \
-            && result > max_for_type(get_unaliased_type(expected));                              \
-        bool warn = false;                                                                       \
-        if (overflows_u64 || overflows_type) {                                                   \
-            if (overridable == TypeOverridable::Yes) {                                           \
-                if (overflows_u64) {                                                             \
-                    warn = true;                                                                 \
-                    expected = u64_type();                                                       \
-                } else if (overflows_type) {                                                     \
-                    expected = get_integer_type(result);                                         \
-                }                                                                                \
-            }                                                                                    \
-            if (overridable == TypeOverridable::No || warn) {                                    \
-                diag_warning_at(cc, binary->location, "constant expression overflows type `{}`", \
-                    expected->name);                                                             \
-            }                                                                                    \
-        }                                                                                        \
+#define fold_and_warn_overflow(left_const, right_const, result, expected, fn)                     \
+    {                                                                                             \
+        bool overflows_u64 = fn(left_const, right_const, &result);                                \
+        bool overflows_type = get_unaliased_type(expected) != bool_type()                         \
+            && result > max_for_type(get_unaliased_type(expected));                               \
+        bool warn = false;                                                                        \
+        if (overflows_u64 || overflows_type) {                                                    \
+            if (overridable == TypeOverridable::Yes) {                                            \
+                if (overflows_u64) {                                                              \
+                    warn = true;                                                                  \
+                    expected = u64_type();                                                        \
+                } else if (overflows_type) {                                                      \
+                    expected = get_integer_type(result);                                          \
+                }                                                                                 \
+            }                                                                                     \
+            if (overridable == TypeOverridable::No || warn) {                                     \
+                diag::warning_at(cc, binary->location, "constant expression overflows type `{}`", \
+                    expected->name);                                                              \
+            }                                                                                     \
+        }                                                                                         \
     }
 
 uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t left_const,
@@ -293,7 +293,7 @@ uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t le
             if (expected->size < 8 && overridable == TypeOverridable::Yes) {
                 expected = s64_type();
             } else {
-                diag_warning_at(cc, binary->location, "constant expression overflows type `{}`",
+                diag::warning_at(cc, binary->location, "constant expression overflows type `{}`",
                     expected->name);
             }
         }
@@ -308,7 +308,7 @@ uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t le
             expected = s64_type();
         }
         if (overridable == TypeOverridable::No || overflows_i64) {
-            diag_warning_at(
+            diag::warning_at(
                 cc, binary->location, "constant expression overflows type `{}`", expected->name);
         }
     }
@@ -400,7 +400,7 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
 
     if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {
         if (right_is_const && right_const == 0) {
-            diag_ast_warning(cc, binary, "trying to divide by 0");
+            diag::ast_warning(cc, binary, "trying to divide by 0");
             return binary;
         }
     }

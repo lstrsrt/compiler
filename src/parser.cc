@@ -4,10 +4,10 @@
 #include "lexer.hh"
 
 #define parser_ast_error(ast, msg, ...) \
-    diag_error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
+    diag::error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
 
 #define parser_error(loc, msg, ...) \
-    diag_error_at(cc, loc, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
+    diag::error_at(cc, loc, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
 
 enum class Associativity {
     Right,
@@ -364,7 +364,7 @@ Type *parse_type(Compiler &cc)
     auto token = lex(cc);
     if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(
-            token.location, "expected a type name, got `{}`", make_printable(token.string));
+            token.location, "expected a type name, got `{}`", diag::make_printable(token.string));
     }
     consume(cc.lexer, token);
     auto *type = find_type(current_scope, token.string);
@@ -384,7 +384,7 @@ Token parse_identifier(Compiler &cc)
     auto token = lex(cc);
     if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(
-            token.location, "expected an identifier, got `{}`", make_printable(token.string));
+            token.location, "expected an identifier, got `{}`", diag::make_printable(token.string));
     }
     consume(cc.lexer, token);
     return token;
@@ -796,7 +796,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         if (maybe_expr->operation != Operation::Assign
             && maybe_expr->operation != Operation::Call) {
             // TODO: this is not in the right location, should be at the start of the expression
-            diag_ast_warning(cc, maybe_expr, "expression result is unused");
+            diag::ast_warning(cc, maybe_expr, "expression result is unused");
         }
         cc.lexer.ignore_newlines = false;
         consume_newline_or_eof(cc, lex(cc));
@@ -848,11 +848,11 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
         if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
             const char *same_scope_str = result_scope == scope ? " in the same scope" : "";
             parser_error(location,
-                "{} `{}` cannot be redeclared as a {}{}. this is the existing "
-                "declaration: ",
+                "{} `{}` cannot be redeclared as a {}{}.\n"
+                "here is the existing declaration: ",
                 existing_str, name, type, same_scope_str);
         } else {
-            diag_warning_at(cc, location, "{} `{}` is shadowing this {} in an outer scope:", type,
+            diag::warning_at(cc, location, "{} `{}` is shadowing this {} in an outer scope:", type,
                 name, existing_str);
         }
     }
