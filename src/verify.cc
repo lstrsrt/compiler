@@ -414,7 +414,7 @@ uint64_t get_int_literal(Ast *ast)
     return static_cast<AstLiteral *>(ast)->u.u64;
 }
 
-TypeError maybe_cast_integer(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
+TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
 {
     Type *wanted_type = get_unaliased_type(wanted);
     if (wanted_type == type) {
@@ -513,8 +513,11 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
-void verify_negate(Compiler &cc, AstNegate *unary, WarnDiscardedReturn warn_discarded)
+void verify_negate(Compiler &cc, AstNegate *unary, Type *expected, WarnDiscardedReturn warn_discarded)
 {
+    if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)) {
+        verification_type_error(unary->location, "negation of unsupported type `{}`", expected->name);
+    }
     verify_expr(cc, unary->operand, warn_discarded);
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
@@ -601,7 +604,7 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
             return;
         }
     } else if (!types_match(type, expected)) {
-        if (auto err = maybe_cast_integer(expected, type, ast, constness); err != TypeError::None) {
+        if (auto err = maybe_cast_int(expected, type, ast, constness); err != TypeError::None) {
             type_error(cc, ast, expected, type, err);
         }
         return;
@@ -653,7 +656,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (ast->operation == Operation::Call) {
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
             } else if (ast->operation == Operation::Negate) {
-                verify_negate(cc, static_cast<AstNegate *>(ast), warn_discarded);
+                verify_negate(cc, static_cast<AstNegate *>(ast), expected, warn_discarded);
             } else if (ast->operation == Operation::LogicalNot) {
                 verify_logical_not(cc, ast, warn_discarded);
                 ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
