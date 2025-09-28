@@ -492,8 +492,8 @@ enum class ErrorOnShadowing {
     Yes
 };
 
-void diagnose_redeclaration_or_shadowing(
-    Compiler &, Scope *, std::string_view name, std::string_view type, ErrorOnShadowing);
+void diagnose_redeclaration_or_shadowing(Compiler &, Scope *, std::string_view name,
+    std::string_view type, SourceLocation, ErrorOnShadowing);
 
 struct ParseState {
     bool inside_call = false;

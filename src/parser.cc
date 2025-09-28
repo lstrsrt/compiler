@@ -227,7 +227,8 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (!var_decl && !cc.parse_state.inside_call) {
             cc.lexer.column = prev_col;
-            parser_error(token.location, "variable `{}` is not declared in this scope", token.string);
+            parser_error(
+                token.location, "variable `{}` is not declared in this scope", token.string);
         }
         return new AstIdentifier(
             token.string, var_decl ? &var_decl->var : unresolved_var(token.string), token.location);
@@ -827,7 +828,7 @@ std::string extract_integer_constant(AstLiteral *literal)
 }
 
 void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string_view name,
-    std::string_view type, ErrorOnShadowing error_on_shadowing)
+    std::string_view type, SourceLocation new_location, ErrorOnShadowing error_on_shadowing)
 {
     Scope *result_scope;
     AstFunction *existing_fn = nullptr;
@@ -846,14 +847,20 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
                                       : existing_var->location;
 
         if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
-            const char *same_scope_str = result_scope == scope ? " in the same scope" : "";
-            parser_error(location,
+            const char *scope_str = result_scope == scope ? " in the same scope" : " in an inner scope";
+            diag::prepare_error(cc, new_location,
                 "{} `{}` cannot be redeclared as a {}{}.\n"
                 "here is the existing declaration: ",
-                existing_str, name, type, same_scope_str);
+                existing_str, name, type, scope_str);
+            diag::print_line(cc.lexer.string, location);
+            parser_error(new_location, "and this is the new declaration: ");
         } else {
-            diag::warning_at(cc, location, "{} `{}` is shadowing this {} in an outer scope:", type,
-                name, existing_str);
+            diag::prepare_warning(cc, new_location,
+                "{} `{}` is shadowing a {} in an outer scope.\n"
+                "here is the existing declaration: ",
+                type, name, existing_str);
+            diag::print_line(cc.lexer.string, location);
+            diag::warning_at(cc, new_location, "and this is the new declaration: ");
         }
     }
 }
@@ -861,7 +868,7 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
 void Scope::add_variable(Compiler &cc, AstVariableDecl *var_decl)
 {
     diagnose_redeclaration_or_shadowing(
-        cc, this, var_decl->var.name, "variable", ErrorOnShadowing::No);
+        cc, this, var_decl->var.name, "variable", var_decl->location, ErrorOnShadowing::No);
     var_decl->var.index_in_scope = ssize(variables);
     variables[var_decl->var.name] = var_decl;
 }
@@ -870,14 +877,15 @@ void Scope::add_function(Compiler &cc, Ast *ast, std::string_view unmangled_name
 {
     assert(ast->operation == Operation::FunctionDecl);
     auto *fn = static_cast<AstFunction *>(ast);
-    diagnose_redeclaration_or_shadowing(cc, this, fn->name, "function", ErrorOnShadowing::Yes);
+    diagnose_redeclaration_or_shadowing(
+        cc, this, fn->name, "function", fn->location, ErrorOnShadowing::Yes);
     functions[unmangled_name] = fn;
 }
 
 void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLocation location)
 {
-    // TODO - unnecessary string creation?
-    diagnose_redeclaration_or_shadowing(cc, this, alias, "type", ErrorOnShadowing::No);
+    // TODO: unnecessary string creation?
+    diagnose_redeclaration_or_shadowing(cc, this, alias, "type", location, ErrorOnShadowing::No);
     types[alias] = new Type{
         .name = std::string(alias), .flags = TypeFlags::ALIAS, .real = type, .location = location
     };
