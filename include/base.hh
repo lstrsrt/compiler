@@ -14,8 +14,6 @@ namespace fs = std::filesystem;
 namespace ch = std::chrono;
 using namespace std::string_view_literals;
 
-int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
-
 namespace colors {
     constexpr std::string Bold = "\033[1m";
     constexpr std::string Cyan = "\033[36;1m";
@@ -86,7 +84,7 @@ struct Timer {
         start = ch::system_clock::now();
     }
 
-    auto elapsed()
+    auto elapsed() const
     {
         return ch::duration<double>(ch::system_clock::now() - start);
     }
@@ -172,7 +170,7 @@ inline bool has_flags(E value, Es... flags)
 
 using hash_t = uint32_t;
 
-inline constexpr hash_t hash(const char *s, size_t len)
+constexpr hash_t hash(const char *s, size_t len)
 {
     constexpr hash_t basis = 0x811c9dc5, prime = 0x1000193;
     auto hash = basis;
@@ -183,10 +181,13 @@ inline constexpr hash_t hash(const char *s, size_t len)
     return hash;
 }
 
-inline constexpr hash_t hash(std::string_view s)
+constexpr hash_t hash(std::string_view s)
 {
     return hash(s.data(), s.length());
 }
+
+int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
+void compile_to_exe(const std::string &asm_file, const std::string &output_name);
 
 //
 // Forward some types

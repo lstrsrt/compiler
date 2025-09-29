@@ -7,7 +7,7 @@ namespace diag {
         using namespace colors;
         const auto line_str = std::format("{}{}{} | ", Blue, loc.line, Default);
         const auto fill_width = line_str.size() - (Blue + Default).size();
-        std::println("{}{}", line_str, get_line(string, loc.position, loc.column, loc.end));
+        std::println("{}{}", line_str, get_highlighted_line(string, loc.position, loc.column, loc.end));
         const std::string fill(loc.column + fill_width, '~');
         std::println("{}{}^{}", fill, Yellow, Default);
     }

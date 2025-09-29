@@ -473,7 +473,8 @@ std::string escape_string(const std::string &s)
 
 void emit_asm(Compiler &cc)
 {
-    std::string output = "output.asm";
+    std::string output = opts.output_name;
+
     File output_file;
     output_file.buffered = false;
     if (!output_file.open(output, OpenFlags::OpenOrCreate | OpenFlags::TRUNCATE)) {
@@ -494,9 +495,19 @@ void emit_asm(Compiler &cc)
         cc.test_mode.compare_file = write_comparison_file(
             ".asm", nullptr, [](File &f, void *) { f.write(write_buffer); });
     }
+
     output_file.write(write_buffer);
     write_buffer.clear();
     if (!output_file.close()) {
         die("{}: unable to write to output file '{}'", cc.lexer.input.filename, output);
+    }
+}
+
+void compile_to_exe(const std::string &asm_file, const std::string &output_name)
+{
+    if (spawn_and_wait("/usr/bin/nasm", { "-f elf64", "-o", output_name + ".o", asm_file })) {
+        die("{}error{}: nasm failure", colors::Red, colors::Default);
+    } else if (spawn_and_wait("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
+        die("{}error{}: gcc failure", colors::Red, colors::Default);
     }
 }

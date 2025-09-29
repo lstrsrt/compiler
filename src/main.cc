@@ -10,6 +10,7 @@ int main(int argc, char **argv)
     ArgumentParser arg_parser;
     arg_parser.arguments = std::span<char *>(argv, argc);
     process_cmdline(arg_parser);
+    determine_output_names();
 
     if (opts.testing) {
         auto *dir_or_file = arg_parser.arguments.back();

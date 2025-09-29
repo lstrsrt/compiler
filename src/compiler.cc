@@ -95,6 +95,10 @@ void compiler_main(Compiler &cc, AstFunction *main)
     }
 #endif
 
+    if (opts.full_compile) {
+        compile_to_exe(opts.output_name, opts.output_exe_name);
+    }
+
     if (!testing) {
         std::println("{}elapsed time:{}", Cyan, Default);
         std::println("frontend:    {}{:>6}{}", Green, frontend, Default);

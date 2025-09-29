@@ -1,6 +1,7 @@
 #include "testing.hh"
 #include "compiler.hh"
 #include "debug.hh"
+#include "frontend.hh"
 #include "parser.hh"
 
 #include <algorithm>
@@ -14,6 +15,18 @@ size_t current_test;
 size_t passed_tests;
 size_t total_tests;
 bool printed_result;
+fs::path prev_wd;
+
+void switch_to_tmp()
+{
+    prev_wd = fs::current_path();
+    fs::current_path(fs::temp_directory_path());
+}
+
+void switch_back()
+{
+    fs::current_path(prev_wd);
+}
 
 int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline)
 {
@@ -87,7 +100,7 @@ bool run_compare_test(Compiler &cc)
     auto ref_file = fs::path(cc.test_mode.reference_file);
     if (!fs::exists(ref_file)) {
         // Maybe it's in the input path?
-        auto alt = fs::path(cc.lexer.input.filename).relative_path().replace_filename(ref_file);
+        auto alt = fs::path(cc.lexer.input.filename).replace_filename(ref_file);
         if (!fs::exists(alt)) {
             std::println("{}testing error{}: reference file '{}' not found.\n"
                          "place the reference file in the working directory or in the directory of "
@@ -124,6 +137,10 @@ void run_test(const fs::path &file)
             std::println("{}{}{} {}{}", color, str, DefaultBold, file.string(), Default);
         }
     };
+
+    if (total_tests == 1) {
+        switch_to_tmp();
+    }
 
     Compiler cc;
     bool compiled = false;
@@ -164,27 +181,20 @@ void run_test(const fs::path &file)
         std::println("{}testing error{}: should have failed compilation", Red, Default);
     } else if (cc.test_mode.test_type == TestType::ReturnsValue) {
         bool ok = run_compare_test(cc);
-        auto prev_wd = fs::current_path();
-        Defer _{ [&] {
-            fs::current_path(prev_wd);
-        } };
-        fs::current_path(fs::temp_directory_path());
-        if (spawn_and_wait("/usr/bin/nasm",
-                { "-f elf64", "-o output.o", (prev_wd / "output.asm").string() })) {
-            std::println("{}testing error{}: nasm failure", Red, Default);
-        } else if (spawn_and_wait("/usr/bin/gcc", { "output.o", "-ooutput" })) {
-            std::println("{}testing error{}: gcc failure", Red, Default);
-        } else {
-            int status = spawn_and_wait("./output", {});
-            if (status == static_cast<int>(cc.test_mode.return_value)) {
-                if (ok) {
-                    ++passed_tests;
-                }
-            } else {
-                std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
-                    Default, status, cc.test_mode.return_value);
+        compile_to_exe(opts.output_name, opts.output_exe_name);
+        int status = spawn_and_wait(fs::current_path() / opts.output_exe_name, {});
+        if (status == static_cast<int>(cc.test_mode.return_value)) {
+            if (ok) {
+                ++passed_tests;
             }
+        } else {
+            std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
+                Default, status, cc.test_mode.return_value);
         }
+    }
+
+    if (total_tests == 1) {
+        switch_back();
     }
 
     report_single_test_result();
@@ -193,7 +203,7 @@ void run_test(const fs::path &file)
 void run_single_test(const fs::path &path)
 {
     total_tests = 1;
-    run_test(path);
+    run_test(fs::canonical(path));
 }
 
 void run_tests(const fs::path &path, bool root)
@@ -204,14 +214,14 @@ void run_tests(const fs::path &path, bool root)
         return;
     }
 
-    std::vector<fs::directory_entry> subdirs;
-    std::vector<fs::directory_entry> files;
+    std::vector<fs::path> subdirs;
+    std::vector<fs::path> files;
     for (const auto &entry : fs::directory_iterator(path)) {
         if (entry.is_directory()) {
-            subdirs.push_back(entry);
+            subdirs.push_back(fs::canonical(entry));
         } else if (entry.path().has_filename() && entry.path().filename().has_extension()
             && entry.path().filename().extension() == ".txt") {
-            files.push_back(entry);
+            files.push_back(fs::canonical(entry));
             ++total_tests;
         }
     }
@@ -219,13 +229,17 @@ void run_tests(const fs::path &path, bool root)
     std::ranges::sort(files);
     std::ranges::sort(subdirs);
 
+    switch_to_tmp();
+
     for (const auto &file : files) {
-        run_test(file.path());
+        run_test(file);
     }
 
     for (const auto &dir : subdirs) {
-        run_tests(dir.path(), false);
+        run_tests(dir, false);
     }
+
+    switch_back();
 
     if (root && !printed_result && current_test == total_tests) {
         auto color = (passed_tests == total_tests) ? Green : Red;

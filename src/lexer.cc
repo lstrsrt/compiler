@@ -435,7 +435,7 @@ std::string_view get_line(std::string_view string, uint32_t pos)
     return string.substr(start + 1, end - start - 1);
 }
 
-std::string get_line(std::string_view string, uint32_t pos, uint32_t start, uint32_t end)
+std::string get_highlighted_line(std::string_view string, uint32_t pos, uint32_t start, uint32_t end)
 {
     auto str = std::string(get_line(string, pos));
     assert(start < end);

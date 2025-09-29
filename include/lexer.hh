@@ -213,7 +213,7 @@ struct Lexer {
 };
 
 std::string_view get_line(std::string_view, uint32_t pos);
-std::string get_line(std::string_view, uint32_t pos, uint32_t start, uint32_t end);
+std::string get_highlighted_line(std::string_view, uint32_t pos, uint32_t start, uint32_t end);
 
 struct Compiler;
 
