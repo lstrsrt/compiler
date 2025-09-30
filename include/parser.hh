@@ -277,8 +277,6 @@ Type *get_unaliased_type(Type *);
 struct Variable {
     Type *type;
     std::string name;
-    // Index into the associated scope's variables array.
-    ssize_t index_in_scope = -1;
     // If this is a function parameter...
     int param_index = -1;
 

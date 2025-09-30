@@ -17,9 +17,9 @@ enum class Associativity {
 using Precedence = int;
 
 namespace prec {
-    constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
-                         AdditiveArithmetic = 6, MultiplicativeArithmetic = 7, Unary = 8;
-    constexpr Precedence Lowest = Comma, Highest = Unary;
+constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
+                     AdditiveArithmetic = 6, MultiplicativeArithmetic = 7, Unary = 8;
+constexpr Precedence Lowest = Comma, Highest = Unary;
 } // namespace prec
 
 struct OperatorInfo {
@@ -847,7 +847,8 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
                                       : existing_var->location;
 
         if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
-            const char *scope_str = result_scope == scope ? " in the same scope" : " in an inner scope";
+            const char *scope_str
+                = result_scope == scope ? " in the same scope" : " in an inner scope";
             diag::prepare_error(cc, new_location,
                 "{} `{}` cannot be redeclared as a {}{}.\n"
                 "here is the existing declaration: ",
@@ -869,7 +870,6 @@ void Scope::add_variable(Compiler &cc, AstVariableDecl *var_decl)
 {
     diagnose_redeclaration_or_shadowing(
         cc, this, var_decl->var.name, "variable", var_decl->location, ErrorOnShadowing::No);
-    var_decl->var.index_in_scope = ssize(variables);
     variables[var_decl->var.name] = var_decl;
 }
 
