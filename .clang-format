@@ -25,7 +25,6 @@ IndentRequiresClause: false
 InsertNewlineAtEOF: true
 InsertBraces: true
 LineEnding: LF
-NamespaceIndentation: All
 PointerAlignment: Right
 SeparateDefinitionBlocks: Always
 SpaceAfterTemplateKeyword: false

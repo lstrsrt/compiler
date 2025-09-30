@@ -20,6 +20,12 @@ constexpr bool is_start_of_operator(char c)
     return std::ranges::any_of(ops, [c](char x) { return c == x; });
 }
 
+constexpr bool is_newline(Lexer &lexer)
+{
+    auto c = lexer.get();
+    return (c == '\n' || (c == '\r' && lexer.get(1) == '\n'));
+}
+
 SourceLocation SourceLocation::with_lexer(Lexer &lexer, uint32_t end_offset)
 {
     return { lexer.line, lexer.column, lexer.column + end_offset, lexer.position };
@@ -74,9 +80,10 @@ Token lex_number(Compiler &cc)
         count);
 
     const auto c = lexer.get(count);
-    if (!is_space(c) && c != '\n' && !is_start_of_operator(c)) {
+    if (!is_space(c) && c != '\n' && c != '\r' && !is_start_of_operator(c)) {
         advance_column(lexer, count);
-        diag::lexer_error(cc, "this character is not a digit in this base");
+        diag::lexer_error(
+            cc, "character `{}` is not a digit in this base", diag::make_printable(c));
     }
 
     return Token::make_number(lexer.string.substr(start, count),
@@ -280,8 +287,7 @@ void skip_whitespace(Lexer &lexer)
     if (lexer.ignore_newlines) {
         for (;;) {
             advance_column(lexer, lexer.count_while(is_space));
-            const char c = lexer.get();
-            if (c == '\n') { // FIXME handle CRLF
+            if (is_newline(lexer)) {
                 advance_line(lexer);
             } else {
                 break;
@@ -292,9 +298,8 @@ void skip_whitespace(Lexer &lexer)
     }
 }
 
-void skip_single_line_comment(Compiler &cc)
+void skip_single_line_comment(Lexer &lexer)
 {
-    auto &lexer = cc.lexer;
     advance_column(lexer, 2);
     while (lexer.get() != '\n') {
         advance_column(lexer);
@@ -328,6 +333,10 @@ void skip_multi_line_comment(Compiler &cc)
             }
             continue;
         }
+        if (is_newline(lexer)) {
+            advance_line(lexer);
+            continue;
+        }
         if (c == '\n') {
             advance_line(lexer);
             continue;
@@ -344,7 +353,6 @@ void skip_multi_line_comment(Compiler &cc)
 void skip_comments(Compiler &cc)
 {
     auto &lexer = cc.lexer;
-
     for (;;) {
         if (lexer.out_of_bounds()) {
             return;
@@ -354,7 +362,7 @@ void skip_comments(Compiler &cc)
         }
         if (lexer.get(1) == '/') {
             do {
-                skip_single_line_comment(cc);
+                skip_single_line_comment(lexer);
                 if (lexer.get() != '/') {
                     break;
                 }
@@ -371,17 +379,16 @@ void skip_comments(Compiler &cc)
 void expect(Compiler &cc, const std::string &exp, const Token &tk)
 {
     if (tk.string != exp) {
-        const auto p1 = diag::make_printable(exp);
-        const auto p2 = diag::make_printable(tk.string);
-        diag::lexer_error(cc, "expected `{}`, got `{}`", p1, p2);
+        diag::lexer_error(cc, "expected `{}`, got `{}`", diag::make_printable(exp),
+            diag::make_printable(tk.string));
     }
 }
 
 void expect(Compiler &cc, TokenKind kind, const Token &tk)
 {
     if (tk.kind != kind) {
-        const auto p = diag::make_printable(tk.string);
-        diag::lexer_error(cc, "expected `{}`, got `{}`", to_string(kind), p);
+        diag::lexer_error(
+            cc, "expected `{}`, got `{}`", to_string(kind), diag::make_printable(tk.string));
     }
 }
 
@@ -404,49 +411,49 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
     } else if (is_group(tk.kind, TokenKind::GroupEmpty)) {
         consume(cc.lexer, tk);
     } else {
-        const auto printable = diag::make_printable(tk.string);
         diag::lexer_error(cc,
             "expected `<new line>`, got `{}`.\n"
             "only one statement per line is allowed.",
-            printable);
+            diag::make_printable(tk.string));
     }
 }
 
-std::string_view get_line(std::string_view string, uint32_t pos)
+std::string_view get_line(std::string_view source, uint32_t position_in_source)
 {
     int32_t x = -1, start, end;
-    // This is just get() but with pos as the base.
-    auto get_at = [string, pos](ssize_t offset) {
-        auto off = pos + offset;
-        if (off < 0 || off >= static_cast<ssize_t>(string.length())) {
+    // This is just get() but with `position_in_source` as the base.
+    auto get_at = [source, position_in_source](uint32_t offset) {
+        auto off = position_in_source + offset;
+        if (off >= source.length()) {
             return '\0';
         }
-        return string[pos + offset];
+        return source[position_in_source + offset];
     };
     while (get_at(x) != '\n' && get_at(x) != '\0') {
         --x;
     }
-    start = static_cast<int32_t>(pos) + x;
+    start = static_cast<int32_t>(position_in_source) + x;
     x = 0;
     while (get_at(x) != '\n' && get_at(x) != '\0') {
         ++x;
     }
-    end = static_cast<int32_t>(pos) + x;
-    return string.substr(start + 1, end - start - 1);
+    end = static_cast<int32_t>(position_in_source) + x;
+    return source.substr(start + 1, end - start - 1);
 }
 
-std::string get_highlighted_line(std::string_view string, uint32_t pos, uint32_t start, uint32_t end)
+std::string get_highlighted_line(std::string_view source, uint32_t position_in_source,
+    uint32_t highlight_start, uint32_t highlight_end)
 {
-    auto str = std::string(get_line(string, pos));
-    assert(start < end);
-    assert(start < str.size());
-    // Insert at end first so the start position doesn't have to be fixed
-    if (end > str.size()) {
+    auto str = std::string(get_line(source, position_in_source));
+    assert(highlight_start < highlight_end);
+    assert(highlight_start < str.size());
+    // Insert at `highlight_end` first so the highlight_start position doesn't have to be fixed
+    if (highlight_end > str.size()) {
         str += colors::Default;
     } else {
-        str.insert(end, colors::Default);
+        str.insert(highlight_end, colors::Default);
     }
-    return str.insert(start, colors::Red);
+    return str.insert(highlight_start, colors::Red);
 }
 
 Token lex(Compiler &cc)
@@ -462,8 +469,7 @@ Token lex(Compiler &cc)
     }
 
     const auto c = lexer.get();
-    // FIXME - handle CRLF
-    if (c == '\n') {
+    if (is_newline(lexer)) {
         return Token::make_newline(lexer.location());
     }
     if (c == '"') {
@@ -479,7 +485,7 @@ Token lex(Compiler &cc)
         return lex_number(cc);
     }
 
-    diag::lexer_error(cc, "unknown character `{}`", c);
+    diag::lexer_error(cc, "unknown character `{}`", diag::make_printable(c));
 }
 
 void Lexer::set_input(const std::string &filename)

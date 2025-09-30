@@ -101,7 +101,7 @@ struct Lexer;
 struct SourceLocation {
     uint32_t line;
     uint32_t column;
-    uint32_t end; // End column.
+    uint32_t end;      // End column.
     uint32_t position; // This is the actual offset in the file, equivalent to Lexer::position.
 
     static SourceLocation with_lexer(Lexer &, uint32_t end_offset);
@@ -212,8 +212,9 @@ struct Lexer {
     bool ignore_newlines = true;
 };
 
-std::string_view get_line(std::string_view, uint32_t pos);
-std::string get_highlighted_line(std::string_view, uint32_t pos, uint32_t start, uint32_t end);
+std::string_view get_line(std::string_view source, uint32_t position_in_source);
+std::string get_highlighted_line(std::string_view source, uint32_t position_in_source,
+    uint32_t highlight_start, uint32_t highlight_end);
 
 struct Compiler;
 

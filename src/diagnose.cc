@@ -2,44 +2,50 @@
 #include "base.hh"
 
 namespace diag {
-    void print_line(std::string_view string, SourceLocation loc)
-    {
-        using namespace colors;
-        const auto line_str = std::format("{}{}{} | ", Blue, loc.line, Default);
-        const auto fill_width = line_str.size() - (Blue + Default).size();
-        std::println("{}{}", line_str, get_highlighted_line(string, loc.position, loc.column, loc.end));
-        const std::string fill(loc.column + fill_width, '~');
-        std::println("{}{}^{}", fill, Yellow, Default);
+void print_line(std::string_view string, SourceLocation loc)
+{
+    using namespace colors;
+    const auto line_str = std::format("{}{}{} | ", Blue, loc.line, Default);
+    const auto fill_width = line_str.size() - (Blue + Default).size();
+    std::println("{}{}", line_str, get_highlighted_line(string, loc.position, loc.column, loc.end));
+    const std::string fill(loc.column + fill_width, '~');
+    std::println("{}{}^{}", fill, Yellow, Default);
+}
+
+std::string make_printable(char c)
+{
+    if (c != ' ' && std::isprint(static_cast<unsigned char>(c))) {
+        return std::string(1, c);
     }
 
-    std::string make_printable(std::string_view s)
-    {
-        if (s.empty()) {
-            return "<EOF>";
-        }
-        if (s.length() == 1) {
-            if (s[0] != ' ' && std::isprint(static_cast<unsigned char>(s[0]))) {
-                return std::string(s);
-            }
-            switch (s[0]) {
-                // Return a string instead of a hex byte for more common cases
-                case '\t':
-                    return "<tab>";
-                case '\n':
-                    return "<new line>";
-                case '\r':
-                    return "<carriage return>";
-                case ' ':
-                    return "<space>";
-                case 0:
-                    return "<NUL>";
-                default:
-                    return std::format("\\x{:X}", static_cast<uint32_t>(s[0]));
-            }
-        }
-        return std::string(s);
+    switch (c) {
+        // Return a string instead of a hex byte for more common cases
+        case '\t':
+            return "<tab>";
+        case '\n':
+            return "<new line>";
+        case '\r':
+            return "<carriage return>";
+        case ' ':
+            return "<space>";
+        case 0:
+            return "<NUL>";
+        default:
+            return std::format("\\x{:X}", static_cast<uint32_t>(c));
     }
 }
+
+std::string make_printable(std::string_view s)
+{
+    if (s.empty()) {
+        return "<EOF>";
+    }
+    if (s.length() == 1) {
+        return make_printable(s[0]);
+    }
+    return std::string(s);
+}
+} // namespace diag
 
 std::string to_string(TokenKind kind)
 {
