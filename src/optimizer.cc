@@ -17,22 +17,32 @@ void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened
 }
 
 Ast *partial_fold_associative(
-    const std::vector<Ast *> &operands, Operation operation, Type *expected)
+    AstBinary *binary, const std::vector<Ast *> &operands, Operation operation, Type *expected)
 {
     std::vector<Ast *> non_constants;
+    std::vector<Ast *> constants;
     uint64_t accumulator = operation == Operation::Multiply ? 1 : 0;
 
     for (auto *ast : operands) {
         if (ast->type == AstType::Integer) {
             if (operation == Operation::Add) {
                 accumulator += get_int_literal(ast);
+                constants.push_back(ast);
             } else if (operation == Operation::Multiply) {
                 accumulator *= get_int_literal(ast);
+                constants.push_back(ast);
             }
-            delete static_cast<AstLiteral *>(ast);
         } else {
             non_constants.push_back(ast);
         }
+    }
+
+    if (constants.size() < 2) {
+        return binary;
+    }
+
+    for (auto *constant : constants) {
+        delete static_cast<AstLiteral *>(constant);
     }
 
     if (accumulator != 0 || non_constants.empty()) {
@@ -91,7 +101,7 @@ Ast *try_partial_fold_associative(
     }
     std::vector<Ast *> flattened;
     flatten_binary(binary, binary->operation, flattened);
-    return partial_fold_associative(flattened, binary->operation, expected);
+    return partial_fold_associative(binary, flattened, binary->operation, expected);
 }
 
 Ast *try_fold_logical_chain(
@@ -160,8 +170,21 @@ bool is_equals_x(Ast *ast, bool value)
 
 bool is_logical(Operation operation)
 {
-    return operation == Operation::LogicalAnd || operation == Operation::LogicalOr
-        || (operation >= Operation::Equals && operation <= Operation::GreaterEquals);
+    switch (operation) {
+        case Operation::Equals:
+        case Operation::NotEquals:
+        case Operation::Greater:
+        case Operation::GreaterEquals:
+        case Operation::Less:
+        case Operation::LessEquals:
+        case Operation::LogicalAnd:
+        case Operation::LogicalOr:
+            [[fallthrough]];
+        case Operation::LogicalNot:
+            return true;
+        default:
+            return false;
+    }
 }
 
 void invert_logical(Ast *ast)
@@ -182,11 +205,17 @@ void invert_logical(Ast *ast)
 
 Ast *apply_de_morgan_laws(Ast *ast)
 {
+    if (ast->type != AstType::Binary) {
+        return ast;
+    }
+
     auto *outer = static_cast<AstBinary *>(ast);
     auto *operand = outer->left;
     if (!is_logical(operand->operation)) {
         return ast;
     }
+
+    // TODO: only do this if operands don't have side effects
 
     if (operand->operation == Operation::LogicalAnd || operand->operation == Operation::LogicalOr) {
         // Multiple operands.
@@ -430,8 +459,9 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
     }
     if (ast->type == AstType::Binary) {
         if (!(ast->flags & AstFlags::FOLDED)) {
-            ast->flags |= AstFlags::FOLDED;
-            return try_fold_binary(cc, static_cast<AstBinary *>(ast), expected, overridable);
+            auto *ret = try_fold_binary(cc, static_cast<AstBinary *>(ast), expected, overridable);
+            ret->flags |= AstFlags::FOLDED;
+            return ret;
         }
     }
     if (ast->type == AstType::Unary) {
