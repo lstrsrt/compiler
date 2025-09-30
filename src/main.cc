@@ -21,6 +21,8 @@ int main(int argc, char **argv)
             run_single_test(dir_or_file);
         } else if (fs::is_directory(dir_or_file)) {
             run_tests(dir_or_file);
+        } else {
+            die("input '{}' is not a file or directory");
         }
     } else {
         Compiler cc;

@@ -106,6 +106,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 template<typename... Args>
 [[noreturn]] void die(std::string_view msg, Args &&...args)
 {
+    std::print("{}error:{} ", colors::Red, colors::Default);
     if constexpr (sizeof...(args)) {
         std::println(
             "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
@@ -115,15 +116,17 @@ template<typename... Args>
     exit(EXIT_FAILURE);
 }
 
+// clang-format off
 #define DEFINE_ENUM_OPERATOR(type, op)                                            \
     constexpr type operator op(const type lhs, const type rhs) noexcept           \
     {                                                                             \
         return static_cast<type>(to_underlying(lhs) op to_underlying(rhs));       \
     }                                                                             \
-    constexpr type &operator op##=(type & lhs, const type rhs) noexcept           \
+    constexpr type &operator op##=(type &lhs, const type rhs) noexcept            \
     {                                                                             \
         return lhs = static_cast<type>(to_underlying(lhs) op to_underlying(rhs)); \
     }
+// clang-format on
 
 #define DEFINE_ENUM_BIT_OPS(type)                    \
     DEFINE_ENUM_OPERATOR(type, &)                    \

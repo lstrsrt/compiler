@@ -506,8 +506,8 @@ void emit_asm(Compiler &cc)
 void compile_to_exe(const std::string &asm_file, const std::string &output_name)
 {
     if (spawn_and_wait("/usr/bin/nasm", { "-f elf64", "-o", output_name + ".o", asm_file })) {
-        die("{}error{}: nasm failure", colors::Red, colors::Default);
+        die("nasm failure", colors::Red, colors::Default);
     } else if (spawn_and_wait("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
-        die("{}error{}: gcc failure", colors::Red, colors::Default);
+        die("gcc failure", colors::Red, colors::Default);
     }
 }
