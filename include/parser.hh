@@ -75,18 +75,6 @@ enum class Operation {
 struct Scope;
 inline Scope *current_scope;
 
-inline size_t ast_alloc_count, ast_free_count;
-
-struct AstAllocMark {
-    void *p;
-    size_t size;
-    std::array<void *, 16> trace;
-    int frames;
-    bool deleted;
-};
-
-inline std::vector<AstAllocMark> marks;
-
 enum_flags(AstFlags, uint64_t){
     FOLDED = 1 << 0, // Prevent verifier trying to constant fold this tree multiple times.
 };
@@ -109,29 +97,6 @@ struct Ast {
         , location(_location)
     {
     }
-
-#if AST_ALLOC_PARANOID
-    static void *operator new(size_t size)
-    {
-        auto p = malloc(size);
-        // dbgln("new ast @ {} ({})", p, size);
-        ++ast_alloc_count;
-        std::array<void *, 16> trace;
-        int frames = ::backtrace(trace.data(), trace.size());
-        marks.emplace_back(p, size, trace, frames, false);
-        return p;
-    }
-
-    static void operator delete(void *p)
-    {
-        // dbgln("delete {}", p);
-        ++ast_free_count;
-        if (auto it = std::ranges::find(marks, p, &AstAllocMark::p); it != marks.end()) {
-            it->deleted = true;
-        }
-        free(static_cast<Ast *>(p));
-    }
-#endif
 };
 
 Type *bool_type();

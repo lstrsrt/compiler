@@ -78,23 +78,6 @@ void compiler_main(Compiler &cc, AstFunction *main)
     emit_asm(cc);
     [[maybe_unused]] auto backend = timer.elapsed();
 
-#if AST_ALLOC_PARANOID
-    dbgln("=== alloced: {}", ast_alloc_count);
-    dbgln("=== freed:   {}", ast_free_count);
-    for (const auto &mark : marks) {
-        const std::string &clr = mark.deleted ? Green : Red;
-        dbgln("{}{}{} ({})", clr, mark.p, Default, mark.size);
-        if (!mark.deleted) {
-            dbgln("alloced from:");
-            char **syms = ::backtrace_symbols(mark.trace.data(), mark.frames);
-            for (int i = 0; i < mark.frames; ++i) {
-                dbgln("{}:    {}", i, syms[i]);
-            }
-            free(syms);
-        }
-    }
-#endif
-
     if (opts.full_compile) {
         compile_to_exe(opts.output_name, opts.output_exe_name);
     }

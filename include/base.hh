@@ -53,12 +53,6 @@ struct Defer {
     bool disabled = false;
 };
 
-#define AST_ALLOC_PARANOID 0
-
-#if AST_ALLOC_PARANOID
-#include <execinfo.h>
-#endif
-
 //
 // Utils
 //
@@ -103,7 +97,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 #ifdef _DEBUG
     __builtin_trap();
 #else
-    exit(1);
+    exit(EXIT_FAILURE);
 #endif
 }
 
