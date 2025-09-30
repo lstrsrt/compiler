@@ -47,7 +47,7 @@ void new_ir_function(Compiler &cc, AstFunction *ast)
         if (!opts.testing) {
             std::println("{}============= {}AST for `{}`{} ============={}", colors::Cyan,
                 colors::DefaultBold, ast->name, colors::Cyan, colors::Default);
-            print_ast(cc.stdout_file, ast);
+            print_ast(stdout_file(), ast);
         }
     }
     auto *fn = new IRFunction;
@@ -734,7 +734,7 @@ void optimize_ir(Compiler &cc)
             if (!opts.testing) {
                 std::println("{}============= {}IR for `{}`{} ============={}", colors::Cyan,
                     colors::DefaultBold, ir_fn->ast->name, colors::Cyan, colors::Default);
-                print_ir(cc.stdout_file, *cc.ir_builder.current_function);
+                print_ir(stdout_file(), *cc.ir_builder.current_function);
             }
         }
     }
@@ -753,4 +753,12 @@ void free_ir_function(IRFunction *fn)
         free_bb(bb);
     }
     delete fn;
+}
+
+void free_ir(IRBuilder &irb)
+{
+    for (auto *fn : irb.functions) {
+        free_ir_function(fn);
+    }
+    irb.functions.clear();
 }

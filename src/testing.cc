@@ -28,7 +28,7 @@ void switch_back()
     fs::current_path(prev_wd);
 }
 
-int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline)
+int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::string> &_cmdline)
 {
     std::vector<char *> cmdline;
     // Put the path first
@@ -84,10 +84,16 @@ bool files_are_equal(const std::string &path1, const std::string &path2)
 
 bool extensions_match(const fs::path &a, const fs::path &b)
 {
-    if (a.has_extension() && b.has_extension()) {
-        return a.extension() == b.extension();
+    if (a.has_extension() ^ b.has_extension()) {
+        // Only one has an extension
+        return false;
     }
-    return false;
+    if (!a.has_extension()) {
+        // Both have no extension
+        return true;
+    }
+    // Both have an extension, check if they're equal
+    return a.extension() == b.extension();
 }
 
 bool run_compare_test(Compiler &cc)
@@ -182,7 +188,7 @@ void run_test(const fs::path &file)
     } else if (cc.test_mode.test_type == TestType::ReturnsValue) {
         bool ok = run_compare_test(cc);
         compile_to_exe(opts.output_name, opts.output_exe_name);
-        int status = spawn_and_wait(fs::current_path() / opts.output_exe_name, {});
+        int status = spawn_blocking_process(fs::current_path() / opts.output_exe_name, {});
         if (status == static_cast<int>(cc.test_mode.return_value)) {
             if (ok) {
                 ++passed_tests;

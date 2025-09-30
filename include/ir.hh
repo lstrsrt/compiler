@@ -163,3 +163,4 @@ void optimize_ir(Compiler &);
 std::string demangled_name(const std::string &);
 
 void free_ir_function(IRFunction *);
+void free_ir(IRBuilder &);

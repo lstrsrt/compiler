@@ -401,7 +401,7 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
             break;
         default:
             dbgln("got unknown IR:");
-            print_ir(cc.stdout_file, ir);
+            print_ir(stdout_file(), ir);
             TODO();
     }
 }
@@ -505,9 +505,10 @@ void emit_asm(Compiler &cc)
 
 void compile_to_exe(const std::string &asm_file, const std::string &output_name)
 {
-    if (spawn_and_wait("/usr/bin/nasm", { "-f elf64", "-o", output_name + ".o", asm_file })) {
+    if (spawn_blocking_process(
+            "/usr/bin/nasm", { "-f elf64", "-o", output_name + ".o", asm_file })) {
         die("nasm failure", colors::Red, colors::Default);
-    } else if (spawn_and_wait("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
+    } else if (spawn_blocking_process("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
         die("gcc failure", colors::Red, colors::Default);
     }
 }

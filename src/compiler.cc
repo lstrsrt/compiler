@@ -28,7 +28,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
     if (!testing) {
         dbgln("{}pre inference tree:{}", Cyan, Default);
 #ifdef _DEBUG
-        print_ast(cc.stdout_file, main);
+        print_ast(stdout_file(), main);
 #endif
     };
 
@@ -37,7 +37,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
     if (!testing) {
         dbgln("\n{}post inference tree:{}", Cyan, Default);
 #ifdef _DEBUG
-        print_ast(cc.stdout_file, main);
+        print_ast(stdout_file(), main);
 #endif
     }
 
@@ -55,7 +55,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
 #ifdef _DEBUG
         dbgln("\n{}generated ir:{}", Cyan, Default);
         for (const auto *fn : cc.ir_builder.functions) {
-            print_ir(cc.stdout_file, *fn);
+            print_ir(stdout_file(), *fn);
         }
 #endif
     }
@@ -66,7 +66,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
 #ifdef _DEBUG
         dbgln("{}optimized ir:{}", Cyan, Default);
         for (const auto *fn : cc.ir_builder.functions) {
-            print_ir(cc.stdout_file, *fn);
+            print_ir(stdout_file(), *fn);
         }
 #endif
     }
@@ -94,7 +94,12 @@ void Compiler::initialize()
 {
     enter_new_scope();
     add_default_types();
-    this->stdout_file = File::from_fd(STDOUT_FILENO);
+}
+
+File &stdout_file()
+{
+    static auto s_stdout_file = File::from_fd(STDOUT_FILENO);
+    return s_stdout_file;
 }
 
 // can we have builtin types somewhere else so lookup during verification stage is faster?
@@ -110,7 +115,7 @@ void Compiler::add_default_types()
     global_scope->types["string"] = string_type();
 }
 
-void Compiler::free_types()
+void free_types()
 {
     for (auto *scope : g_scopes) {
         for (auto &[name, ptr] : scope->types) {
@@ -121,19 +126,11 @@ void Compiler::free_types()
     }
 }
 
-void Compiler::free_ir()
-{
-    for (auto *fn : ir_builder.functions) {
-        free_ir_function(fn);
-    }
-    ir_builder.functions.clear();
-}
-
 void Compiler::cleanup(AstFunction *root)
 {
     free_ast(root);
     leave_scope();
     free_types();
-    free_ir();
+    free_ir(this->ir_builder);
     free_scopes();
 }

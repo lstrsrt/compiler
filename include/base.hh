@@ -15,14 +15,14 @@ namespace ch = std::chrono;
 using namespace std::string_view_literals;
 
 namespace colors {
-    constexpr std::string Bold = "\033[1m";
-    constexpr std::string Cyan = "\033[36;1m";
-    constexpr std::string Default = "\033[0m";
-    constexpr std::string DefaultBold = Default + Bold;
-    constexpr std::string Red = "\033[31;1m";
-    constexpr std::string Green = "\033[32;1m";
-    constexpr std::string Yellow = "\033[33;1m";
-    constexpr std::string Blue = "\033[38;5;39m";
+constexpr std::string Bold = "\033[1m";
+constexpr std::string Cyan = "\033[36;1m";
+constexpr std::string Default = "\033[0m";
+constexpr std::string DefaultBold = Default + Bold;
+constexpr std::string Red = "\033[31;1m";
+constexpr std::string Green = "\033[32;1m";
+constexpr std::string Yellow = "\033[33;1m";
+constexpr std::string Blue = "\033[38;5;39m";
 } // namespace colors
 
 template<typename Fn>
@@ -183,7 +183,7 @@ constexpr hash_t hash(std::string_view s)
     return hash(s.data(), s.length());
 }
 
-int spawn_and_wait(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
+int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
 void compile_to_exe(const std::string &asm_file, const std::string &output_name);
 
 //

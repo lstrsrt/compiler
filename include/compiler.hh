@@ -16,11 +16,9 @@ struct Compiler {
 
     void initialize();
     void add_default_types();
-    void free_types();
-    void free_ir();
     void cleanup(AstFunction *root);
-
-    File stdout_file;
 };
+
+File &stdout_file();
 
 void compiler_main(Compiler &, AstFunction *main);
