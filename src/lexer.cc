@@ -337,10 +337,6 @@ void skip_multi_line_comment(Compiler &cc)
             advance_line(lexer);
             continue;
         }
-        if (c == '\n') {
-            advance_line(lexer);
-            continue;
-        }
         advance_column(lexer);
         if (lexer.out_of_bounds()) {
             ++loc.end; // Add one for the star
