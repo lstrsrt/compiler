@@ -156,7 +156,6 @@ void run_test(const fs::path &file)
         ++current_test;
         compiler_main(cc, main);
         cc.cleanup(main);
-        cc.lexer.free_input();
         compiled = true;
     } catch (TestingException &te) {
         if (cc.test_mode.test_type == TestType::Error) {
@@ -170,7 +169,6 @@ void run_test(const fs::path &file)
             std::println("{}testing error{}: failed compilation", Red, Default);
         }
         cc.cleanup(main);
-        cc.lexer.free_input();
     } catch (std::exception &e) {
         std::println("unexpected exception: {}", e.what());
     }

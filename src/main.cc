@@ -39,6 +39,5 @@ int main(int argc, char **argv)
         auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
         compiler_main(cc, main);
         cc.cleanup(main);
-        cc.lexer.free_input();
     }
 }

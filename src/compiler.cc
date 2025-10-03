@@ -133,4 +133,5 @@ void Compiler::cleanup(AstFunction *root)
     free_types();
     free_ir(this->ir_builder);
     free_scopes();
+    lexer.free_input();
 }
