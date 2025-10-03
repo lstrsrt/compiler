@@ -115,17 +115,16 @@ void insert_cast(Ast *&expr, Type *to)
 
 enum class TypeError {
     None,
-    NotAnInteger,
+    Default,
     SignednessMismatch,
     SizeMismatch,
-    Unspecified,
 };
 
-void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeError err)
+void type_error(
+    Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeError err = TypeError::Default)
 {
+    assert(err != TypeError::None);
     switch (err) {
-        case TypeError::None:
-            return;
         case TypeError::SizeMismatch: {
             const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
@@ -262,7 +261,6 @@ Type *get_binary_expression_type(
         // overflowing add.
         traverse_postorder(
             ast, [&](Ast *&ast) { ast = try_constant_fold(cc, ast, ret, overridable); });
-        ast->flags |= AstFlags::FOLDED;
     }
 
     return ret;
@@ -420,7 +418,7 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
         return TypeError::None;
     }
     if (!type->has_flag(TypeFlags::Integer) || !wanted_type->has_flag(TypeFlags::Integer)) {
-        return TypeError::NotAnInteger;
+        return TypeError::Default;
     }
 
     if (type->size > wanted_type->size) {
@@ -512,10 +510,12 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
-void verify_negate(Compiler &cc, AstNegate *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_negate(
+    Compiler &cc, AstNegate *unary, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)) {
-        verification_type_error(unary->location, "negation of unsupported type `{}`", expected->name);
+        verification_type_error(
+            unary->location, "negation of unsupported type `{}`", expected->name);
     }
     verify_expr(cc, unary->operand, warn_discarded);
     ExprConstness constness{};
@@ -560,7 +560,7 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
         && rhs_type->has_flag(TypeFlags::Integer)) {
         exp = get_common_integer_type(lhs_type, rhs_type);
     } else if (!types_match(lhs_type, rhs_type)) {
-        type_error(cc, cmp, lhs_type, rhs_type, TypeError::Unspecified);
+        type_error(cc, cmp, lhs_type, rhs_type);
     }
 
     cmp->expr_type = exp;
@@ -591,27 +591,20 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
         return;
     }
 
-    ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
     if (get_unaliased_type(expected) == bool_type()) {
-        if (type->get_kind() == TypeFlags::Boolean) {
-            return;
-        }
-        if (type->get_kind() == TypeFlags::Integer) {
-            static_cast<AstLiteral *>(ast)->u.u64
-                = std::clamp<uint64_t>(get_int_literal(ast), 0, 1);
-            return;
-        }
-    } else if (!types_match(type, expected)) {
-        if (auto err = maybe_cast_int(expected, type, ast, constness); err != TypeError::None) {
-            type_error(cc, ast, expected, type, err);
-        }
-        return;
-    } else {
+        static_cast<AstLiteral *>(ast)->u.u64 = std::clamp<uint64_t>(get_int_literal(ast), 0, 1);
         return;
     }
 
-    type_error(cc, ast, expected, type, TypeError::Unspecified);
+    ExprConstness constness{};
+    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
+    if (types_match(type, expected)) {
+        return;
+    }
+
+    if (auto err = maybe_cast_int(expected, type, ast, constness); err != TypeError::None) {
+        type_error(cc, ast, expected, type, err);
+    }
 }
 
 void convert_expr_to_boolean(Compiler &, Ast *&);
@@ -628,7 +621,7 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
             Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
         expr->expr_type = type;
     } else if (!types_match(type, bool_type())) {
-        type_error(cc, expr, bool_type(), type, TypeError::Unspecified);
+        type_error(cc, expr, bool_type(), type);
     }
 }
 
@@ -701,10 +694,9 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             convert_expr_to_boolean(cc, ast, type);
             return;
         }
-        if (types_match(type, expected)) {
-            return;
+        if (!types_match(type, expected)) {
+            type_error(cc, ast, expected, type);
         }
-        type_error(cc, ast, expected, type, TypeError::Unspecified);
     }
 }
 
