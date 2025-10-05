@@ -402,9 +402,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
 
     auto loc = binary->location;
     // TODO: fix double free (only happens when identity folding + constant folding)
-    delete static_cast<AstLiteral *>(binary->left);
-    delete static_cast<AstLiteral *>(binary->right);
-    delete static_cast<AstBinary *>(binary);
+    free_ast(binary);
     return new AstLiteral(expected, result, loc);
 }
 

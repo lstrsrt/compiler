@@ -798,6 +798,9 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             && maybe_expr->operation != Operation::Call) {
             // TODO: this is not in the right location, should be at the start of the expression
             diag::ast_warning(cc, maybe_expr, "expression result is unused");
+            // TODO: don't do for impure expressions (call with side effects)
+            free_ast(maybe_expr);
+            return nullptr;
         }
         cc.lexer.ignore_newlines = false;
         consume_newline_or_eof(cc, lex(cc));
