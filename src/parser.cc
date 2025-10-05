@@ -190,6 +190,28 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             }
             return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
         }
+        if (token.kind == TokenKind::Ampersand) {
+            consume(cc.lexer, token);
+            auto prev_col = cc.lexer.column;
+            auto *arg = parse_atom(cc, allow_var_decl);
+            if (!arg) {
+                parser_error(token.location, "missing operand");
+            }
+            // Double Ampersand isn't allowed
+            if (arg->operation == Operation::AddressOf) {
+                cc.lexer.column = prev_col;
+                parser_ast_error(arg, "only one `AddressOf` is allowed here");
+            }
+            return new AstAddressOf(Operation::AddressOf, arg, token.location);
+        }
+        if (token.kind == TokenKind::Star) {
+            consume(cc.lexer, token);
+            auto *arg = parse_atom(cc, allow_var_decl);
+            if (!arg) {
+                parser_error(token.location, "missing operand");
+            }
+            return new AstDereference(Operation::Dereference, arg, token.location);
+        }
         parser_error(token.location, "unexpected operator");
     }
 
@@ -363,6 +385,12 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
 Type *parse_type(Compiler &cc)
 {
     auto token = lex(cc);
+    int pointer = 0;
+    while (token.kind == TokenKind::Star) {
+        ++pointer;
+        consume(cc.lexer, token);
+        token = lex(cc);
+    }
     if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(
             token.location, "expected a type name, got `{}`", diag::make_printable(token.string));
@@ -372,9 +400,18 @@ Type *parse_type(Compiler &cc)
     if (type) {
         // FIXME: this is not quite right
         type->location = token.location;
-        return type;
+        if (!pointer) {
+            return type;
+        }
+
+        auto *ptr = new Type;
+        *ptr = *type;
+        ptr->size = 8;
+        ptr->pointer = type->pointer + pointer;
+        ptr->real = type;
+        return ptr;
     }
-    // TODO - unnecessary string creation?
+    // TODO: unnecessary string creation?
     return new Type{ .name = std::string(token.string),
         .flags = TypeFlags::UNRESOLVED,
         .location = token.location };
@@ -762,7 +799,8 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             consume(cc.lexer, token);
             return new AstBreak(token.location);
         }
-        assert(!"unhandled keyword");
+        // TODO: true, false, else
+        parser_error(token.location, "unhandled keyword `{}`", token.string);
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
         const auto prev_pos = cc.lexer.position;
         const auto prev_col = cc.lexer.column;

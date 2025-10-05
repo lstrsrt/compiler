@@ -96,6 +96,14 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
         generate_ir(cc, ir, ir->left, static_cast<AstNegate *>(ast)->operand);
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, get_current_block(ir_fn));
+    } else if (ast->operation == Operation::AddressOf) {
+        generate_ir(cc, ir, ir->left, static_cast<AstAddressOf *>(ast)->operand);
+        ir->target = ++ir_fn->temp_regs;
+        add_ir(ir, get_current_block(ir_fn));
+    } else if (ast->operation == Operation::Dereference) {
+        generate_ir(cc, ir, ir->left, static_cast<AstDereference *>(ast)->operand);
+        ir->target = ++ir_fn->temp_regs;
+        add_ir(ir, get_current_block(ir_fn));
     } else if (ast->operation == Operation::Cast) {
         auto *cast = static_cast<AstCast *>(ast);
         ir->left.arg_type = IRArgType::Type;

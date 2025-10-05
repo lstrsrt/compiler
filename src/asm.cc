@@ -215,6 +215,19 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("neg rax");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
+        case Operation::AddressOf:
+            emit("; addrof");
+            emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            emit("; addrof end");
+            break;
+        case Operation::Dereference:
+            emit("; deref");
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov rax, [rax]");
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            emit("; deref end");
+            break;
         case Operation::PushArg:
             if (ir->target < ssize(param_regs)) {
                 emit("push {}", param_regs[ir->target]);

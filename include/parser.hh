@@ -27,6 +27,8 @@ enum class AstType {
 
 #define ENUMERATE_OPERATIONS()           \
     __ENUMERATE_OPERATION(None)          \
+    __ENUMERATE_OPERATION(AddressOf)     \
+    __ENUMERATE_OPERATION(Dereference)   \
     __ENUMERATE_OPERATION(Negate)        \
     __ENUMERATE_OPERATION(Call)          \
     __ENUMERATE_OPERATION(Add)           \
@@ -161,6 +163,8 @@ struct AstNegate : Ast {
     }
 };
 
+using AstAddressOf = AstNegate;
+using AstDereference = AstNegate;
 using AstLogicalNot = AstNegate;
 
 struct AstCast : Ast {
@@ -244,8 +248,9 @@ struct Type {
     std::string name{};
     TypeFlags flags{};
     uint8_t size = 0;
-    Type *real = nullptr; // If this type is an alias, this points to the underlying type (which may
-                          // also be an alias)
+    uint8_t pointer = 0;
+    Type *real = nullptr; // If this type is an alias or a pointer, this points to the underlying
+                          // type (which may also be an alias or pointer)
     SourceLocation location{};
 
     TypeFlags get_kind() const
@@ -261,6 +266,21 @@ struct Type {
     bool has_flag(TypeFlags flag) const
     {
         return ::has_flag(flags, flag);
+    }
+
+    bool is_pointer() const
+    {
+        return pointer > 0;
+    }
+
+    std::string get_name() const
+    {
+        std::string s;
+        if (is_pointer()) {
+            s += std::string(pointer, '*');
+        }
+        s += name;
+        return s;
     }
 };
 

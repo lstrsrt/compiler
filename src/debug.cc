@@ -46,6 +46,7 @@ std::string type_kind_to_string(TypeFlags flags)
 
 std::string type_flags_to_string(TypeFlags flags)
 {
+    // NOTE: builtin is skipped
     std::string ret{};
     if (has_flag(flags, TypeFlags::UNRESOLVED)) {
         ret += "unresolved";
@@ -65,7 +66,7 @@ std::string type_flags_to_string(TypeFlags flags)
 
 void print_type(Type *type)
 {
-    std::println("{} {}", type->name, type_flags_to_string(type->flags));
+    std::println("{} {}", type->get_name(), type_flags_to_string(type->flags));
     if (type->real) {
         auto *real = type->real;
         std::string indent = "    ";
@@ -180,6 +181,8 @@ void print_ast(File &file, Ast *ast, std::string indent)
                 }
             } else if (ast->operation == Operation::Negate) {
                 print_ast(file, static_cast<AstNegate *>(ast)->operand, indent);
+            } else if (ast->operation == Operation::AddressOf) {
+                print_ast(file, static_cast<AstAddressOf *>(ast)->operand, indent);
             } else if (ast->operation == Operation::LogicalNot) {
                 print_ast(file, static_cast<AstLogicalNot *>(ast)->operand, indent);
             } else if (ast->operation == Operation::Cast) {
@@ -188,7 +191,7 @@ void print_ast(File &file, Ast *ast, std::string indent)
             break;
         }
         case AstType::Binary: {
-            auto binop = static_cast<AstBinary *>(ast);
+            auto *binop = static_cast<AstBinary *>(ast);
             print_ast(file, binop->left, indent);
             print_ast(file, binop->right, indent);
             break;

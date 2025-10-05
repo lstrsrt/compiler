@@ -75,6 +75,7 @@ enum class TokenKind : uint32_t {
     Excl,
     Colon,
     Hash,
+    Ampersand,
     LAngleEquals,
     RAngleEquals,
     EqualsEquals,

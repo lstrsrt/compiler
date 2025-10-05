@@ -16,7 +16,7 @@ constexpr bool is_valid_char_in_identifier(char c)
 
 constexpr bool is_start_of_operator(char c)
 {
-    constexpr std::array<char, 17> ops{ "+-*/%(){}<>=!,:#" };
+    constexpr std::array<char, 18> ops{ "+-*/%(){}<>=!,:#&" };
     return std::ranges::any_of(ops, [c](char x) { return c == x; });
 }
 
@@ -168,6 +168,9 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
         case '#':
             kind = Hash;
             return "#";
+        case '&':
+            kind = Ampersand;
+            return "&";
     }
     assert(!"lex_operator unhandled operator");
     return "";

@@ -1,8 +1,10 @@
 #include "verify.hh"
+#include "debug.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
 #include "optimizer.hh"
 #include "parser.hh"
+#include "testing.hh"
 
 #define verification_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
@@ -118,6 +120,7 @@ enum class TypeError {
     Default,
     SignednessMismatch,
     SizeMismatch,
+    PointerMismatch,
 };
 
 void type_error(
@@ -137,13 +140,21 @@ void type_error(
             const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             verification_type_error(ast->location,
-                "incompatible {} expression applied to {} variable of type `{}`", rhs_str, lhs_str,
-                lhs_type->name);
+                "incompatible {} expression applied to left-hand {} variable of type `{}`", rhs_str,
+                lhs_str, lhs_type->name);
+            break;
+        }
+        case TypeError::PointerMismatch: {
+            const char *lhs_str = lhs_type->is_pointer() ? "pointer" : "non-pointer";
+            const char *rhs_str = rhs_type->is_pointer() ? "pointer" : "non-pointer";
+            verification_type_error(ast->location,
+                "incompatible expression applied to left-hand {} type and right-hand {} type",
+                lhs_str, rhs_str);
             break;
         }
         default:
-            verification_type_error(
-                ast->location, "incompatible types `{}` and `{}`", rhs_type->name, lhs_type->name);
+            verification_type_error(ast->location, "incompatible types `{}` and `{}`",
+                rhs_type->get_name(), lhs_type->get_name());
             break;
     }
 }
@@ -308,6 +319,30 @@ Type *get_expression_type(
                     auto *call = static_cast<AstCall *>(ast);
                     return get_callee(cc, call)->return_type;
                 }
+                if (ast->operation == Operation::AddressOf) {
+                    if (constness) {
+                        *constness |= ExprConstness::SawNonConstant;
+                    }
+                    auto *operand = static_cast<AstAddressOf *>(ast)->operand;
+                    auto *type = get_expression_type(cc, operand, constness, overridable);
+                    auto *ptr = new Type;
+                    *ptr = *type;
+                    ptr->size = 8;
+                    ptr->pointer = type->pointer + 1;
+                    ptr->real = type;
+                    return ptr;
+                }
+                if (ast->operation == Operation::Dereference) {
+                    auto *type = get_expression_type(
+                        cc, static_cast<AstDereference *>(ast)->operand, constness, overridable);
+                    auto *ptr = new Type;
+                    *ptr = *type;
+                    ptr->size = 8;
+                    ptr->pointer = type->pointer - 1;
+                    ptr->real = type;
+                    return ptr;
+                }
+                // TODO: set constness?
                 if (ast->operation == Operation::Negate) {
                     return get_expression_type(
                         cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
@@ -420,6 +455,9 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (!type->has_flag(TypeFlags::Integer) || !wanted_type->has_flag(TypeFlags::Integer)) {
         return TypeError::Default;
     }
+    if (type->pointer != wanted_type->pointer) {
+        return TypeError::PointerMismatch;
+    }
 
     if (type->size > wanted_type->size) {
         return TypeError::SizeMismatch;
@@ -510,18 +548,47 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
+void verify_addressof(
+    Compiler &cc, AstAddressOf *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+{
+    dbgln("expected");
+    print_type(expected);
+    if (unary->operand->type != AstType::Identifier) {
+        verification_type_error(unary->operand->location, "cannot take address of rvalue");
+    }
+}
+
+void verify_dereference(
+    Compiler &cc, AstDereference *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+{
+    dbgln("expected");
+    print_type(expected);
+    // TODO: pointer > 0
+    if (unary->operand->type != AstType::Identifier) {
+        verification_type_error(unary->operand->location, "cannot dereference rvalue");
+    }
+}
+
 void verify_negate(
     Compiler &cc, AstNegate *unary, Type *expected, WarnDiscardedReturn warn_discarded)
 {
-    if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)) {
-        verification_type_error(
-            unary->location, "negation of unsupported type `{}`", expected->name);
+    if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)
+        || expected->is_pointer()) {
+        verification_type_error(unary->location,
+            "negation of unsupported type `{}`.\n"
+            "only signed integers may be negated.",
+            expected->get_name());
     }
+
     verify_expr(cc, unary->operand, warn_discarded);
+
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
-        verification_type_error(unary->location, "negation of unsupported type `{}`", type->name);
+        verification_type_error(unary->location,
+            "negation of unsupported type `{}`.\n"
+            "only signed integers may be negated.",
+            type->get_name());
     }
 }
 
@@ -534,16 +601,27 @@ void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
 
 bool types_match(Type *t1, Type *t2)
 {
-    if (t1->has_flag(TypeFlags::ALIAS)) {
-        if (t2->has_flag(TypeFlags::ALIAS)) {
-            return get_unaliased_type(t1) == get_unaliased_type(t2);
-        }
-        return get_unaliased_type(t1) == t2;
+    auto *t1_u = get_unaliased_type(t1);
+    auto *t2_u = get_unaliased_type(t2);
+
+    if (t1_u == t2_u) {
+        return true;
     }
-    if (t2->has_flag(TypeFlags::ALIAS)) {
-        return t1 == get_unaliased_type(t2);
+
+    if (t1_u->pointer != t2_u->pointer) {
+        return false;
     }
-    return t1 == t2;
+
+    if (t1_u->get_kind() == TypeFlags::Integer) {
+        return t2_u->get_kind() == TypeFlags::Integer
+            && !(t1_u->has_flag(TypeFlags::UNSIGNED) ^ t2_u->has_flag(TypeFlags::UNSIGNED));
+    }
+
+    if (t1_u->get_kind() == TypeFlags::Boolean) {
+        return t2_u->get_kind() == TypeFlags::Boolean;
+    }
+
+    return false;
 }
 
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
@@ -647,6 +725,11 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
         case AstType::Unary:
             if (ast->operation == Operation::Call) {
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
+            } else if (ast->operation == Operation::AddressOf) {
+                verify_addressof(cc, static_cast<AstAddressOf *>(ast), expected, warn_discarded);
+            } else if (ast->operation == Operation::Dereference) {
+                verify_dereference(
+                    cc, static_cast<AstDereference *>(ast), expected, warn_discarded);
             } else if (ast->operation == Operation::Negate) {
                 verify_negate(cc, static_cast<AstNegate *>(ast), expected, warn_discarded);
             } else if (ast->operation == Operation::LogicalNot) {
