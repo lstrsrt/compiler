@@ -464,7 +464,7 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
     }
     if (ast->type == AstType::Unary) {
         if (ast->operation == Operation::Cast) {
-            return static_cast<AstCast *>(ast)->expr;
+            return static_cast<AstCast *>(ast)->operand;
         }
     }
     return ast;

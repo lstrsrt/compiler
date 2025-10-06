@@ -208,7 +208,7 @@ void traverse_postorder(Ast *&ast, auto &&callback)
     }
 
     if (ast->operation == Operation::Cast) {
-        traverse_postorder(static_cast<AstCast *>(ast)->expr, callback);
+        traverse_postorder(static_cast<AstCast *>(ast)->operand, callback);
     }
 
     if (ast->type == AstType::Binary) {
@@ -345,7 +345,7 @@ Type *get_expression_type(
                 // TODO: set constness?
                 if (ast->operation == Operation::Negate) {
                     return get_expression_type(
-                        cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
+                        cc, static_cast<AstUnary *>(ast)->operand, constness, overridable);
                 }
                 if (ast->operation == Operation::LogicalNot) {
                     return bool_type();
@@ -548,8 +548,7 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
-void verify_addressof(
-    Compiler &cc, AstAddressOf *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *expected)
 {
     dbgln("expected");
     print_type(expected);
@@ -558,8 +557,7 @@ void verify_addressof(
     }
 }
 
-void verify_dereference(
-    Compiler &cc, AstDereference *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_dereference(Compiler &cc, AstDereference *unary, Type *expected)
 {
     dbgln("expected");
     print_type(expected);
@@ -570,7 +568,7 @@ void verify_dereference(
 }
 
 void verify_negate(
-    Compiler &cc, AstNegate *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+    Compiler &cc, AstUnary *unary, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)
         || expected->is_pointer()) {
@@ -726,12 +724,11 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (ast->operation == Operation::Call) {
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
             } else if (ast->operation == Operation::AddressOf) {
-                verify_addressof(cc, static_cast<AstAddressOf *>(ast), expected, warn_discarded);
+                verify_addressof(cc, static_cast<AstAddressOf *>(ast), expected);
             } else if (ast->operation == Operation::Dereference) {
-                verify_dereference(
-                    cc, static_cast<AstDereference *>(ast), expected, warn_discarded);
+                verify_dereference(cc, static_cast<AstDereference *>(ast), expected);
             } else if (ast->operation == Operation::Negate) {
-                verify_negate(cc, static_cast<AstNegate *>(ast), expected, warn_discarded);
+                verify_negate(cc, static_cast<AstUnary *>(ast), expected, warn_discarded);
             } else if (ast->operation == Operation::LogicalNot) {
                 verify_logical_not(cc, ast, warn_discarded);
                 ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);

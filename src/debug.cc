@@ -180,13 +180,13 @@ void print_ast(File &file, Ast *ast, std::string indent)
                     print_ast(file, arg, indent);
                 }
             } else if (ast->operation == Operation::Negate) {
-                print_ast(file, static_cast<AstNegate *>(ast)->operand, indent);
+                print_ast(file, static_cast<AstUnary *>(ast)->operand, indent);
             } else if (ast->operation == Operation::AddressOf) {
                 print_ast(file, static_cast<AstAddressOf *>(ast)->operand, indent);
             } else if (ast->operation == Operation::LogicalNot) {
                 print_ast(file, static_cast<AstLogicalNot *>(ast)->operand, indent);
             } else if (ast->operation == Operation::Cast) {
-                print_ast(file, static_cast<AstCast *>(ast)->expr, indent);
+                print_ast(file, static_cast<AstCast *>(ast)->operand, indent);
             }
             break;
         }

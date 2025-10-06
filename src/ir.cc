@@ -68,49 +68,57 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *ir = new IR(ast);
-    if (ast->operation == Operation::Call) {
-        auto *call = static_cast<AstCall *>(ast);
-        std::vector<IR *> args;
-        for (ssize_t i = 0; i < ssize(call->args); ++i) {
-            auto *push = new IR;
-            push->ast = call->args[i];
-            push->operation = Operation::PushArg;
-            push->type = AstType::Unary;
-            generate_ir(cc, ir, push->left, call->args[i]);
-            push->target = i;
-            // An argument may consist of another function call, so save
-            // it for now and only add them to the current IR once everything
-            // has been processed.
-            args.push_back(push);
+
+    auto do_generic_unary = [&]() {
+        generate_ir(cc, ir, ir->left, static_cast<AstUnary *>(ast)->operand);
+        ir->target = ++ir_fn->temp_regs;
+        add_ir(ir, get_current_block(ir_fn));
+    };
+
+    switch (ast->operation) {
+        case Operation::Call: {
+            auto *call = static_cast<AstCall *>(ast);
+            std::vector<IR *> args;
+            for (ssize_t i = 0; i < ssize(call->args); ++i) {
+                auto *push = new IR;
+                push->ast = call->args[i];
+                push->operation = Operation::PushArg;
+                push->type = AstType::Unary;
+                generate_ir(cc, ir, push->left, call->args[i]);
+                push->target = i;
+                // An argument may consist of another function call, so save
+                // it for now and only add them to the current IR once everything
+                // has been processed.
+                args.push_back(push);
+            }
+            auto *fn = get_callee(cc, call);
+            ir->left = IRArg::make_function(fn);
+            if (fn->return_type->get_kind() != TypeFlags::Void) {
+                ir->target = ++ir_fn->temp_regs;
+            }
+            for (auto *push : args) {
+                add_ir(push, get_current_block(ir_fn));
+            }
+            add_ir(ir, get_current_block(ir_fn));
+            break;
         }
-        auto *fn = get_callee(cc, call);
-        ir->left = IRArg::make_function(fn);
-        if (fn->return_type->get_kind() != TypeFlags::Void) {
+        case Operation::Negate:
+        case Operation::AddressOf:
+            [[fallthrough]];
+        case Operation::Dereference:
+            do_generic_unary();
+            break;
+        case Operation::Cast: {
+            auto *cast = static_cast<AstCast *>(ast);
+            ir->left.arg_type = IRArgType::Type;
+            ir->left.u.type = cast->cast_type;
+            generate_ir(cc, ir, ir->right, cast->operand);
             ir->target = ++ir_fn->temp_regs;
+            add_ir(ir, get_current_block(ir_fn));
+            break;
         }
-        for (auto *push : args) {
-            add_ir(push, get_current_block(ir_fn));
-        }
-        add_ir(ir, get_current_block(ir_fn));
-    } else if (ast->operation == Operation::Negate) {
-        generate_ir(cc, ir, ir->left, static_cast<AstNegate *>(ast)->operand);
-        ir->target = ++ir_fn->temp_regs;
-        add_ir(ir, get_current_block(ir_fn));
-    } else if (ast->operation == Operation::AddressOf) {
-        generate_ir(cc, ir, ir->left, static_cast<AstAddressOf *>(ast)->operand);
-        ir->target = ++ir_fn->temp_regs;
-        add_ir(ir, get_current_block(ir_fn));
-    } else if (ast->operation == Operation::Dereference) {
-        generate_ir(cc, ir, ir->left, static_cast<AstDereference *>(ast)->operand);
-        ir->target = ++ir_fn->temp_regs;
-        add_ir(ir, get_current_block(ir_fn));
-    } else if (ast->operation == Operation::Cast) {
-        auto *cast = static_cast<AstCast *>(ast);
-        ir->left.arg_type = IRArgType::Type;
-        ir->left.u.type = cast->cast_type;
-        generate_ir(cc, ir, ir->right, cast->expr);
-        ir->target = ++ir_fn->temp_regs;
-        add_ir(ir, get_current_block(ir_fn));
+        default:
+            TODO();
     }
     return IRArg::make_vreg(ir->target);
 }
@@ -245,7 +253,7 @@ ComparisonKind get_if_comparison_kind(Compiler &, AstIf *if_stmt)
 {
     auto *expr = if_stmt->expr;
     while (expr->operation == Operation::Cast) {
-        expr = static_cast<AstCast *>(expr)->expr;
+        expr = static_cast<AstCast *>(expr)->operand;
     }
     if (expr->type == AstType::Integer || expr->type == AstType::Boolean) {
         return get_int_literal(expr) ? ComparisonKind::ConstantTrue : ComparisonKind::ConstantFalse;

@@ -958,10 +958,10 @@ void free_ast(Ast *ast)
                 free_ast(static_cast<AstCall *>(ast)->args);
                 delete static_cast<AstCall *>(ast);
             } else if (ast->operation == Operation::Negate) {
-                free_ast(static_cast<AstNegate *>(ast)->operand);
-                delete static_cast<AstNegate *>(ast);
+                free_ast(static_cast<AstUnary *>(ast)->operand);
+                delete static_cast<AstUnary *>(ast);
             } else if (ast->operation == Operation::Cast) {
-                free_ast(static_cast<AstCast *>(ast)->expr);
+                free_ast(static_cast<AstCast *>(ast)->operand);
                 delete static_cast<AstCast *>(ast);
             }
             break;

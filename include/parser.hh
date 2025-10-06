@@ -153,27 +153,26 @@ struct AstIdentifier : Ast {
     }
 };
 
-struct AstNegate : Ast {
+struct AstUnary : Ast {
     Ast *operand;
 
-    explicit AstNegate(Operation _op, Ast *_operand, SourceLocation _location)
+    explicit AstUnary(Operation _op, Ast *_operand, SourceLocation _location)
         : Ast(AstType::Unary, _op, _location)
         , operand(_operand)
     {
     }
 };
 
-using AstAddressOf = AstNegate;
-using AstDereference = AstNegate;
-using AstLogicalNot = AstNegate;
+using AstNegate = AstUnary;
+using AstAddressOf = AstUnary;
+using AstDereference = AstUnary;
+using AstLogicalNot = AstUnary;
 
-struct AstCast : Ast {
-    Ast *expr;
+struct AstCast : AstUnary {
     Type *cast_type;
 
     explicit AstCast(Ast *_expr, Type *_cast_type, SourceLocation _location)
-        : Ast(AstType::Unary, Operation::Cast, _location)
-        , expr(_expr)
+        : AstUnary(Operation::Cast, _expr, _location)
         , cast_type(_cast_type)
 
     {
