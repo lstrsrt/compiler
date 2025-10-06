@@ -99,9 +99,7 @@ bool File::open(const std::string &name, OpenFlags flags)
         return false;
     }
 
-    Defer fail_defer{ [&] {
-        this->close();
-    } };
+    Defer fail_defer{ [&] { this->close(); } };
 
     struct stat stat{};
     if (fstat(file_handle, &stat) < 0) {
@@ -126,7 +124,7 @@ bool File::open(const std::string &name, OpenFlags flags)
     }
 
     fail_defer.disable();
-    if (has_flag(flags, WRITE) && !this->buffered) {
+    if (has_flag(flags, WRITE) && this->buffered) {
         this->write_buffer.reserve(4096);
     }
     this->flags = flags;
