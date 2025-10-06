@@ -149,6 +149,59 @@ void try_convert_string_to_u64(
     }
 }
 
+Ast *parse_atom(Compiler &, AllowVarDecl);
+
+template<Operation... ops>
+static void enforce_single_operator(Compiler &cc, Token &token, Ast *arg, uint32_t column)
+{
+    if (!arg) {
+        parser_error(token.location, "missing operand");
+    }
+
+    if (((arg->operation == ops) || ...)) {
+        cc.lexer.column = column;
+        parser_ast_error(arg, "unexpected unary operator");
+    }
+}
+
+Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
+{
+    if (token.kind == TokenKind::Minus) {
+        consume(cc.lexer, token);
+        auto prev_col = cc.lexer.column;
+        auto *arg = parse_atom(cc, allow_var_decl);
+        enforce_single_operator<Operation::Negate, Operation::LogicalNot>(cc, token, arg, prev_col);
+        return new AstUnary(Operation::Negate, arg, token.location);
+    }
+
+    if (token.kind == TokenKind::Excl) {
+        consume(cc.lexer, token);
+        auto prev_col = cc.lexer.column;
+        auto *arg = parse_atom(cc, allow_var_decl);
+        enforce_single_operator<Operation::LogicalNot>(cc, token, arg, prev_col);
+        return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
+    }
+
+    if (token.kind == TokenKind::Ampersand) {
+        consume(cc.lexer, token);
+        auto prev_col = cc.lexer.column;
+        auto *arg = parse_atom(cc, allow_var_decl);
+        enforce_single_operator<Operation::AddressOf>(cc, token, arg, prev_col);
+        return new AstAddressOf(Operation::AddressOf, arg, token.location);
+    }
+
+    if (token.kind == TokenKind::Star) {
+        consume(cc.lexer, token);
+        auto *arg = parse_atom(cc, allow_var_decl);
+        if (!arg) {
+            parser_error(token.location, "missing operand");
+        }
+        return new AstDereference(Operation::Dereference, arg, token.location);
+    }
+
+    parser_error(token.location, "unexpected operator");
+}
+
 // This also handles unary operations.
 Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 {
@@ -162,57 +215,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             consume_expected(cc, TokenKind::RParen, token);
             return ast;
         }
-        if (token.kind == TokenKind::Minus) {
-            consume(cc.lexer, token);
-            auto prev_col = cc.lexer.column;
-            auto *arg = parse_atom(cc, allow_var_decl);
-            if (!arg) {
-                parser_error(token.location, "missing operand");
-            }
-            // Double negate isn't allowed
-            if (arg->operation == Operation::Negate || arg->operation == Operation::LogicalNot) {
-                cc.lexer.column = prev_col;
-                parser_ast_error(arg, "only one unary operator is allowed here");
-            }
-            return new AstNegate(Operation::Negate, arg, token.location);
-        }
-        if (token.kind == TokenKind::Excl) {
-            consume(cc.lexer, token);
-            auto prev_col = cc.lexer.column;
-            auto *arg = parse_atom(cc, allow_var_decl);
-            if (!arg) {
-                parser_error(token.location, "missing operand");
-            }
-            // Double LogicalNot isn't allowed
-            if (arg->operation == Operation::LogicalNot) {
-                cc.lexer.column = prev_col;
-                parser_ast_error(arg, "only one `logical NOT` is allowed here");
-            }
-            return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
-        }
-        if (token.kind == TokenKind::Ampersand) {
-            consume(cc.lexer, token);
-            auto prev_col = cc.lexer.column;
-            auto *arg = parse_atom(cc, allow_var_decl);
-            if (!arg) {
-                parser_error(token.location, "missing operand");
-            }
-            // Double Ampersand isn't allowed
-            if (arg->operation == Operation::AddressOf) {
-                cc.lexer.column = prev_col;
-                parser_ast_error(arg, "only one `AddressOf` is allowed here");
-            }
-            return new AstAddressOf(Operation::AddressOf, arg, token.location);
-        }
-        if (token.kind == TokenKind::Star) {
-            consume(cc.lexer, token);
-            auto *arg = parse_atom(cc, allow_var_decl);
-            if (!arg) {
-                parser_error(token.location, "missing operand");
-            }
-            return new AstDereference(Operation::Dereference, arg, token.location);
-        }
-        parser_error(token.location, "unexpected operator");
+        return parse_unary(cc, token, allow_var_decl);
     }
 
     if (is_group(token.kind, TokenKind::GroupNumber)) {
