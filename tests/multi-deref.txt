@@ -1,0 +1,5 @@
+#{returns(10)}
+x := 10
+px := &x
+ppx := &px
+return **ppx
