@@ -1,10 +1,8 @@
 #include "verify.hh"
-#include "debug.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
 #include "optimizer.hh"
 #include "parser.hh"
-#include "testing.hh"
 
 #define verification_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
@@ -253,6 +251,7 @@ Type *get_binary_expression_type(
         if (!ret) {
             // First time, just set it to whatever we got.
             ret = current;
+            seen_non_const = expr_has_no_constants(expr_constness);
         } else if (!seen_non_const && expr_has_no_constants(expr_constness)) {
             // If we got a non-constant, override the type unless it has already been overwritten.
             seen_non_const = true;
@@ -261,7 +260,8 @@ Type *get_binary_expression_type(
             ret = get_common_integer_type(current, ret);
         } else if (!types_match(ret, current)) {
             verification_type_error(ast->location,
-                "invalid types `{}` and `{}` in binary operation", ret->name, current->name);
+                "incompatible types `{}` and `{}` in binary operation", ret->get_name(),
+                current->get_name());
         }
         constness |= expr_constness;
     }
@@ -335,6 +335,12 @@ Type *get_expression_type(
                 if (ast->operation == Operation::Dereference) {
                     auto *type = get_expression_type(
                         cc, static_cast<AstDereference *>(ast)->operand, constness, overridable);
+
+                    if (!type->is_pointer()) {
+                        verification_error(static_cast<AstDereference *>(ast)->operand,
+                            "cannot dereference non-pointer of type `{}`", type->get_name());
+                    }
+
                     auto *ptr = new Type;
                     *ptr = *type;
                     ptr->size = 8;
@@ -484,17 +490,17 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
             fn->name, fn->params.size(), plural, call->args.size());
     }
     std::vector<bool> filled(call->args.size());
-    size_t skip = 0;
     auto is_named_param = [](Ast *ast) {
         return ast->operation == Operation::Assign;
     };
     bool named_call = !call->args.empty() && is_named_param(call->args[0]);
     for (size_t i = 0; i < call->args.size(); ++i) {
         auto *&arg = call->args[i];
-        if (is_named_param(arg) ^ named_call) {
+        bool named_param = is_named_param(arg);
+        if (named_param ^ named_call) {
             verification_error(arg, "either no or all parameters must be named");
         }
-        if (is_named_param(arg)) {
+        if (named_param) {
             // Named parameter
             auto *named_param = static_cast<AstBinary *>(arg);
             if (named_param->left->type != AstType::Identifier) {
@@ -508,7 +514,7 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
             for (auto *param : fn->params) {
                 if (param->var.name == ident->var->name) {
                     j = param->var.param_index;
-                    if (filled[j]) {
+                    if (std::cmp_not_equal(i, j) && filled[j]) {
                         verification_error(ident, "repeated named parameter");
                     }
                     filled[j] = true;
@@ -516,16 +522,14 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
                 }
             }
             if (j == -1) {
-                // TODO: print out function definition
-                verification_error(
-                    ident, "named parameter doesn't match any function parameter name");
+                diag::prepare_error(cc, ident->location,
+                    "named parameter doesn't match any function parameter name");
+                diag::print_line(cc.lexer.string, ident->location);
+                verification_error(fn, "function definition:");
             }
             if (std::cmp_not_equal(i, j)) {
                 std::swap(call->args[i], call->args[j]);
                 --i;
-                ++skip;
-            } else {
-                i += (skip + 1);
             }
             auto *expected = fn->params[j]->var.type;
             verify_expr(cc, named_param->right, WarnDiscardedReturn::No, expected);
@@ -550,20 +554,26 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
 
 void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *expected)
 {
-    dbgln("expected");
-    print_type(expected);
     if (unary->operand->type != AstType::Identifier) {
-        verification_type_error(unary->operand->location, "cannot take address of rvalue");
+        verification_error(unary->operand, "cannot take address of rvalue");
+    }
+    ExprConstness constness{};
+    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
+    if (type->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
+        verification_error(unary, "exceeded indirection limit");
     }
 }
 
 void verify_dereference(Compiler &cc, AstDereference *unary, Type *expected)
 {
-    dbgln("expected");
-    print_type(expected);
-    // TODO: pointer > 0
-    if (unary->operand->type != AstType::Identifier) {
-        verification_type_error(unary->operand->location, "cannot dereference rvalue");
+    if (unary->operand->type != AstType::Identifier
+        && unary->operand->operation != Operation::Dereference) {
+        verification_error(unary->operand, "cannot dereference rvalue");
+    }
+    ExprConstness constness{};
+    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
+    if (!type->is_pointer()) {
+        verification_error(unary, "cannot dereference non-pointer of type `{}`", type->get_name());
     }
 }
 
@@ -593,6 +603,18 @@ void verify_negate(
 void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
     WarnDiscardedReturn warn_discarded, InConditional in_conditional)
 {
+    // TODO: operator overloading
+    ExprConstness constness{};
+    auto *lhs_type = get_expression_type(cc, binary->left, &constness, TypeOverridable::No);
+    auto *rhs_type = get_expression_type(cc, binary->right, &constness, TypeOverridable::No);
+    if (!types_match(lhs_type, rhs_type)) {
+        type_error(cc, binary, lhs_type, rhs_type);
+    }
+    // FIXME: get operators working properly
+    if (lhs_type->get_kind() == TypeFlags::String || rhs_type->get_kind() == TypeFlags::String) {
+        verification_type_error(binary->location, "invalid operator applied to types `{}` and `{}`",
+            lhs_type->get_name(), rhs_type->get_name());
+    }
     verify_expr(cc, binary->left, warn_discarded, expected, in_conditional);
     verify_expr(cc, binary->right, warn_discarded, expected, in_conditional);
 }
@@ -611,7 +633,7 @@ bool types_match(Type *t1, Type *t2)
     }
 
     if (t1_u->get_kind() == TypeFlags::Integer) {
-        return t2_u->get_kind() == TypeFlags::Integer
+        return t2_u->get_kind() == TypeFlags::Integer && t1_u->size == t2_u->size
             && !(t1_u->has_flag(TypeFlags::UNSIGNED) ^ t2_u->has_flag(TypeFlags::UNSIGNED));
     }
 
