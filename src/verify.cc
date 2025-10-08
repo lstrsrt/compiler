@@ -122,7 +122,8 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             verification_type_error(ast->location,
                 "incompatible sizes for types `{}` ({} {} bytes) and `{}` ({} {} bytes)",
-                rhs_type->name, rhs_str, rhs_type->size, lhs_type->name, lhs_str, lhs_type->size);
+                rhs_type->get_name(), rhs_str, rhs_type->size, lhs_type->get_name(), lhs_str,
+                lhs_type->size);
             break;
         }
         case TypeError::SignednessMismatch: {
@@ -130,7 +131,7 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             verification_type_error(ast->location,
                 "incompatible {} expression applied to left-hand {} variable of type `{}`", rhs_str,
-                lhs_str, lhs_type->name);
+                lhs_str, lhs_type->get_name());
             break;
         }
         case TypeError::PointerMismatch: {
@@ -362,7 +363,7 @@ Type *get_expression_type(
 // Only valid before the type has been inferred.
 bool is_auto_inferred(Type *type)
 {
-    return type->has_flag(TypeFlags::UNRESOLVED) && type->name.empty();
+    return type->has_flag(TypeFlags::UNRESOLVED) && type->get_name().empty();
 }
 
 void resolve_type(Compiler &cc, Scope *scope, Type *&type)
@@ -370,7 +371,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
     // If a type is unresolved, it's a) invalid, b) auto inferred, or c) declared later
     // (possibly as an alias). b) is dealt with in verify_var_decl.
     if (type->has_flag(TypeFlags::UNRESOLVED)) {
-        auto *resolved = find_type(scope, type->name);
+        auto *resolved = find_type(scope, type->get_name());
         if (resolved) {
             // c)
             delete type;
@@ -378,18 +379,18 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         } else {
             // a)
             verification_type_error(
-                type->location, "type `{}` is not declared in this scope", type->name);
+                type->location, "type `{}` is not declared in this scope", type->get_name());
         }
     } else if (type->has_flag(TypeFlags::ALIAS) && type->real->has_flag(TypeFlags::UNRESOLVED)) {
         // c), alias
-        auto *resolved = find_type(scope, type->real->name);
+        auto *resolved = find_type(scope, type->real->get_name());
         if (resolved) {
             delete type->real;
             type->real = resolved;
         } else {
             verification_type_error(type->location,
                 "invalid alias `{}`: underlying type `{}` is not declared in this scope",
-                type->name, type->real->name);
+                type->get_name(), type->real->get_name());
         }
     }
 
@@ -401,7 +402,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         while (fast && fast->real) {
             if (slow == fast) {
                 verification_type_error(
-                    type->real->location, "circular alias: `{}`", type->real->name);
+                    type->real->location, "circular alias: `{}`", type->real->get_name());
             }
             slow = slow->real;
             fast = fast->real->real;
@@ -826,11 +827,11 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
     }
     auto *type = get_unaliased_type(var.type);
     if (!type || type->has_flag(TypeFlags::UNRESOLVED)) {
-        verification_error(var_decl, "unable to resolve type `{}`", var.type->name);
+        verification_error(var_decl, "unable to resolve type `{}`", var.type->get_name());
     }
     if (type->get_kind() == TypeFlags::Void) {
         std::string alias_str = var.type->has_flag(TypeFlags::ALIAS)
-            ? std::format(" (through alias {})", var.type->name)
+            ? std::format(" (through alias {})", var.type->get_name())
             : "";
         verification_error(var_decl, "variable `{}` declared void{}", var.name, alias_str);
     }
@@ -859,14 +860,15 @@ void verify_return(
             verification_error(return_stmt->expr,
                 "void function `{}` must not return a value (got type `{}`)",
                 current_function->name,
-                get_expression_type(cc, return_stmt->expr, &constness, TypeOverridable::No)->name);
+                get_expression_type(cc, return_stmt->expr, &constness, TypeOverridable::No)
+                    ->get_name());
         }
         return;
     }
 
     if (!return_stmt->expr) {
         verification_error(return_stmt, "function `{}` must return value of type `{}`",
-            current_function->name, current_function->return_type->name);
+            current_function->name, current_function->return_type->get_name());
     }
 
     verify_expr(cc, return_stmt->expr, WarnDiscardedReturn::No, expected);
