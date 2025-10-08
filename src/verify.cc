@@ -335,10 +335,8 @@ Type *get_expression_type(
 
                     auto *ptr = new Type;
                     *ptr = *type;
-                    ptr->size = 8;
-                    ptr->pointer = type->pointer - 1;
-                    ptr->real = type;
-                    return ptr;
+                    --ptr->pointer;
+                    return ptr->real;
                 }
                 // TODO: set constness?
                 if (ast->operation == Operation::Negate) {
