@@ -113,16 +113,7 @@ void insert_cast(Ast *&expr, Type *to)
     expr = new AstCast(expr, to, expr->location);
 }
 
-enum class TypeError {
-    None,
-    Default,
-    SignednessMismatch,
-    SizeMismatch,
-    PointerMismatch,
-};
-
-void type_error(
-    Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeError err = TypeError::Default)
+void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeError err)
 {
     assert(err != TypeError::None);
     switch (err) {
@@ -258,7 +249,7 @@ Type *get_binary_expression_type(
             ret = current;
         } else if (expr_is_constexpr_int(current, expr_constness)) {
             ret = get_common_integer_type(current, ret);
-        } else if (!types_match(ret, current)) {
+        } else if (types_match(ret, current) != TypeError::None) {
             verification_type_error(ast->location,
                 "incompatible types `{}` and `{}` in binary operation", ret->get_name(),
                 current->get_name());
@@ -552,7 +543,7 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
-void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *expected)
+void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *)
 {
     if (unary->operand->type != AstType::Identifier) {
         verification_error(unary->operand, "cannot take address of rvalue");
@@ -564,7 +555,7 @@ void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *expected)
     }
 }
 
-void verify_dereference(Compiler &cc, AstDereference *unary, Type *expected)
+void verify_dereference(Compiler &cc, AstDereference *unary, Type *)
 {
     if (unary->operand->type != AstType::Identifier
         && unary->operand->operation != Operation::Dereference) {
@@ -607,8 +598,8 @@ void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
     ExprConstness constness{};
     auto *lhs_type = get_expression_type(cc, binary->left, &constness, TypeOverridable::No);
     auto *rhs_type = get_expression_type(cc, binary->right, &constness, TypeOverridable::No);
-    if (!types_match(lhs_type, rhs_type)) {
-        type_error(cc, binary, lhs_type, rhs_type);
+    if (auto err = types_match(lhs_type, rhs_type); err != TypeError::None) {
+        type_error(cc, binary, lhs_type, rhs_type, err);
     }
     // FIXME: get operators working properly
     if (lhs_type->get_kind() == TypeFlags::String || rhs_type->get_kind() == TypeFlags::String) {
@@ -619,29 +610,40 @@ void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
     verify_expr(cc, binary->right, warn_discarded, expected, in_conditional);
 }
 
-bool types_match(Type *t1, Type *t2)
+TypeError types_match(Type *t1, Type *t2)
 {
     auto *t1_u = get_unaliased_type(t1);
     auto *t2_u = get_unaliased_type(t2);
 
     if (t1_u == t2_u) {
-        return true;
+        return TypeError::None;
     }
 
     if (t1_u->pointer != t2_u->pointer) {
-        return false;
+        return TypeError::PointerMismatch;
     }
 
     if (t1_u->get_kind() == TypeFlags::Integer) {
-        return t2_u->get_kind() == TypeFlags::Integer && t1_u->size == t2_u->size
-            && !(t1_u->has_flag(TypeFlags::UNSIGNED) ^ t2_u->has_flag(TypeFlags::UNSIGNED));
+        if (t2_u->get_kind() != TypeFlags::Integer) {
+            return TypeError::Default;
+        }
+        if (t1_u->size != t2_u->size) {
+            return TypeError::SizeMismatch;
+        }
+        if (t1_u->has_flag(TypeFlags::UNSIGNED) ^ t2_u->has_flag(TypeFlags::UNSIGNED)) {
+            return TypeError::SignednessMismatch;
+        }
+        return TypeError::None;
     }
 
     if (t1_u->get_kind() == TypeFlags::Boolean) {
-        return t2_u->get_kind() == TypeFlags::Boolean;
+        if (t2_u->get_kind() != TypeFlags::Boolean) {
+            return TypeError::Default;
+        }
+        return TypeError::None;
     }
 
-    return false;
+    return TypeError::Default;
 }
 
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
@@ -657,8 +659,8 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     if (one_side_const && lhs_type->has_flag(TypeFlags::Integer)
         && rhs_type->has_flag(TypeFlags::Integer)) {
         exp = get_common_integer_type(lhs_type, rhs_type);
-    } else if (!types_match(lhs_type, rhs_type)) {
-        type_error(cc, cmp, lhs_type, rhs_type);
+    } else if (auto err = types_match(lhs_type, rhs_type); err != TypeError::None) {
+        type_error(cc, cmp, lhs_type, rhs_type, err);
     }
 
     cmp->expr_type = exp;
@@ -696,7 +698,7 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
 
     ExprConstness constness{};
     auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
-    if (types_match(type, expected)) {
+    if (types_match(type, expected) == TypeError::None) {
         return;
     }
 
@@ -718,8 +720,8 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
         expr = new AstBinary(
             Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
         expr->expr_type = type;
-    } else if (!types_match(type, bool_type())) {
-        type_error(cc, expr, bool_type(), type);
+    } else if (auto err = types_match(type, bool_type()); err != TypeError::None) {
+        type_error(cc, expr, bool_type(), type, err);
     }
 }
 
@@ -796,8 +798,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             convert_expr_to_boolean(cc, ast, type);
             return;
         }
-        if (!types_match(type, expected)) {
-            type_error(cc, ast, expected, type);
+        if (auto err = types_match(type, expected); err != TypeError::None) {
+            type_error(cc, ast, expected, type, err);
         }
     }
 }
