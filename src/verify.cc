@@ -333,10 +333,7 @@ Type *get_expression_type(
                             "cannot dereference non-pointer of type `{}`", type->get_name());
                     }
 
-                    auto *ptr = new Type;
-                    *ptr = *type;
-                    --ptr->pointer;
-                    return ptr->real;
+                    return type->real;
                 }
                 // TODO: set constness?
                 if (ast->operation == Operation::Negate) {

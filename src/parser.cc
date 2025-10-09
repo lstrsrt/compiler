@@ -27,7 +27,7 @@ struct OperatorInfo {
     Associativity associativity;
 };
 
-OperatorInfo get_operator_info(TokenKind kind)
+OperatorInfo get_binary_operator_info(TokenKind kind)
 {
     using enum TokenKind;
     switch (kind) {
@@ -370,7 +370,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
             break;
         }
 
-        const auto info = get_operator_info(token.kind);
+        const auto info = get_binary_operator_info(token.kind);
         if (info.precedence < min_precedence) {
             break;
         }

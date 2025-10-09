@@ -179,14 +179,12 @@ void print_ast(File &file, Ast *ast, std::string indent)
                 for (Ast *arg : call->args) {
                     print_ast(file, arg, indent);
                 }
-            } else if (ast->operation == Operation::Negate) {
+            } else if (ast->operation == Operation::Negate || ast->operation == Operation::AddressOf
+                || ast->operation == Operation::Dereference
+                || ast->operation == Operation::LogicalNot || ast->operation == Operation::Cast) {
                 print_ast(file, static_cast<AstUnary *>(ast)->operand, indent);
-            } else if (ast->operation == Operation::AddressOf) {
-                print_ast(file, static_cast<AstAddressOf *>(ast)->operand, indent);
-            } else if (ast->operation == Operation::LogicalNot) {
-                print_ast(file, static_cast<AstLogicalNot *>(ast)->operand, indent);
-            } else if (ast->operation == Operation::Cast) {
-                print_ast(file, static_cast<AstCast *>(ast)->operand, indent);
+            } else {
+                TODO();
             }
             break;
         }
@@ -215,6 +213,8 @@ void print_ast(File &file, Ast *ast, std::string indent)
             } else if (ast->operation == Operation::While) {
                 print_ast(file, static_cast<AstWhile *>(ast)->expr, indent);
                 print_ast(file, static_cast<AstWhile *>(ast)->body, indent);
+            } else {
+                TODO();
             }
             break;
         }

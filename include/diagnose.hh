@@ -19,7 +19,7 @@ inline bool did_prepare_error = false;
 // This does get reset.
 inline bool did_prepare_last_warning = false;
 
-void print_line(std::string_view, SourceLocation);
+void print_line(std::string_view source, SourceLocation);
 std::string make_printable(std::string_view);
 std::string make_printable(char);
 

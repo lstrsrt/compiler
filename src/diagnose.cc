@@ -2,13 +2,14 @@
 #include "base.hh"
 
 namespace diag {
-void print_line(std::string_view string, SourceLocation loc)
+void print_line(std::string_view source, SourceLocation location)
 {
     using namespace colors;
-    const auto line_str = std::format("{}{}{} | ", Blue, loc.line, Default);
+    const auto line_str = std::format("{}{}{} | ", Blue, location.line, Default);
     const auto fill_width = line_str.size() - (Blue + Default).size();
-    std::println("{}{}", line_str, get_highlighted_line(string, loc.position, loc.column, loc.end));
-    const std::string fill(loc.column + fill_width, '~');
+    std::println("{}{}", line_str,
+        get_highlighted_line(source, location.position, location.column, location.end));
+    const std::string fill(location.column + fill_width, '~');
     std::println("{}{}^{}", fill, Yellow, Default);
 }
 
