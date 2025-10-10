@@ -1,3 +1,4 @@
+// clang-format off
 #ifndef ARENA_ALLOC_H
 #define ARENA_ALLOC_H
 
@@ -87,7 +88,7 @@ static inline int arena_init(struct mem_arena *arena, char *mem, size_t initial_
 
 
 // temporary
-static inline double arena_get_load_factor(struct mem_arena *arena)
+static inline double arena_get_load_factor(struct mem_arena *)
 {
     return ARENA_DEFAULT_LOAD_FACTOR;
 }
@@ -310,7 +311,7 @@ class ArenaAllocator {
         /*
          * since stl containers track references of objects, that becomes a massive overhead.
          */
-        void deallocate(T *p, size_type n) noexcept
+        void deallocate(T *, size_type) noexcept
         {
             // this is an arena allocator and we don't have to deallocate every object individually
         }
@@ -338,3 +339,4 @@ class ArenaAllocator {
 #endif // __cplusplus
 
 #endif // ARENA_ALLOC_H
+// clang-format on

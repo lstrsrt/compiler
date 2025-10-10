@@ -126,7 +126,7 @@ void free_types()
     }
 }
 
-void Compiler::cleanup(AstFunction *root)
+void Compiler::cleanup([[maybe_unused]] AstFunction *root)
 {
 #ifdef AST_USE_ARENA
     free_ast_arena();
