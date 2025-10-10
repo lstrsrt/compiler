@@ -78,7 +78,7 @@ File File::make_temporary(const std::string &extension, OpenFlags flags)
 
 bool File::is_valid() const
 {
-    return this->file_handle != -1 && fcntl(this->file_handle, F_GETFD) >= 0;
+    return file_handle != -1 && fcntl(this->file_handle, F_GETFD) >= 0;
 }
 
 bool File::open(const std::string &name, OpenFlags flags)
@@ -93,39 +93,39 @@ bool File::open(const std::string &name, OpenFlags flags)
         return false;
     }
 
-    this->filename = name;
-    this->file_handle = ::open(name.data(), open_flags_to_posix(flags), 0644);
+    filename = name;
+    file_handle = ::open(name.data(), open_flags_to_posix(flags), 0644);
     if (file_handle == -1) {
         return false;
     }
 
-    Defer fail_defer{ [&] { this->close(); } };
+    Defer fail_defer{ [&] { close(); } };
 
     struct stat stat{};
     if (fstat(file_handle, &stat) < 0) {
         return false;
     }
-    this->file_size = stat.st_size;
+    file_size = stat.st_size;
 
     if (has_flag(flags, READ)) {
-        if (!this->file_size && has_flags(flags, WRITE)) {
+        if (!file_size && has_flags(flags, WRITE)) {
             // Do this even if we don't have TRUNCATE. The file is empty so we're not deleting
             // anything, and not doing this would cause mmap to fail.
-            ftruncate(this->file_handle, 4096);
+            ftruncate(file_handle, 4096);
         }
-        this->map = static_cast<char *>(
+        map = static_cast<char *>(
             mmap(nullptr, stat.st_size, PROT_READ, MAP_SHARED, file_handle, 0));
-        if (this->map == MAP_FAILED) {
-            this->map = nullptr;
+        if (map == MAP_FAILED) {
+            map = nullptr;
             return false;
         }
     } else {
-        this->map = nullptr;
+        map = nullptr;
     }
 
     fail_defer.disable();
-    if (has_flag(flags, WRITE) && this->buffered) {
-        this->write_buffer.reserve(4096);
+    if (has_flag(flags, WRITE) && buffered) {
+        write_buffer.reserve(4096);
     }
     this->flags = flags;
     return true;
@@ -133,27 +133,27 @@ bool File::open(const std::string &name, OpenFlags flags)
 
 bool File::write(std::string_view str)
 {
-    if (!has_flag(this->flags, OpenFlags::WRITE)) {
+    if (!has_flag(flags, OpenFlags::WRITE)) {
         return false;
     }
-    if (this->buffered) {
-        this->write_buffer += str;
+    if (buffered) {
+        write_buffer += str;
         return true;
     }
-    return ::write(this->file_handle, str.data(), str.length()) == ssize(str);
+    return ::write(file_handle, str.data(), str.length()) == ssize(str);
 }
 
 bool File::commit()
 {
-    if (!this->buffered) {
+    if (!buffered) {
         return true;
     }
-    if (!is_valid() || !has_flag(this->flags, OpenFlags::WRITE)
-        || ::write(this->file_handle, this->write_buffer.c_str(), this->write_buffer.length())
-            < ssize(this->write_buffer)) {
+    if (!is_valid() || !has_flag(flags, OpenFlags::WRITE)
+        || ::write(file_handle, this->write_buffer.c_str(), this->write_buffer.length())
+            < ssize(write_buffer)) {
         return false;
     }
-    this->write_buffer.clear();
+    write_buffer.clear();
     return true;
 }
 
@@ -164,15 +164,15 @@ bool File::close(File::Commit commit)
         ret = this->commit();
     }
     // Keep the filename on purpose
-    ::close(this->file_handle);
-    this->file_handle = -1;
-    this->file_size = 0;
-    if (this->map) {
+    ::close(file_handle);
+    file_handle = -1;
+    file_size = 0;
+    if (map) {
         munmap(map, file_size);
     }
-    this->map = nullptr;
-    this->write_buffer = {};
-    this->flags = static_cast<OpenFlags>(0);
-    this->buffered = true;
+    map = nullptr;
+    write_buffer = {};
+    flags = static_cast<OpenFlags>(0);
+    buffered = true;
     return ret;
 }
