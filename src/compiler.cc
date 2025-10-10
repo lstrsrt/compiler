@@ -128,7 +128,11 @@ void free_types()
 
 void Compiler::cleanup(AstFunction *root)
 {
+#ifdef AST_USE_ARENA
+    free_ast_arena();
+#else
     free_ast(root);
+#endif
     leave_scope();
     free_types();
     free_ir(this->ir_builder);

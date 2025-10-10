@@ -136,9 +136,8 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
     } else if (ast->operation == Operation::FunctionDecl) {
         auto *function = static_cast<AstFunction *>(ast);
         file.fwriteln(" {} -> {}]", function->name, function->return_type->name);
-        for (size_t i = 0; i < function->params.size(); i++) {
+        for (auto *p : function->params) {
             file.fwrite("{}[Param: ", indent);
-            auto *p = function->params[i];
             print_var_decl(file, p);
         }
     } else if (ast->operation == Operation::VariableDecl) {
@@ -152,7 +151,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
     file.commit();
 }
 
-void print_ast(File &file, const std::vector<Ast *> &ast_vec, std::string indent)
+void print_ast(File &file, const StmtVec &ast_vec, std::string indent)
 {
     for (auto *ast : ast_vec) {
         print_ast(file, ast, indent);
@@ -213,6 +212,9 @@ void print_ast(File &file, Ast *ast, std::string indent)
             } else if (ast->operation == Operation::While) {
                 print_ast(file, static_cast<AstWhile *>(ast)->expr, indent);
                 print_ast(file, static_cast<AstWhile *>(ast)->body, indent);
+            } else if (ast->operation == Operation::Break
+                || ast->operation == Operation::Continue) {
+                break;
             } else {
                 TODO();
             }

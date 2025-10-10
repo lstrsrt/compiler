@@ -72,11 +72,16 @@ Ast *parse_expr(Compiler &, AllowVarDecl = AllowVarDecl::No, Precedence = prec::
 
 AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation location)
 {
+#ifdef AST_USE_ARENA
+    FunctionArgs args(ast_vec_allocator());
+#else
+    FunctionArgs args;
+#endif
+
     if (lex(cc).kind == TokenKind::RParen) {
-        return new AstCall(function, {}, location); // Call without args
+        return new AstCall(function, args, location); // Call without args
     }
 
-    std::vector<Ast *> args{};
     cc.parse_state.inside_call = true;
     for (;;) {
         args.emplace_back(parse_expr(cc, AllowVarDecl::No, prec::Comma + 1));
@@ -431,28 +436,6 @@ Token parse_identifier(Compiler &cc)
     return token;
 }
 
-std::vector<AstVariableDecl *> parse_fn_params(Compiler &cc)
-{
-    std::vector<AstVariableDecl *> ret{};
-    // TODO - let's not allow init exprs for now... maybe this will change
-    int idx = 0;
-    while (auto *var_decl = parse_var_decl(cc, AllowInitExpr::No)) {
-        var_decl->var.param_index = idx++;
-        ret.push_back(var_decl);
-        auto token = lex(cc);
-        if (token.kind != TokenKind::Comma) {
-            break;
-        }
-        consume(cc.lexer, token);
-    }
-
-    for (auto &param : ret) {
-        current_scope->add_variable(cc, param);
-    }
-
-    return ret;
-}
-
 AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
 {
     // TODO: keep track of the last token so we don't have to call lex again
@@ -460,7 +443,11 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
     cc.lexer.ignore_newlines = false;
     consume_newline_or_eof(cc, lex(cc));
     cc.lexer.ignore_newlines = true;
-    std::vector<Ast *> stmts{};
+#ifdef AST_USE_ARENA
+    StmtVec stmts(ast_vec_allocator());
+#else
+    StmtVec stmts;
+#endif
     for (;;) {
         auto token = lex(cc);
         if (token.kind == TokenKind::RBrace) {
@@ -499,9 +486,27 @@ AstFunction *parse_function(Compiler &cc)
 
     // Function parameters already belong to new scope
     enter_new_scope();
-    std::vector<AstVariableDecl *> params{};
+
+#ifdef AST_USE_ARENA
+    VariableDecls params(ast_vec_allocator());
+#else
+    VariableDecls params;
+#endif
     if (token.kind != TokenKind::RParen) {
-        params = parse_fn_params(cc);
+        // TODO - let's not allow init exprs for now... maybe this will change
+        int idx = 0;
+        while (auto *var_decl = parse_var_decl(cc, AllowInitExpr::No)) {
+            var_decl->var.param_index = idx++;
+            params.push_back(var_decl);
+            auto token = lex(cc);
+            if (token.kind != TokenKind::Comma) {
+                break;
+            }
+            consume(cc.lexer, token);
+        }
+        for (auto *param : params) {
+            current_scope->add_variable(cc, param);
+        }
         consume_expected(cc, TokenKind::RParen, lex(cc));
     } else {
         consume(cc.lexer, token);
@@ -935,16 +940,19 @@ void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLo
     };
 }
 
-void free_ast(std::vector<Ast *> &ast_vec)
+void free_ast([[maybe_unused]] std::vector<Ast *> &ast_vec)
 {
+#ifndef AST_USE_ARENA
     for (auto *ast : ast_vec) {
         free_ast(ast);
     }
     ast_vec.clear();
+#endif
 }
 
-void free_ast(Ast *ast)
+void free_ast([[maybe_unused]] Ast *ast)
 {
+#ifndef AST_USE_ARENA
     if (!ast) {
         return;
     }
@@ -1005,6 +1013,7 @@ void free_ast(Ast *ast)
             delete static_cast<AstIdentifier *>(ast);
             break;
     }
+#endif
 }
 
 template<class T>

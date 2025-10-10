@@ -151,7 +151,17 @@ void run_test(const fs::path &file)
     Compiler cc;
     bool compiled = false;
     cc.lexer.set_input(file);
-    auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
+
+#ifdef AST_USE_ARENA
+    arena::ArenaAllocator<void> allocator(ast_arena());
+    StmtVec stmts(allocator);
+    VariableDecls params(allocator);
+#else
+    StmtVec stmts;
+    VariableDecls params;
+#endif
+    auto *main = new AstFunction("main", s32_type(), params, new AstBlock(stmts), {});
+
     try {
         ++current_test;
         compiler_main(cc, main);

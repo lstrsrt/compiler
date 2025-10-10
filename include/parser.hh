@@ -1,5 +1,11 @@
 #pragma once
 
+#define AST_USE_ARENA
+
+#ifdef AST_USE_ARENA
+#include "arena-alloc/arena_alloc.h"
+#endif
+
 #include "base.hh"
 #include "lexer.hh"
 
@@ -81,6 +87,25 @@ enum_flags(AstFlags, uint64_t){
     FOLDED = 1 << 0, // Prevent verifier trying to constant fold this tree multiple times.
 };
 
+constexpr uint64_t KiB(uint64_t bytes)
+{
+    return bytes * 1024;
+}
+
+#ifdef AST_USE_ARENA
+inline auto *ast_arena()
+{
+    static arena::Arena arena(KiB(8), ARENA_FL_GROW);
+    return &arena;
+}
+
+inline auto &ast_vec_allocator()
+{
+    static arena::ArenaAllocator<void> allocator(ast_arena());
+    return allocator;
+}
+#endif
+
 struct Type;
 
 struct Ast {
@@ -99,7 +124,23 @@ struct Ast {
         , location(_location)
     {
     }
+
+#ifdef AST_USE_ARENA
+    static void *operator new(size_t size)
+    {
+        return ast_arena()->alloc_raw(size);
+    }
+
+    static void operator delete(void *) { }
+#endif
 };
+
+#ifdef AST_USE_ARENA
+inline void free_ast_arena()
+{
+    ast_arena()->reset();
+}
+#endif
 
 Type *bool_type();
 
@@ -181,16 +222,21 @@ struct AstCast : AstUnary {
 
 struct AstFunction;
 
+#ifdef AST_USE_ARENA
+using FunctionArgs = std::vector<Ast *, arena::ArenaAllocator<Ast *>>;
+#else
+using FunctionArgs = std::vector<Ast *>;
+#endif
+
 struct AstCall : Ast {
     std::string_view name;
-    std::vector<Ast *> args;
+    FunctionArgs args;
     AstFunction *fn = nullptr; // Use get_callee() instead of accessing this directly
 
-    explicit AstCall(
-        std::string_view _name, const std::vector<Ast *> &_args, SourceLocation _location)
+    explicit AstCall(std::string_view _name, FunctionArgs _args, SourceLocation _location)
         : Ast(AstType::Unary, Operation::Call, _location)
         , name(_name)
-        , args(_args)
+        , args(std::move(_args))
     {
     }
 };
@@ -326,12 +372,18 @@ struct AstVariableDecl : Ast {
     }
 };
 
-struct AstBlock : Ast {
-    std::vector<Ast *> stmts;
+#ifdef AST_USE_ARENA
+using StmtVec = std::vector<Ast *, arena::ArenaAllocator<Ast *>>;
+#else
+using StmtVec = std::vector<Ast *>;
+#endif
 
-    explicit AstBlock(const std::vector<Ast *> &_stmts)
+struct AstBlock : Ast {
+    StmtVec stmts;
+
+    explicit AstBlock(StmtVec _stmts)
         : Ast(AstType::Block)
-        , stmts(_stmts)
+        , stmts(std::move(_stmts))
     {
     }
 };
@@ -381,20 +433,26 @@ enum_flags(FunctionAttributes, int){
     DumpAsm = (1 << 2),
 };
 
+#ifdef AST_USE_ARENA
+using VariableDecls = std::vector<AstVariableDecl *, arena::ArenaAllocator<AstVariableDecl *>>;
+#else
+using VariableDecls = std::vector<AstVariableDecl *>;
+#endif
+
 struct AstFunction : Ast {
     std::string name;
     Type *return_type;
-    std::vector<AstVariableDecl *> params;
+    VariableDecls params;
     AstBlock *body;
     uint64_t call_count = 0;
     FunctionAttributes attributes{};
 
-    explicit AstFunction(std::string_view _name, Type *_return_type,
-        const std::vector<AstVariableDecl *> &_params, AstBlock *_body, SourceLocation _location)
+    explicit AstFunction(std::string_view _name, Type *_return_type, VariableDecls _params,
+        AstBlock *_body, SourceLocation _location)
         : Ast(AstType::Statement, Operation::FunctionDecl, _location)
         , name(_name)
         , return_type(_return_type)
-        , params(_params)
+        , params(std::move(_params))
         , body(_body)
     {
     }

@@ -1,3 +1,4 @@
+#include "arena-alloc/arena_alloc.h"
 #include "compiler.hh"
 #include "frontend.hh"
 
@@ -36,7 +37,15 @@ int main(int argc, char **argv)
         cc.lexer.set_input(maybe_file);
         // Top level scope is main
         // TODO: give main argc and argv
-        auto *main = new AstFunction("main", s32_type(), {}, new AstBlock({}), {});
+#ifdef AST_USE_ARENA
+        arena::ArenaAllocator<void> allocator(ast_arena());
+        StmtVec stmts(allocator);
+        VariableDecls params(allocator);
+#else
+        StmtVec stmts;
+        VariableDecls params;
+#endif
+        auto *main = new AstFunction("main", s32_type(), params, new AstBlock(stmts), {});
         compiler_main(cc, main);
         cc.cleanup(main);
     }
