@@ -1,6 +1,0 @@
-#{returns(1)}
-x: bool = true + true
-if x == true {
-    return 1
-}
-return 0

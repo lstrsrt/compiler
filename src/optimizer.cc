@@ -112,7 +112,7 @@ Ast *try_fold_logical_chain(
 
     for (size_t i = 0; i < operands.size(); ++i) {
         auto *ast = operands[i];
-        if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
+        if (ast->type == AstType::Integer) {
             constant.emplace(get_int_literal(ast));
             // The break condition is "not 0" for LogicalOr and 0 for LogicalAnd.
             if ((constant == 0) ^ (operation == Operation::LogicalOr)) {
@@ -162,7 +162,7 @@ bool is_equals_x(Ast *ast, bool value)
     // Return true for "Equals x, 1" and "NotEquals x, 0"
     if (ast->operation == Operation::Equals || ast->operation == Operation::NotEquals) {
         auto *cmp = static_cast<AstBinary *>(ast)->right;
-        return (cmp->type == AstType::Boolean || cmp->type == AstType::Integer)
+        return cmp->type == AstType::Integer
             && get_int_literal(cmp) == (ast->operation == Operation::Equals ? cmp1 : cmp2);
     }
     return false;
@@ -411,8 +411,8 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
     // Figure out which parts of the expression are constant.
     auto *left = try_constant_fold(cc, binary->left, expected, overridable);
     auto *right = try_constant_fold(cc, binary->right, expected, overridable);
-    bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
-    bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
+    bool left_is_const = left->type == AstType::Integer;
+    bool right_is_const = right->type == AstType::Integer;
     if (!left_is_const && !right_is_const) {
         return binary;
     }
@@ -427,7 +427,7 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
 
     if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {
         if (right_is_const && right_const == 0) {
-            diag::ast_warning(cc, binary, "trying to divide by 0");
+            diag::ast_warning(cc, binary->right, "trying to divide by 0");
             return binary;
         }
     }
