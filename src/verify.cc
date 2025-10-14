@@ -434,6 +434,9 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (wanted_type == type) {
         return TypeError::None;
     }
+    if (type->has_flag(TypeFlags::ANY)) {
+        return TypeError::None;
+    }
     if (!type->has_flag(TypeFlags::Integer) || !wanted_type->has_flag(TypeFlags::Integer)) {
         return TypeError::Default;
     }

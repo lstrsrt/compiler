@@ -199,6 +199,7 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
         { "or", Or },
         { "continue", Continue },
         { "break", Break },
+        { "null", Null },
     };
     if (auto it = keyword_map.find(str); it != keyword_map.end()) {
         return it->second;

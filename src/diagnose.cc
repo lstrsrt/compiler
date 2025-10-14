@@ -119,6 +119,8 @@ std::string to_string(TokenKind kind)
             return "continue";
         case TokenKind::Break:
             return "break";
+        case TokenKind::Null:
+            return "null";
         default:
             TODO();
     }

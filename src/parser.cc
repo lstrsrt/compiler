@@ -265,6 +265,16 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     }
 
     if (is_group(token.kind, TokenKind::GroupKeyword)) {
+        if (token.kind == TokenKind::Null) {
+            static Type null{ .name = "null",
+                .flags = TypeFlags::Integer | TypeFlags::BUILTIN | TypeFlags::ANY,
+                .size = 8,
+                .pointer = 1,
+                .real = nullptr,
+                .location = {} };
+            consume(cc.lexer, token);
+            return new AstLiteral(&null, 0, token.location);
+        }
         bool is_false = token.kind == TokenKind::False;
         bool is_true = false;
         if (!is_false) {
