@@ -6,26 +6,27 @@
 
 #include <algorithm>
 
-#include <filesystem>
 #include <linux/limits.h>
 #include <spawn.h>
 #include <sys/wait.h>
 
-size_t current_test;
-size_t passed_tests;
-size_t total_tests;
-bool printed_result;
-fs::path prev_wd;
+struct TestData {
+    size_t current_test = 0;
+    size_t passed_tests = 0;
+    size_t total_tests = 0;
+    bool printed_result = false;
+    fs::path prev_wd;
+};
 
-void switch_to_tmp()
+void switch_to_tmp(TestData &td)
 {
-    prev_wd = fs::current_path();
+    td.prev_wd = fs::current_path();
     fs::current_path(fs::temp_directory_path());
 }
 
-void switch_back()
+void switch_back(TestData &td)
 {
-    fs::current_path(prev_wd);
+    fs::current_path(td.prev_wd);
 }
 
 int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::string> &_cmdline)
@@ -62,7 +63,8 @@ int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::stri
 
 bool files_are_equal(const std::string &path1, const std::string &path2)
 {
-    File file1, file2;
+    File file1;
+    File file2;
 
     if (!file1.open(path1, OpenFlags::Open | OpenFlags::READ)) {
         std::println("couldn't open file '{}'", path1);
@@ -132,20 +134,20 @@ bool run_compare_test(Compiler &cc)
     return false;
 }
 
-void run_test(const fs::path &file)
+void run_test(TestData &td, const fs::path &file)
 {
     using namespace colors;
 
     const auto report_single_test_result = [&]() {
-        if (total_tests == 1) {
-            auto color = passed_tests ? Green : Red;
-            const auto *str = passed_tests ? "passed" : "failed";
+        if (td.total_tests == 1) {
+            auto color = td.passed_tests ? Green : Red;
+            const auto *str = td.passed_tests ? "passed" : "failed";
             std::println("{}{}{} {}{}", color, str, DefaultBold, file.string(), Default);
         }
     };
 
-    if (total_tests == 1) {
-        switch_to_tmp();
+    if (td.total_tests == 1) {
+        switch_to_tmp(td);
     }
 
     Compiler cc;
@@ -163,7 +165,7 @@ void run_test(const fs::path &file)
     auto *main = new AstFunction("main", s32_type(), params, new AstBlock(stmts), {});
 
     try {
-        ++current_test;
+        ++td.current_test;
         compiler_main(cc, main);
         cc.cleanup(main);
         compiled = true;
@@ -173,7 +175,7 @@ void run_test(const fs::path &file)
                 std::println("{}testing error{}: non-matching exception {} (expected {})", Red,
                     Default, to_string(te.type), to_string(cc.test_mode.error_type));
             } else {
-                ++passed_tests;
+                ++td.passed_tests;
             }
         } else {
             std::println("{}testing error{}: failed compilation", Red, Default);
@@ -189,7 +191,7 @@ void run_test(const fs::path &file)
 
     if (cc.test_mode.test_type == TestType::CanCompile) {
         if (run_compare_test(cc)) {
-            ++passed_tests;
+            ++td.passed_tests;
         }
     } else if (cc.test_mode.test_type == TestType::Error) {
         std::println("{}testing error{}: should have failed compilation", Red, Default);
@@ -199,7 +201,7 @@ void run_test(const fs::path &file)
         int status = spawn_blocking_process(fs::current_path() / opts.output_exe_name, {});
         if (status == static_cast<int>(cc.test_mode.return_value)) {
             if (ok) {
-                ++passed_tests;
+                ++td.passed_tests;
             }
         } else {
             std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
@@ -207,20 +209,26 @@ void run_test(const fs::path &file)
         }
     }
 
-    if (total_tests == 1) {
-        switch_back();
+    if (td.total_tests == 1) {
+        switch_back(td);
     }
 
     report_single_test_result();
 }
 
-void run_single_test(const fs::path &path)
+void run_single_test(TestData &td, const fs::path &path)
 {
-    total_tests = 1;
-    run_test(fs::canonical(path));
+    td.total_tests = 1;
+    run_test(td, fs::canonical(path));
 }
 
-void run_tests(const fs::path &path, bool root)
+void run_single_test(const fs::path &path)
+{
+    TestData td;
+    run_single_test(td, path);
+}
+
+void run_tests(TestData &td, const fs::path &path, bool root)
 {
     using namespace colors;
 
@@ -236,31 +244,37 @@ void run_tests(const fs::path &path, bool root)
         } else if (entry.path().has_filename() && entry.path().filename().has_extension()
             && entry.path().filename().extension() == ".txt") {
             files.push_back(fs::canonical(entry));
-            ++total_tests;
+            ++td.total_tests;
         }
     }
 
     std::ranges::sort(files);
     std::ranges::sort(subdirs);
 
-    switch_to_tmp();
+    switch_to_tmp(td);
 
     for (const auto &file : files) {
-        run_test(file);
+        run_test(td, file);
     }
 
     for (const auto &dir : subdirs) {
-        run_tests(dir, false);
+        run_tests(td, dir, false);
     }
 
-    switch_back();
+    switch_back(td);
 
-    if (root && !printed_result && current_test == total_tests) {
-        auto color = (passed_tests == total_tests) ? Green : Red;
-        std::println("{}passed {}{}/{}{} tests{}", DefaultBold, color, passed_tests, total_tests,
-            DefaultBold, Default);
-        printed_result = true;
+    if (root && !td.printed_result && td.current_test == td.total_tests) {
+        auto color = (td.passed_tests == td.total_tests) ? Green : Red;
+        std::println("{}passed {}{}/{}{} tests{}", DefaultBold, color, td.passed_tests,
+            td.total_tests, DefaultBold, Default);
+        td.printed_result = true;
     }
+}
+
+void run_tests(const fs::path &path, bool root)
+{
+    TestData td;
+    run_tests(td, path, root);
 }
 
 std::string to_string(ErrorType type)
