@@ -1,4 +1,3 @@
-#include "arena-alloc/arena_alloc.h"
 #include "compiler.hh"
 #include "frontend.hh"
 
@@ -38,9 +37,8 @@ int main(int argc, char **argv)
         // Top level scope is main
         // TODO: give main argc and argv
 #ifdef AST_USE_ARENA
-        arena::ArenaAllocator<void> allocator(ast_arena());
-        StmtVec stmts(allocator);
-        VariableDecls params(allocator);
+        StmtVec stmts(ast_vec_allocator());
+        VariableDecls params(ast_vec_allocator());
 #else
         StmtVec stmts;
         VariableDecls params;

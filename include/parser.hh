@@ -284,7 +284,6 @@ enum_flags(TypeFlags, int){
     UNRESOLVED = (1 << 4),
     ALIAS = (1 << 5),
     BUILTIN = (1 << 6),
-    ANY = (1 << 7),
 
     // Integer flags
     UNSIGNED = (1 << 7),
@@ -336,6 +335,7 @@ Type *u64_type();
 Type *s32_type();
 Type *s64_type();
 Type *string_type();
+Type *null_type();
 Type *unresolved_type();
 
 Type *get_unaliased_type(Type *);

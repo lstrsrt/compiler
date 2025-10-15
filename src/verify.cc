@@ -66,6 +66,17 @@ Type *string_type()
     return &s_type;
 }
 
+Type *null_type()
+{
+    static Type s_null{ .name = "null",
+        .flags = TypeFlags::Integer | TypeFlags::BUILTIN,
+        .size = 8,
+        .pointer = 1,
+        .real = nullptr,
+        .location = {} };
+    return &s_null;
+}
+
 Type *unresolved_type()
 {
     static Type s_type{ .flags = TypeFlags::UNRESOLVED };
@@ -432,9 +443,6 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
 {
     Type *wanted_type = get_unaliased_type(wanted);
     if (wanted_type == type) {
-        return TypeError::None;
-    }
-    if (type->has_flag(TypeFlags::ANY)) {
         return TypeError::None;
     }
     if (!type->has_flag(TypeFlags::Integer) || !wanted_type->has_flag(TypeFlags::Integer)) {
