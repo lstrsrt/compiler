@@ -811,8 +811,9 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             consume(cc.lexer, token);
             return new AstBreak(token.location);
         }
-        // TODO: true, false, else
-        parser_error(token.location, "unhandled keyword `{}`", token.string);
+        if (token.kind == TokenKind::Else) {
+            parser_error(token.location, "`else` not associated with an if-statement");
+        }
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
         const auto prev_pos = cc.lexer.position;
         const auto prev_col = cc.lexer.column;
