@@ -104,8 +104,9 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
         }
         case Operation::Negate:
         case Operation::AddressOf:
-            [[fallthrough]];
         case Operation::Dereference:
+            [[fallthrough]];
+        case Operation::Load:
             do_generic_unary();
             break;
         case Operation::Cast: {
@@ -129,7 +130,7 @@ IRArg generate_ir_binary(Compiler &cc, Ast *ast)
     auto *ir = new IR(ast);
     generate_ir(cc, ir, ir->left, static_cast<AstBinary *>(ast)->left);
     generate_ir(cc, ir, ir->right, static_cast<AstBinary *>(ast)->right);
-    if (ir->operation != Operation::Assign) {
+    if (ir->operation != Operation::Assign && ir->operation != Operation::Store) {
         ir->target = ++ir_fn->temp_regs;
     }
     add_ir(ir, get_current_block(ir_fn));

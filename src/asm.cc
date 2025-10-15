@@ -219,6 +219,10 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
+        case Operation::Load:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
         case Operation::Dereference:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
             emit("mov rax, [rax]");
@@ -302,6 +306,10 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
         case Operation::Assign:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
             emit("mov {}, rax", extract_ir_arg(ir_fn, ir->left));
+            break;
+        case Operation::Store:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov qword [rax], {}", extract_ir_arg(ir_fn, ir->right));
             break;
         case Operation::Add:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));

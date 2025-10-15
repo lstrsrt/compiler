@@ -35,6 +35,8 @@ enum class AstType {
     __ENUMERATE_OPERATION(None)          \
     __ENUMERATE_OPERATION(AddressOf)     \
     __ENUMERATE_OPERATION(Dereference)   \
+    __ENUMERATE_OPERATION(Load)          \
+    __ENUMERATE_OPERATION(Store)         \
     __ENUMERATE_OPERATION(Negate)        \
     __ENUMERATE_OPERATION(Call)          \
     __ENUMERATE_OPERATION(Add)           \

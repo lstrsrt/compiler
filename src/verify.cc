@@ -289,7 +289,7 @@ Type *get_expression_type(
     assert(constness);
     *constness = {};
 
-    ast->expr_type = [&]() -> Type * {
+    ast->expr_type = [&, func = __func__]() -> Type * {
         switch (ast->type) {
             case AstType::Integer: {
                 *constness |= ExprConstness::SawConstant;
@@ -324,7 +324,7 @@ Type *get_expression_type(
                     ptr->real = type;
                     return ptr;
                 }
-                if (ast->operation == Operation::Dereference) {
+                if (ast->operation == Operation::Dereference || ast->operation == Operation::Load) {
                     auto *type = get_expression_type(
                         cc, static_cast<AstDereference *>(ast)->operand, constness, overridable);
 
@@ -348,7 +348,7 @@ Type *get_expression_type(
                 }
                 [[fallthrough]];
             default:
-                TODO();
+                todo(func, __FILE__, __LINE__);
                 return nullptr;
         }
     }();
@@ -539,8 +539,9 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
     ++fn->call_count;
 }
 
-void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *)
+void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
 {
+    auto *unary = static_cast<AstAddressOf *>(ast);
     if (unary->operand->type != AstType::Identifier) {
         verification_error(unary->operand, "cannot take address of rvalue");
     }
@@ -549,10 +550,12 @@ void verify_addressof(Compiler &cc, AstAddressOf *unary, Type *)
     if (type->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
         verification_error(unary, "exceeded indirection limit");
     }
+    verify_expr(cc, unary->operand, warn_discarded);
 }
 
-void verify_dereference(Compiler &cc, AstDereference *unary, Type *)
+void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
 {
+    auto *unary = static_cast<AstAddressOf *>(ast);
     if (unary->operand->type != AstType::Identifier
         && unary->operand->operation != Operation::Dereference
         && unary->operand->operation != Operation::AddressOf) {
@@ -563,6 +566,7 @@ void verify_dereference(Compiler &cc, AstDereference *unary, Type *)
     if (!type->is_pointer()) {
         verification_error(unary, "cannot dereference non-pointer of type `{}`", type->get_name());
     }
+    verify_expr(cc, unary->operand, warn_discarded);
 }
 
 void verify_negate(
@@ -765,9 +769,9 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             if (ast->operation == Operation::Call) {
                 verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
             } else if (ast->operation == Operation::AddressOf) {
-                verify_addressof(cc, static_cast<AstAddressOf *>(ast), expected);
+                verify_addressof(cc, ast, expected, warn_discarded);
             } else if (ast->operation == Operation::Dereference) {
-                verify_dereference(cc, static_cast<AstDereference *>(ast), expected);
+                verify_dereference(cc, ast, expected, warn_discarded);
             } else if (ast->operation == Operation::Negate) {
                 verify_negate(cc, static_cast<AstUnary *>(ast), expected, warn_discarded);
             } else if (ast->operation == Operation::LogicalNot) {
@@ -918,11 +922,17 @@ void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
 void verify_assign(Compiler &cc, Ast *ast)
 {
     auto *binary = static_cast<AstBinary *>(ast);
-    if (binary->left->type != AstType::Identifier) {
+    if (binary->left->type != AstType::Identifier
+        && binary->left->operation != Operation::Dereference) {
         verification_error(ast, "assignment to invalid value");
     }
+    if (binary->left->operation == Operation::Dereference) {
+        binary->operation = Operation::Store;
+        binary->left->operation = Operation::Load;
+    }
     verify_expr(cc, binary->left, WarnDiscardedReturn::No);
-    auto *expected = static_cast<AstIdentifier *>(binary->left)->var->type;
+    ExprConstness constness;
+    auto *expected = get_expression_type(cc, binary->left, &constness, TypeOverridable::No);
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
 }
 

@@ -180,7 +180,8 @@ void print_ast(File &file, Ast *ast, std::string indent)
                 }
             } else if (ast->operation == Operation::Negate || ast->operation == Operation::AddressOf
                 || ast->operation == Operation::Dereference
-                || ast->operation == Operation::LogicalNot || ast->operation == Operation::Cast) {
+                || ast->operation == Operation::LogicalNot || ast->operation == Operation::Cast
+                || ast->operation == Operation::Load || ast->operation == Operation::Store) {
                 print_ast(file, static_cast<AstUnary *>(ast)->operand, indent);
             } else {
                 TODO();
