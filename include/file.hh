@@ -29,6 +29,8 @@ struct File {
     static File from_fd(int fd);
     static File make_temporary(const std::string &extension, OpenFlags);
 
+    ~File();
+
     // Did a factory function/open() call succeed?
     bool is_valid() const;
 

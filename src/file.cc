@@ -76,9 +76,14 @@ File File::make_temporary(const std::string &extension, OpenFlags flags)
     return ret;
 }
 
+File::~File()
+{
+    close();
+}
+
 bool File::is_valid() const
 {
-    return file_handle != -1 && fcntl(this->file_handle, F_GETFD) >= 0;
+    return file_handle != -1 && fcntl(file_handle, F_GETFD) >= 0;
 }
 
 bool File::open(const std::string &name, OpenFlags flags)
@@ -149,7 +154,7 @@ bool File::commit()
         return true;
     }
     if (!is_valid() || !has_flag(flags, OpenFlags::WRITE)
-        || ::write(file_handle, this->write_buffer.c_str(), this->write_buffer.length())
+        || ::write(file_handle, write_buffer.c_str(), write_buffer.length())
             < ssize(write_buffer)) {
         return false;
     }
@@ -164,7 +169,9 @@ bool File::close(File::Commit commit)
         ret = this->commit();
     }
     // Keep the filename on purpose
-    ::close(file_handle);
+    if (is_valid()) {
+        ::close(file_handle);
+    }
     file_handle = -1;
     file_size = 0;
     if (map) {
