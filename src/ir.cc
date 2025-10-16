@@ -43,13 +43,14 @@ void add_ir(IR *ir, BasicBlock *bb)
 
 void new_ir_function(Compiler &cc, AstFunction *ast)
 {
-    if (has_flag(ast->attributes, FunctionAttributes::DumpAst)) {
-        if (!opts.testing) {
+    if (!opts.testing) {
+        if (has_flag(ast->attributes, FunctionAttributes::DumpAst)) {
             std::println("{}============= {}AST for `{}`{} ============={}", colors::Cyan,
                 colors::DefaultBold, ast->name, colors::Cyan, colors::Default);
             print_ast(stdout_file(), ast);
         }
     }
+
     auto *fn = new IRFunction;
     fn->ast = ast;
     auto &irb = cc.ir_builder;
@@ -746,12 +747,12 @@ void optimize_ir(Compiler &cc)
 
     build_successor_lists(cc);
 
-    for (auto *ir_fn : cc.ir_builder.functions) {
-        if (has_flag(ir_fn->ast->attributes, FunctionAttributes::DumpIR)) {
-            if (!opts.testing) {
-                std::println("{}============= {}IR for `{}`{} ============={}", colors::Cyan,
-                    colors::DefaultBold, ir_fn->ast->name, colors::Cyan, colors::Default);
-                print_ir(stdout_file(), *cc.ir_builder.current_function);
+    if (!opts.testing) {
+        for (auto *ir_fn : cc.ir_builder.functions) {
+            if (has_flag(ir_fn->ast->attributes, FunctionAttributes::DumpIR)) {
+                std::println("{}============= {}IR for `{}`{} ============={}", colors::Green,
+                    colors::Cyan, demangled_name(ir_fn->ast->name), colors::Green, colors::Default);
+                print_ir(stdout_file(), *ir_fn);
             }
         }
     }
