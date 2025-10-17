@@ -116,6 +116,18 @@ template<typename... Args>
     exit(EXIT_FAILURE);
 }
 
+template<typename... Args>
+void print_error(std::string_view msg, Args &&...args)
+{
+    std::print("{}error:{} ", colors::Red, colors::Default);
+    if constexpr (sizeof...(args)) {
+        std::println(
+            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+    } else {
+        std::println("{}", msg);
+    }
+}
+
 // clang-format off
 #define DEFINE_ENUM_OPERATOR(type, op)                                            \
     constexpr type operator op(const type lhs, const type rhs) noexcept           \

@@ -16,6 +16,8 @@
 
 void process_cmdline(ArgumentParser &ap)
 {
+    std::vector<size_t> unknown_args;
+
     for (size_t i = 1; i < ap.arguments.size(); ++i) {
         switch (hash(ap.arguments[i])) {
             case hash("--test"):
@@ -41,11 +43,17 @@ void process_cmdline(ArgumentParser &ap)
                 break;
             default:
                 if (i < ap.arguments.size() - 1) {
-                    std::println(
-                        "{}unknown argument{} '{}'", colors::Red, colors::Default, ap.arguments[i]);
-                    usage(EXIT_FAILURE);
+                    unknown_args.push_back(i);
                 }
         }
+    }
+
+    if (!unknown_args.empty()) {
+        for (auto i : unknown_args) {
+            print_error(
+                "unknown argument '{}{}{}'", colors::DefaultBold, ap.arguments[i], colors::Default);
+        }
+        exit(EXIT_FAILURE);
     }
 
     if (opts.testing && !opts.output_name.empty()) {
