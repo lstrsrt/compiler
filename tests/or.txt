@@ -1,0 +1,4 @@
+#{returns(11)}
+x := 8
+y := 11
+return x | y

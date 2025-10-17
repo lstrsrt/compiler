@@ -1,0 +1,4 @@
+#{returns(3)}
+x := 15
+y := 19
+return x & y

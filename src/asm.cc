@@ -4,7 +4,7 @@
 #include "file.hh"
 #include "frontend.hh"
 #include "ir.hh"
-#include "parser.hh"
+#include "verify.hh"
 
 #include <utility>
 
@@ -215,6 +215,11 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("neg rax");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
+        case Operation::Not:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("not rax");
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
         case Operation::AddressOf:
             emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
@@ -328,11 +333,13 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::Divide:
             [[fallthrough]];
-        case Operation::Modulo:
+        case Operation::Modulo: {
             emit("push rdx");
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
             emit("mov r10, {}", extract_ir_arg(ir_fn, ir->right));
-            if (ir->ast->expr_type->has_flag(TypeFlags::UNSIGNED)) {
+            auto *type = ir->ast->expr_type;
+            assert(type);
+            if (type->has_flag(TypeFlags::UNSIGNED)) {
                 emit("xor edx, edx");
                 emit("div r10");
             } else {
@@ -346,6 +353,55 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             }
             emit("pop rdx");
             break;
+        }
+        case Operation::And:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("and rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
+        case Operation::Or:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("or rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
+        case Operation::Xor:
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("xor rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
+        case Operation::LeftShift:
+        case Operation::RightShift:
+        case Operation::LeftRotate:
+            [[fallthrough]];
+        case Operation::RightRotate: {
+            const char *op = [&, func = __func__]() {
+                switch (ir->operation) {
+                    case Operation::RightShift: {
+                        auto *type = ir->ast->expr_type;
+                        assert(type);
+                        bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
+                        return is_unsigned ? "shr" : "sar";
+                    }
+                    case Operation::LeftShift:
+                        return "shl";
+                    case Operation::LeftRotate:
+                        return "rol";
+                    case Operation::RightRotate:
+                        return "ror";
+                    default:
+                        todo(func, __FILE__, __LINE__);
+                }
+            }();
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            if (is_on_stack(ir->right.arg_type)) {
+                emit("mov cl, {}", extract_ir_arg(ir_fn, ir->right));
+                emit("{} rax, cl", op); // nasm doesn't like cl not being named explicitly
+            } else {
+                emit("{} rax, {}", op, extract_ir_arg(ir_fn, ir->right));
+            }
+            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            break;
+        }
         case Operation::Equals:
         case Operation::NotEquals:
         case Operation::Greater:
@@ -461,15 +517,15 @@ std::string escape_string(const std::string &s)
     std::string ret;
     bool did_escape = false;
     bool in_string = false;
-    for (size_t i = 0; i < s.size(); ++i) {
-        if (is_control_char(s[i])) {
+    for (char i : s) {
+        if (is_control_char(i)) {
             if (in_string) {
                 ret += "\", ";
                 in_string = false;
             } else if (did_escape) {
                 ret += ", ";
             }
-            ret += std::format("{}", static_cast<int>(s[i]));
+            ret += std::format("{}", static_cast<int>(i));
             did_escape = true;
         } else {
             if (did_escape) {
@@ -478,7 +534,7 @@ std::string escape_string(const std::string &s)
             } else if (!in_string) {
                 ret += "\"";
             }
-            ret += s[i];
+            ret += i;
             in_string = true;
         }
     }
@@ -515,7 +571,7 @@ void emit_asm(Compiler &cc)
 
     output_file.write(write_buffer);
     write_buffer.clear();
-    if (!output_file.close()) {
+    if (!output_file.commit()) {
         die("{}: unable to write to output file '{}'", cc.lexer.input.filename, output);
     }
 }

@@ -104,6 +104,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
             break;
         }
         case Operation::Negate:
+        case Operation::Not:
         case Operation::AddressOf:
         case Operation::Dereference:
             [[fallthrough]];

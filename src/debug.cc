@@ -178,7 +178,8 @@ void print_ast(File &file, Ast *ast, std::string indent)
                 for (Ast *arg : call->args) {
                     print_ast(file, arg, indent);
                 }
-            } else if (ast->operation == Operation::Negate || ast->operation == Operation::AddressOf
+            } else if (ast->operation == Operation::Negate || ast->operation == Operation::Not
+                || ast->operation == Operation::AddressOf
                 || ast->operation == Operation::Dereference
                 || ast->operation == Operation::LogicalNot || ast->operation == Operation::Cast
                 || ast->operation == Operation::Load || ast->operation == Operation::Store) {

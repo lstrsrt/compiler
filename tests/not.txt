@@ -1,0 +1,6 @@
+#{returns(1)}
+x: u64 = 1
+if ~x == 0xffff_ffff_ffff_fffe {
+    return 1
+}
+return 0

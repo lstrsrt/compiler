@@ -249,7 +249,7 @@ Type *get_binary_expression_type(
     flatten_binary(binary, operands);
 
     for (auto *ast : operands) {
-        ExprConstness expr_constness;
+        ExprConstness expr_constness{};
         current = get_expression_type(cc, ast, &expr_constness, overridable);
         if (!ret) {
             // First time, just set it to whatever we got.
@@ -269,15 +269,30 @@ Type *get_binary_expression_type(
         constness |= expr_constness;
     }
 
-    if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
+    /*if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
         // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
         // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
         // overflowing add.
         traverse_postorder(
             ast, [&](Ast *&ast) { ast = try_constant_fold(cc, ast, ret, overridable); });
-    }
+    }*/
 
     return ret;
+}
+
+Type *make_unsigned(Type *type)
+{
+    assert(type->has_flag(TypeFlags::Integer));
+    if (type->has_flag(TypeFlags::UNSIGNED)) {
+        return type;
+    }
+    if (type->size == 4) {
+        return u32_type();
+    }
+    if (type->size == 8) {
+        return u64_type();
+    }
+    TODO();
 }
 
 Type *get_expression_type(
@@ -287,7 +302,6 @@ Type *get_expression_type(
         return nullptr;
     }
     assert(constness);
-    *constness = {};
 
     ast->expr_type = [&, func = __func__]() -> Type * {
         switch (ast->type) {
@@ -326,24 +340,31 @@ Type *get_expression_type(
                 }
                 if (ast->operation == Operation::Dereference || ast->operation == Operation::Load) {
                     auto *type = get_expression_type(
-                        cc, static_cast<AstDereference *>(ast)->operand, constness, overridable);
+                        cc, static_cast<AstUnary *>(ast)->operand, constness, overridable);
 
                     if (!type->is_pointer()) {
-                        verification_error(static_cast<AstDereference *>(ast)->operand,
+                        verification_error(static_cast<AstUnary *>(ast)->operand,
                             "cannot dereference non-pointer of type `{}`", type->get_name());
                     }
 
                     return type->real;
                 }
-                // TODO: set constness?
                 if (ast->operation == Operation::Negate) {
+                    *constness |= ExprConstness::SawNonConstant;
                     return get_expression_type(
-                        cc, static_cast<AstUnary *>(ast)->operand, constness, overridable);
+                        cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
                 }
                 if (ast->operation == Operation::LogicalNot) {
+                    *constness |= ExprConstness::SawNonConstant;
                     return bool_type();
                 }
+                if (ast->operation == Operation::Not) {
+                    *constness |= ExprConstness::SawNonConstant;
+                    return get_expression_type(
+                        cc, static_cast<AstNot *>(ast)->operand, constness, overridable);
+                }
                 if (ast->operation == Operation::Cast) {
+                    *constness |= ExprConstness::SawNonConstant;
                     return static_cast<AstCast *>(ast)->cast_type;
                 }
                 [[fallthrough]];
@@ -485,7 +506,8 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
         auto *&arg = call->args[i];
         bool named_param = is_named_param(arg);
         if (named_param ^ named_call) {
-            verification_error(arg, "either no or all parameters must be named");
+            auto *p = named_param ? static_cast<AstBinary *>(arg)->left : arg;
+            verification_error(p, "either no or all parameters must be named");
         }
         if (named_param) {
             // Named parameter
@@ -545,50 +567,79 @@ void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_
     if (unary->operand->type != AstType::Identifier) {
         verification_error(unary->operand, "cannot take address of rvalue");
     }
-    ExprConstness constness;
+
+    ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     if (type->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
         verification_error(unary, "exceeded indirection limit");
     }
+
     verify_expr(cc, unary->operand, warn_discarded);
 }
 
 void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
 {
-    auto *unary = static_cast<AstAddressOf *>(ast);
+    auto *unary = static_cast<AstDereference *>(ast);
     if (unary->operand->type != AstType::Identifier
         && unary->operand->operation != Operation::Dereference
         && unary->operand->operation != Operation::AddressOf) {
         verification_error(unary->operand, "cannot dereference rvalue");
     }
-    ExprConstness constness;
+
+    ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     if (!type->is_pointer()) {
         verification_error(unary, "cannot dereference non-pointer of type `{}`", type->get_name());
     }
+
     verify_expr(cc, unary->operand, warn_discarded);
 }
 
 void verify_negate(
-    Compiler &cc, AstUnary *unary, Type *expected, WarnDiscardedReturn warn_discarded)
+    Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded, TypeOverridable)
 {
+    auto *unary = static_cast<AstNegate *>(ast);
+
+    auto negation_error = [&]() {
+        verification_type_error(unary->location,
+            "negation of unsupported type `{}`.\n"
+            "only signed integers may be negated",
+            expected->get_name());
+    };
+
     if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)
         || expected->is_pointer()) {
-        verification_type_error(unary->location,
-            "negation of unsupported type `{}`.\n"
-            "only signed integers may be negated.",
-            expected->get_name());
+        negation_error();
     }
 
-    verify_expr(cc, unary->operand, warn_discarded);
+    verify_expr(cc, unary->operand, warn_discarded, expected);
 
-    ExprConstness constness;
+    ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
-        verification_type_error(unary->location,
-            "negation of unsupported type `{}`.\n"
-            "only signed integers may be negated.",
-            type->get_name());
+        negation_error();
+    }
+}
+
+bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
+{
+    return type->get_kind() == TypeFlags::Integer
+        && (expr_is_fully_constant(constness) || type->has_flag(TypeFlags::UNSIGNED));
+}
+
+void verify_not(Compiler &cc, Ast *ast, Type *expected, WarnDiscardedReturn warn_discarded)
+{
+    auto *unary = static_cast<AstNot *>(ast);
+    if (!expected->has_flag(TypeFlags::Integer) || !expected->has_flag(TypeFlags::UNSIGNED)) {
+        verification_type_error(unary->location, "only unsigned types may be bitwise negated");
+    }
+
+    verify_expr(cc, unary->operand, warn_discarded, expected);
+
+    ExprConstness constness{};
+    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
+    if (!type->has_flag(TypeFlags::Integer) || !is_unsigned_or_convertible(type, constness)) {
+        verification_type_error(unary->location, "only unsigned types may be bitwise negated");
     }
 }
 
@@ -607,17 +658,80 @@ bool is_arithmetic_operation(Operation op)
     }
 }
 
-void verify_binary_operation(Compiler &cc, AstBinary *binary)
+bool is_bitwise_operation(Operation op)
 {
-    ExprConstness constness;
-    auto *lhs_type = get_expression_type(cc, binary->left, &constness, TypeOverridable::No);
-    auto *rhs_type = get_expression_type(cc, binary->right, &constness, TypeOverridable::No);
-    if (is_arithmetic_operation(binary->operation)) {
+    switch (op) {
+        case Operation::And:
+        case Operation::Or:
+        case Operation::Xor:
+        case Operation::Not:
+        case Operation::LeftShift:
+        case Operation::LeftRotate:
+        case Operation::RightShift:
+            [[fallthrough]];
+        case Operation::RightRotate:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
+{
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
+    auto *lhs_type = get_unaliased_type(
+        get_expression_type(cc, binary->left, &lhs_constness, TypeOverridable::No));
+    auto *rhs_type = get_unaliased_type(
+        get_expression_type(cc, binary->right, &rhs_constness, TypeOverridable::No));
+
+    if (is_arithmetic_operation(binary->operation) || is_bitwise_operation(binary->operation)) {
         if (lhs_type->get_kind() != TypeFlags::Integer
             || rhs_type->get_kind() != TypeFlags::Integer) {
             verification_type_error(binary->location,
                 "invalid operator applied to types `{}` and `{}`", lhs_type->get_name(),
                 rhs_type->get_name());
+        }
+
+        if (binary->operation == Operation::LeftRotate
+            || binary->operation == Operation::RightRotate) {
+            if (!is_unsigned_or_convertible(lhs_type, lhs_constness)) {
+                verification_error(binary, "rotate must be performed on an unsigned expression");
+            }
+            if (!expr_is_const_int(rhs_type, rhs_constness)) {
+                return;
+            }
+
+            if (get_int_literal(binary->right) > std::numeric_limits<uint8_t>::max()) {
+                verification_error(binary->right, "shift count exceeds maximum of {}",
+                    std::numeric_limits<uint8_t>::max());
+            }
+            return;
+        }
+
+        if (binary->operation == Operation::LeftShift
+            || binary->operation == Operation::RightShift) {
+            if (binary->right->operation == Operation::Negate) {
+                verification_error(binary->right, "negative shift counts are not allowed");
+            }
+            if (!expr_is_const_int(rhs_type, rhs_constness)) {
+                return;
+            }
+
+            if (get_int_literal(binary->right) > std::numeric_limits<uint8_t>::max()) {
+                verification_error(binary->right, "shift count exceeds maximum of {}",
+                    std::numeric_limits<uint8_t>::max());
+            }
+            // The lhs check is here so we don't warn twice (here and again in the optimizer)
+            if (!expr_is_const_int(lhs_type, lhs_constness)) {
+                if (get_int_literal(binary->right) >= expected->bit_width()) {
+                    const char *shift_type
+                        = binary->operation == Operation::LeftShift ? "left" : "right";
+                    diag::ast_warning(cc, binary, "{} shift overflows expected type `{}`",
+                        shift_type, expected->get_name());
+                }
+            }
+            return;
         }
     }
 }
@@ -626,7 +740,7 @@ void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
     WarnDiscardedReturn warn_discarded, InConditional in_conditional)
 {
     // TODO: operator overloading
-    verify_binary_operation(cc, binary);
+    verify_binary_operation(cc, binary, expected);
     verify_expr(cc, binary->left, warn_discarded, expected, in_conditional);
     verify_expr(cc, binary->right, warn_discarded, expected, in_conditional);
 }
@@ -669,8 +783,8 @@ TypeError types_match(Type *t1, Type *t2)
 
 void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
 {
-    ExprConstness lhs_constness;
-    ExprConstness rhs_constness;
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
     auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness, TypeOverridable::No);
     auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::No);
 
@@ -697,7 +811,7 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
 void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
 {
     // Canonicalize into a binary Equals
-    ExprConstness constness;
+    ExprConstness constness{};
     auto *type = get_expression_type(
         cc, static_cast<AstLogicalNot *>(ast)->operand, &constness, TypeOverridable::No);
     ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
@@ -717,7 +831,7 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
         return;
     }
 
-    ExprConstness constness;
+    ExprConstness constness{};
     auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
     if (types_match(type, expected) == TypeError::None) {
         return;
@@ -748,7 +862,7 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
 
 void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
 {
-    ExprConstness constness;
+    ExprConstness constness{};
     auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness, TypeOverridable::No));
     convert_expr_to_boolean(cc, expr, type);
 }
@@ -773,7 +887,9 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             } else if (ast->operation == Operation::Dereference) {
                 verify_dereference(cc, ast, expected, warn_discarded);
             } else if (ast->operation == Operation::Negate) {
-                verify_negate(cc, static_cast<AstUnary *>(ast), expected, warn_discarded);
+                verify_negate(cc, ast, expected, warn_discarded, TypeOverridable::No);
+            } else if (ast->operation == Operation::Not) {
+                verify_not(cc, ast, expected, warn_discarded);
             } else if (ast->operation == Operation::LogicalNot) {
                 verify_logical_not(cc, ast, warn_discarded);
                 ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
@@ -810,7 +926,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             return;
     }
     if (expected) {
-        ExprConstness constness;
+        ExprConstness constness{};
         type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
         if (get_unaliased_type(expected) == bool_type()) {
             if (type->get_kind() == TypeFlags::Boolean) {
@@ -833,7 +949,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
         // var_decl->init_expr must not be null (checked by the parser).
         // The placeholder type for inferred types is not a heap variable, so var.type is not
         // deleted before reassigning.
-        ExprConstness constness;
+        ExprConstness constness{};
         var.type = get_expression_type(cc, var_decl->init_expr, &constness, TypeOverridable::Yes);
         verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
     } else if (var_decl->init_expr) {
@@ -876,7 +992,7 @@ void verify_return(
                     return;
                 }
             }
-            ExprConstness constness;
+            ExprConstness constness{};
             verification_error(return_stmt->expr,
                 "void function `{}` must not return a value (got type `{}`)",
                 current_function->name,
@@ -931,7 +1047,7 @@ void verify_assign(Compiler &cc, Ast *ast)
         binary->left->operation = Operation::Load;
     }
     verify_expr(cc, binary->left, WarnDiscardedReturn::No);
-    ExprConstness constness;
+    ExprConstness constness{};
     auto *expected = get_expression_type(cc, binary->left, &constness, TypeOverridable::No);
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
 }
@@ -982,7 +1098,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
         } else if (ast->operation == Operation::Call) {
             verify_call(cc, static_cast<AstCall *>(ast), WarnDiscardedReturn::Yes);
         } else {
-            ExprConstness constness;
+            ExprConstness constness{};
             verify_expr(cc, ast, WarnDiscardedReturn::Yes,
                 get_expression_type(cc, ast, &constness, TypeOverridable::No));
         }

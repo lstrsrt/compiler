@@ -16,7 +16,7 @@ constexpr bool is_valid_char_in_identifier(char c)
 
 constexpr bool is_start_of_operator(char c)
 {
-    constexpr std::array<char, 18> ops{ "+-*/%(){}<>=!,:#&" };
+    constexpr std::array<char, 21> ops{ "+-*/%(){}<>=!,:#&|^~" };
     return std::ranges::any_of(ops, [c](char x) { return c == x; });
 }
 
@@ -118,6 +118,25 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
             kind = Arrow;
             return "->";
         }
+        const auto c3 = lexer.get(2);
+        if (c3 == '>' && c == '>') {
+            kind = TripleRAngle;
+            return ">>>";
+        }
+        if (c == '>') {
+            kind = DoubleRAngle;
+            return ">>";
+        }
+    } else if (c2 == '<') {
+        const auto c3 = lexer.get(2);
+        if (c3 == '<' && c == '<') {
+            kind = TripleLAngle;
+            return "<<<";
+        }
+        if (c == '<') {
+            kind = DoubleLAngle;
+            return "<<";
+        }
     }
     switch (c) {
         case '+':
@@ -171,6 +190,15 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
         case '&':
             kind = Ampersand;
             return "&";
+        case '|':
+            kind = Bar;
+            return "|";
+        case '^':
+            kind = Caret;
+            return "^";
+        case '~':
+            kind = Tilde;
+            return "~";
     }
     assert(!"lex_operator unhandled operator");
     return "";
@@ -420,7 +448,9 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
 
 std::string_view get_line(std::string_view source, uint32_t position_in_source)
 {
-    int32_t x = -1, start, end;
+    int32_t x = -1;
+    int32_t start;
+    int32_t end;
     // This is just get() but with `position_in_source` as the base.
     auto get_at = [source, position_in_source](uint32_t offset) {
         auto off = position_in_source + offset;
@@ -445,9 +475,11 @@ std::string get_highlighted_line(std::string_view source, uint32_t position_in_s
     uint32_t highlight_start, uint32_t highlight_end)
 {
     auto str = std::string(get_line(source, position_in_source));
+
     assert(highlight_start < highlight_end);
     assert(highlight_start < str.size());
-    // Insert at `highlight_end` first so the highlight_start position doesn't have to be fixed
+
+    // Insert at `highlight_end` first so `highlight_start` doesn't have to be fixed
     if (highlight_end > str.size()) {
         str += colors::Default;
     } else {

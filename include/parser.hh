@@ -44,6 +44,14 @@ enum class AstType {
     __ENUMERATE_OPERATION(Multiply)      \
     __ENUMERATE_OPERATION(Divide)        \
     __ENUMERATE_OPERATION(Modulo)        \
+    __ENUMERATE_OPERATION(And)           \
+    __ENUMERATE_OPERATION(Or)            \
+    __ENUMERATE_OPERATION(Xor)           \
+    __ENUMERATE_OPERATION(Not)           \
+    __ENUMERATE_OPERATION(LeftShift)     \
+    __ENUMERATE_OPERATION(RightShift)    \
+    __ENUMERATE_OPERATION(LeftRotate)    \
+    __ENUMERATE_OPERATION(RightRotate)   \
     __ENUMERATE_OPERATION(Equals)        \
     __ENUMERATE_OPERATION(NotEquals)     \
     __ENUMERATE_OPERATION(Greater)       \
@@ -210,6 +218,7 @@ using AstNegate = AstUnary;
 using AstAddressOf = AstUnary;
 using AstDereference = AstUnary;
 using AstLogicalNot = AstUnary;
+using AstNot = AstUnary;
 
 struct AstCast : AstUnary {
     Type *cast_type;
@@ -308,6 +317,11 @@ struct Type {
     TypeFlags get_flags() const
     {
         return flags & ~TypeFlags::kind_mask;
+    }
+
+    uint32_t bit_width() const
+    {
+        return size * 8;
     }
 
     bool has_flag(TypeFlags flag) const

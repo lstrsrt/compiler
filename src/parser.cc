@@ -18,7 +18,7 @@ using Precedence = int;
 
 namespace prec {
 constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
-                     AdditiveArithmetic = 6, MultiplicativeArithmetic = 7, Unary = 8;
+                     Bitwise = 6, AdditiveArithmetic = 7, MultiplicativeArithmetic = 8, Unary = 9;
 constexpr Precedence Lowest = Comma, Highest = Unary;
 } // namespace prec
 
@@ -32,6 +32,7 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
     using enum TokenKind;
     switch (kind) {
         case Excl:
+        case Tilde:
             return { prec::Unary, Associativity::Right };
         case Star:
         case Slash:
@@ -40,6 +41,14 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
         case Plus:
         case Minus:
             return { prec::AdditiveArithmetic, Associativity::Left };
+        case Bar:
+        case Caret:
+        case Ampersand:
+        case DoubleLAngle:
+        case TripleLAngle:
+        case DoubleRAngle:
+        case TripleRAngle:
+            return { prec::Bitwise, Associativity::Left };
         case EqualsEquals:
         case ExclEquals:
         case LAngle:
@@ -47,13 +56,13 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
         case RAngle:
         case RAngleEquals:
             return { prec::Comparison, Associativity::Left };
+        case And:
+            return { prec::LogicalAnd, Associativity::Left };
+        case Or:
+            return { prec::LogicalOr, Associativity::Left };
         case ColonEquals:
         case Equals:
             return { prec::Assignment, Associativity::Right };
-        case Or:
-            return { prec::LogicalOr, Associativity::Left };
-        case And:
-            return { prec::LogicalAnd, Associativity::Left };
         case Comma:
             return { prec::Comma, Associativity::Left };
         default:
@@ -187,6 +196,14 @@ Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
         return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
     }
 
+    if (token.kind == TokenKind::Tilde) {
+        consume(cc.lexer, token);
+        auto prev_col = cc.lexer.column;
+        auto *arg = parse_atom(cc, allow_var_decl);
+        enforce_single_operator<Operation::Not>(cc, token, arg, prev_col);
+        return new AstLogicalNot(Operation::Not, arg, token.location);
+    }
+
     if (token.kind == TokenKind::Ampersand) {
         consume(cc.lexer, token);
         auto prev_col = cc.lexer.column;
@@ -292,52 +309,74 @@ AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, As
     }
 
     Operation operation = Operation::None;
+    using enum TokenKind;
 
     switch (operation_token.kind) {
-        case TokenKind::Plus:
+        case Plus:
             operation = Operation::Add;
             break;
-        case TokenKind::Minus:
+        case Minus:
             operation = Operation::Subtract;
             break;
-        case TokenKind::Star:
+        case Star:
             operation = Operation::Multiply;
             break;
-        case TokenKind::Slash:
+        case Slash:
             operation = Operation::Divide;
             break;
-        case TokenKind::Percent:
+        case Percent:
             operation = Operation::Modulo;
             break;
-        case TokenKind::LAngle:
+        case LAngle:
             operation = Operation::Less;
             break;
-        case TokenKind::RAngle:
+        case DoubleLAngle:
+            operation = Operation::LeftShift;
+            break;
+        case TripleLAngle:
+            operation = Operation::LeftRotate;
+            break;
+        case RAngle:
             operation = Operation::Greater;
             break;
-        case TokenKind::Equals:
+        case DoubleRAngle:
+            operation = Operation::RightShift;
+            break;
+        case TripleRAngle:
+            operation = Operation::RightRotate;
+            break;
+        case Equals:
             operation = Operation::Assign;
             break;
-        case TokenKind::EqualsEquals:
+        case EqualsEquals:
             operation = Operation::Equals; // Not a bug
             break;
-        case TokenKind::ExclEquals:
+        case ExclEquals:
             operation = Operation::NotEquals;
             break;
-        case TokenKind::RAngleEquals:
+        case RAngleEquals:
             operation = Operation::GreaterEquals;
             break;
-        case TokenKind::LAngleEquals:
+        case LAngleEquals:
             operation = Operation::LessEquals;
             break;
-        case TokenKind::ColonEquals:
+        case ColonEquals:
             operation = Operation::VariableDecl;
             break;
-        case TokenKind::And:
+        case And:
             operation = Operation::LogicalAnd;
             break;
-        case TokenKind::Or:
+        case Or:
             operation = Operation::LogicalOr;
+            break;
+        case Ampersand:
+            operation = Operation::And;
+            break;
+        case Bar:
+            operation = Operation::Or;
+            break;
+        case Caret:
+            operation = Operation::Xor;
             break;
         default:
             parser_error(operation_token.location, "unexpected operator `{}` in binary operation",
@@ -720,6 +759,8 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
             auto token = lex(cc);
             if (auto it = cmp_attr_map.find(token.string); it != cmp_attr_map.end()) {
                 cc.test_mode.compare_type = it->second;
+            } else {
+                parser_error(token.location, "unknown compare type. supported: ast|ir|asm");
             }
             consume(cc.lexer, token);
             consume_expected(cc, TokenKind::Comma, lex(cc));
