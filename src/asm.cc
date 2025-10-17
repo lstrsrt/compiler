@@ -276,6 +276,17 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
     }
 }
 
+void emit_compare(const IRFunction &ir_fn, const IRArg &arg)
+{
+    if (arg.arg_type == IRArgType::Constant
+        && get_int_literal(arg.u.constant) > max_for_type(s32_type())) {
+        emit("mov rcx, {}", extract_ir_arg(ir_fn, arg));
+        emit("cmp rax, rcx");
+    } else {
+        emit("cmp rax, {}", extract_ir_arg(ir_fn, arg));
+    }
+}
+
 void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
 {
     const char *op = [ir, func = __func__]() {
@@ -301,7 +312,7 @@ void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
     }();
     emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
     emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-    emit("cmp rax, {}", extract_ir_arg(ir_fn, ir->right));
+    emit_compare(ir_fn, ir->right);
     emit("{} {}", op, stack_addr(ir_fn, ir->target));
 }
 
@@ -451,7 +462,7 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             auto *br = dynamic_cast<IRCondBranch *>(ir);
             const char *jcc = pick_jcc();
             emit("mov rax, {}", extract_ir_arg(ir_fn, br->left));
-            emit("cmp rax, {}", extract_ir_arg(ir_fn, br->right));
+            emit_compare(ir_fn, br->right);
             emit_cond_jump(ir, jcc, br->true_block, br->false_block);
             break;
         }
