@@ -63,16 +63,18 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
 void warning_at(Compiler &cc, SourceLocation location, std::string_view fmt, auto &&...args)
 {
     // TODO: maybe test warnings too?
-    if (!opts.testing) {
-        if (!did_prepare_last_warning) {
-            print_warning_header(cc, location);
-        } else {
-            did_prepare_last_warning = false;
-        }
-        const auto msg = std::vformat(fmt, std::make_format_args(args...));
-        std::println("{}", msg);
-        print_line(cc.lexer.string, location);
+    if (opts.testing) {
+        return;
     }
+
+    if (!did_prepare_last_warning) {
+        print_warning_header(cc, location);
+    } else {
+        did_prepare_last_warning = false;
+    }
+    const auto msg = std::vformat(fmt, std::make_format_args(args...));
+    std::println("{}", msg);
+    print_line(cc.lexer.string, location);
 }
 
 void ast_warning(Compiler &cc, Ast *ast, std::string_view fmt, auto &&...args)
@@ -83,14 +85,18 @@ void ast_warning(Compiler &cc, Ast *ast, std::string_view fmt, auto &&...args)
 void prepare_error(Compiler &cc, SourceLocation location, std::string_view fmt, auto &&...args)
 {
     diag::did_prepare_error = true;
-    print_error_header(cc, location);
-    std::println("{}", std::vformat(fmt, std::make_format_args(args...)));
+    if (!opts.testing) {
+        print_error_header(cc, location);
+        std::println("{}", std::vformat(fmt, std::make_format_args(args...)));
+    }
 }
 
 void prepare_warning(Compiler &cc, SourceLocation location, std::string_view fmt, auto &&...args)
 {
     diag::did_prepare_last_warning = true;
-    print_warning_header(cc, location);
-    std::println("{}", std::vformat(fmt, std::make_format_args(args...)));
+    if (!opts.testing) {
+        print_warning_header(cc, location);
+        std::println("{}", std::vformat(fmt, std::make_format_args(args...)));
+    }
 }
 } // namespace diag

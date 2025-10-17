@@ -4,6 +4,10 @@
 namespace diag {
 void print_line(std::string_view source, SourceLocation location)
 {
+    if (opts.testing) {
+        return;
+    }
+
     using namespace colors;
     const auto line_str = std::format("{}{}{} | ", Blue, location.line, Default);
     const auto fill_width = line_str.size() - (Blue + Default).size();
