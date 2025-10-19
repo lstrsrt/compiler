@@ -4,6 +4,7 @@
 #include "verify.hh"
 
 #include <algorithm>
+#include <bit>
 #include <limits>
 
 void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened)
@@ -357,57 +358,77 @@ bool is_negative(Type *type, uint64_t v)
     }
 }
 
-void check_shift_overflow(Compiler &cc, AstBinary *binary, uint64_t left_const,
-    uint64_t right_const, uint64_t &result, Type *&expected, TypeOverridable overridable)
+enum class Overflow {
+    No,
+    SignBitOnly,
+    Yes,
+};
+
+template<class T>
+requires std::integral<T>
+Overflow check_shift_overflow(T left, int right)
+{
+    using UnsignedT = std::make_unsigned_t<T>;
+    constexpr int bit_width = sizeof(T) * 8;
+
+    if (left == 0) {
+        return Overflow::No;
+    }
+    if (left < 0 || right >= bit_width) {
+        return Overflow::Yes;
+    }
+
+    auto leading_zeroes = std::countl_zero(static_cast<UnsignedT>(left));
+    if (right == leading_zeroes) {
+        return Overflow::SignBitOnly;
+    }
+    if (right > leading_zeroes) {
+        return Overflow::Yes;
+    }
+    return Overflow::No;
+}
+
+void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, uint64_t left_const,
+    uint64_t right_const, uint64_t result, Type *&expected, TypeOverridable overridable)
 {
     bool is_signed = !expected->has_flag(TypeFlags::UNSIGNED);
     const char *shift_type = binary->operation == Operation::LeftShift ? "left" : "right";
-    if (is_signed) {
-        bool warn = false;
-        // TODO: Can this be made less ugly??
-        if (overridable == TypeOverridable::Yes) {
-            if (static_cast<int64_t>(result) == std::numeric_limits<int64_t>::min()) {
-                warn = true;
-                expected = s64_type();
-            } else if (static_cast<int32_t>(result) == std::numeric_limits<int32_t>::min()) {
-                warn = true;
-                expected = s32_type();
-            }
+    auto overflow = [&, func = __func__]() {
+        switch (expected->size) {
+            case 8:
+                return check_shift_overflow(
+                    static_cast<int64_t>(left_const), static_cast<int>(right_const));
+            case 4:
+                return check_shift_overflow(
+                    static_cast<int32_t>(left_const), static_cast<int>(right_const));
+            default:
+                todo(func, __FILE__, __LINE__);
+        }
+    }();
+    if (is_signed && overflow == Overflow::SignBitOnly) {
+        // NOTE: This is special cased because "x := 1 << 31" should == INT32_MIN instead of
+        // casting to u32.
+        diag::ast_warning(cc, binary,
+            "{} shift on signed type `{}` changes its sign bit to negative", shift_type,
+            expected->get_name());
+        return;
+    }
+
+    if (overflow != Overflow::Yes) {
+        return;
+    }
+
+    bool overflows_u64 = right_const >= u64_type()->size;
+    if (overridable == TypeOverridable::Yes) {
+        if (overflows_u64) {
+            expected = u64_type(); // TODO: does this make sense?
         } else {
-            warn = is_negative(expected, result);
-        }
-        if (warn) {
-            // NOTE: This is special cased because "x := 1 << 31" should == INT32_MIN instead of
-            // casting to u32.
-            diag::ast_warning(cc, binary,
-                "{} shift on signed type `{}` changes its sign bit to negative", shift_type,
-                expected->get_name());
-            return;
+            expected = get_fitting_int_type(result);
         }
     }
-
-    bool overflows_type = right_const > expected->bit_width() || result > max_for_type(expected);
-    if (binary->operation == Operation::LeftShift) {
-        overflows_type |= (result < left_const);
-    } else {
-        overflows_type |= (result > left_const);
-    }
-
-    if (overflows_type) {
-        bool overflows_u64 = right_const >= u64_type()->bit_width();
-        bool warn = false;
-        if (overridable == TypeOverridable::Yes) {
-            if (overflows_u64) {
-                expected = u64_type();
-                warn = true;
-            } else {
-                expected = get_fitting_int_type(result);
-            }
-        }
-        if (overridable == TypeOverridable::No || warn) {
-            diag::ast_warning(cc, binary, "{} shift overflows expected type `{}`", shift_type,
-                expected->get_name());
-        }
+    if (overridable == TypeOverridable::No || overflows_u64) {
+        diag::ast_warning(
+            cc, binary, "{} shift overflows expected type `{}`", shift_type, expected->get_name());
     }
 }
 
@@ -470,7 +491,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             break;
         case Operation::LeftShift: {
             result = left_const << right_const;
-            check_shift_overflow(
+            diagnose_shift_overflow(
                 cc, binary, left_const, right_const, result, expected, overridable);
             break;
         }
@@ -480,7 +501,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             } else {
                 result = left_const >> right_const;
             }
-            check_shift_overflow(
+            diagnose_shift_overflow(
                 cc, binary, left_const, right_const, result, expected, overridable);
             break;
         case Operation::LeftRotate:

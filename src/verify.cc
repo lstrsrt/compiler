@@ -269,13 +269,15 @@ Type *get_binary_expression_type(
         constness |= expr_constness;
     }
 
-    /*if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
+    if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
         // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
         // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
         // overflowing add.
-        traverse_postorder(
-            ast, [&](Ast *&ast) { ast = try_constant_fold(cc, ast, ret, overridable); });
-    }*/
+        //
+        // The AST is not actually overwritten because we want to verify the individual operands
+        // later.
+        traverse_postorder(ast, [&](Ast *ast) { try_constant_fold(cc, ast, ret, overridable); });
+    }
 
     return ret;
 }
@@ -698,12 +700,15 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             if (!is_unsigned_or_convertible(lhs_type, lhs_constness)) {
                 verification_error(binary, "rotate must be performed on an unsigned expression");
             }
+            if (binary->left->operation == Operation::Negate) {
+                diag::ast_warning(cc, binary->left, "rotating negative value");
+            }
             if (!expr_is_const_int(rhs_type, rhs_constness)) {
                 return;
             }
 
             if (get_int_literal(binary->right) > std::numeric_limits<uint8_t>::max()) {
-                verification_error(binary->right, "shift count exceeds maximum of {}",
+                verification_error(binary->right, "rotate count exceeds maximum of {}",
                     std::numeric_limits<uint8_t>::max());
             }
             return;
@@ -713,6 +718,10 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             || binary->operation == Operation::RightShift) {
             if (binary->right->operation == Operation::Negate) {
                 verification_error(binary->right, "negative shift counts are not allowed");
+            }
+            if (binary->operation == Operation::LeftShift
+                && binary->left->operation == Operation::Negate) {
+                diag::ast_warning(cc, binary->left, "left shifting negative value");
             }
             if (!expr_is_const_int(rhs_type, rhs_constness)) {
                 return;
@@ -724,7 +733,7 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             }
             // The lhs check is here so we don't warn twice (here and again in the optimizer)
             if (!expr_is_const_int(lhs_type, lhs_constness)) {
-                if (get_int_literal(binary->right) >= expected->bit_width()) {
+                if (get_int_literal(binary->right) >= expected->size) {
                     const char *shift_type
                         = binary->operation == Operation::LeftShift ? "left" : "right";
                     diag::ast_warning(cc, binary, "{} shift overflows expected type `{}`",
@@ -867,6 +876,37 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
     convert_expr_to_boolean(cc, expr, type);
 }
 
+void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
+{
+    switch (ast->operation) {
+        case Operation::Call:
+            verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
+            break;
+        case Operation::AddressOf:
+            verify_addressof(cc, ast, expected, warn_discarded);
+            break;
+        case Operation::Dereference:
+            verify_dereference(cc, ast, expected, warn_discarded);
+            break;
+        case Operation::Negate:
+            verify_negate(cc, ast, expected, warn_discarded, TypeOverridable::No);
+            break;
+        case Operation::Not:
+            verify_not(cc, ast, expected, warn_discarded);
+            break;
+        case Operation::LogicalNot:
+            verify_logical_not(cc, ast, warn_discarded);
+            ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
+            ast = apply_de_morgan_laws(ast);
+            break;
+        case Operation::Load:
+            // synthetic operation
+            return;
+        default:
+            TODO();
+    }
+}
+
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected,
     InConditional in_conditional)
 {
@@ -880,21 +920,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
         case AstType::String:
             break;
         case AstType::Unary:
-            if (ast->operation == Operation::Call) {
-                verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
-            } else if (ast->operation == Operation::AddressOf) {
-                verify_addressof(cc, ast, expected, warn_discarded);
-            } else if (ast->operation == Operation::Dereference) {
-                verify_dereference(cc, ast, expected, warn_discarded);
-            } else if (ast->operation == Operation::Negate) {
-                verify_negate(cc, ast, expected, warn_discarded, TypeOverridable::No);
-            } else if (ast->operation == Operation::Not) {
-                verify_not(cc, ast, expected, warn_discarded);
-            } else if (ast->operation == Operation::LogicalNot) {
-                verify_logical_not(cc, ast, warn_discarded);
-                ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
-                ast = apply_de_morgan_laws(ast);
-            }
+            verify_unary(cc, ast, warn_discarded, expected);
             break;
         case AstType::Binary: {
             auto *binary = static_cast<AstBinary *>(ast);
