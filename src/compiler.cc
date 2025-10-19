@@ -107,8 +107,12 @@ void Compiler::add_default_types()
 {
     auto *global_scope = g_scopes[0];
     global_scope->types["void"] = void_type();
+    global_scope->types["u8"] = u8_type();
+    global_scope->types["u16"] = u16_type();
     global_scope->types["u32"] = u32_type();
     global_scope->types["u64"] = u64_type();
+    global_scope->types["s8"] = s8_type();
+    global_scope->types["s16"] = s16_type();
     global_scope->types["s32"] = s32_type();
     global_scope->types["s64"] = s64_type();
     global_scope->types["bool"] = bool_type();

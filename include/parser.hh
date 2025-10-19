@@ -319,9 +319,12 @@ struct Type {
         return flags & ~TypeFlags::kind_mask;
     }
 
-    uint32_t bit_width() const
+    size_t byte_size() const
     {
-        return size * 8;
+        if (size == 1) {
+            return 1;
+        }
+        return size / 8;
     }
 
     bool has_flag(TypeFlags flag) const
@@ -346,8 +349,12 @@ struct Type {
 };
 
 Type *void_type();
+Type *u8_type();
+Type *u16_type();
 Type *u32_type();
 Type *u64_type();
+Type *s8_type();
+Type *s16_type();
 Type *s32_type();
 Type *s64_type();
 Type *string_type();

@@ -74,7 +74,7 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
     }
 
     if (src.arg_type == IRArgType::Variable) {
-        offset += align_up(get_unaliased_type(src.u.variable->type)->size, 8);
+        offset += align_up(get_unaliased_type(src.u.variable->type)->byte_size(), 8);
     } else if (src.arg_type == IRArgType::Vreg) {
         offset += 8;
     }

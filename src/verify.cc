@@ -16,11 +16,27 @@ Type *void_type()
     return &s_type;
 }
 
+Type *u8_type()
+{
+    static Type s_type{ .name = "u8",
+        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
+        .size = 8 };
+    return &s_type;
+}
+
+Type *u16_type()
+{
+    static Type s_type{ .name = "u16",
+        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
+        .size = 16 };
+    return &s_type;
+}
+
 Type *u32_type()
 {
     static Type s_type{ .name = "u32",
         .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
-        .size = 4 };
+        .size = 32 };
     return &s_type;
 }
 
@@ -28,14 +44,28 @@ Type *u64_type()
 {
     static Type s_type{ .name = "u64",
         .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
-        .size = 8 };
+        .size = 64 };
+    return &s_type;
+}
+
+Type *s8_type()
+{
+    static Type s_type{ .name = "s8", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 8 };
+    return &s_type;
+}
+
+Type *s16_type()
+{
+    static Type s_type{
+        .name = "s16", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 16
+    };
     return &s_type;
 }
 
 Type *s32_type()
 {
     static Type s_type{
-        .name = "s32", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 4
+        .name = "s32", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 32
     };
     return &s_type;
 }
@@ -43,7 +73,7 @@ Type *s32_type()
 Type *s64_type()
 {
     static Type s_type{
-        .name = "s64", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 8
+        .name = "s64", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 64
     };
     return &s_type;
 }
@@ -61,7 +91,7 @@ Type *string_type()
     // TODO - this is null terminated for now.
     // in the future, use an explicit length member instead.
     static Type s_type{
-        .name = "string", .flags = TypeFlags::String | TypeFlags::BUILTIN, .size = 8
+        .name = "string", .flags = TypeFlags::String | TypeFlags::BUILTIN, .size = 64
     };
     return &s_type;
 }
@@ -70,7 +100,7 @@ Type *null_type()
 {
     static Type s_null{ .name = "null",
         .flags = TypeFlags::Integer | TypeFlags::BUILTIN,
-        .size = 8,
+        .size = 64,
         .pointer = 1,
         .real = nullptr,
         .location = {} };
@@ -288,11 +318,15 @@ Type *make_unsigned(Type *type)
     if (type->has_flag(TypeFlags::UNSIGNED)) {
         return type;
     }
-    if (type->size == 4) {
-        return u32_type();
-    }
-    if (type->size == 8) {
-        return u64_type();
+    switch (type->size) {
+        case 8:
+            return u8_type();
+        case 16:
+            return u16_type();
+        case 32:
+            return u32_type();
+        case 64:
+            return u64_type();
     }
     TODO();
 }
@@ -335,7 +369,7 @@ Type *get_expression_type(
                     auto *type = get_expression_type(cc, operand, constness, overridable);
                     auto *ptr = new Type;
                     *ptr = *type;
-                    ptr->size = 8;
+                    ptr->size = 64;
                     ptr->pointer = type->pointer + 1;
                     ptr->real = type;
                     return ptr;
@@ -447,10 +481,16 @@ uint64_t max_for_type(Type *t)
     switch (t->size) {
         case 1:
             return 1;
-        case 4:
+        case 8:
+            return is_unsigned ? std::numeric_limits<uint8_t>::max()
+                               : std::numeric_limits<int8_t>::max();
+        case 16:
+            return is_unsigned ? std::numeric_limits<uint16_t>::max()
+                               : std::numeric_limits<int16_t>::max();
+        case 32:
             return is_unsigned ? std::numeric_limits<uint32_t>::max()
                                : std::numeric_limits<int32_t>::max();
-        case 8:
+        case 64:
             return is_unsigned ? std::numeric_limits<uint64_t>::max()
                                : std::numeric_limits<int64_t>::max();
     }
@@ -476,7 +516,11 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     }
 
     if (type->size > wanted_type->size) {
-        return TypeError::SizeMismatch;
+        // If the below check is false, this is a literal that can be casted down
+        if (!expr_is_fully_constant(constness)
+            || get_int_literal(expr) > max_for_type(wanted_type)) {
+            return TypeError::SizeMismatch;
+        }
     }
     // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
     // where y is a s64.
@@ -504,8 +548,8 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
         return ast->operation == Operation::Assign;
     };
     bool named_call = !call->args.empty() && is_named_param(call->args[0]);
-    for (size_t i = 0; i < call->args.size(); ++i) {
-        auto *&arg = call->args[i];
+    for (size_t arg_idx = 0; arg_idx < call->args.size(); ++arg_idx) {
+        auto *&arg = call->args[arg_idx];
         bool named_param = is_named_param(arg);
         if (named_param ^ named_call) {
             auto *p = named_param ? static_cast<AstBinary *>(arg)->left : arg;
@@ -521,31 +565,31 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
             // At this point, the identifier's type is still unresolved, but it will be set and
             // checked by verify_expr. Here we only check that the call expr itself is valid.
             auto *ident = static_cast<AstIdentifier *>(named_param->left);
-            int j = -1;
+            int param_idx = -1;
             for (auto *param : fn->params) {
                 if (param->var.name == ident->var->name) {
-                    j = param->var.param_index;
-                    if (std::cmp_not_equal(i, j) && filled[j]) {
-                        verification_error(ident, "repeated named parameter");
+                    param_idx = param->var.param_index;
+                    if (std::cmp_not_equal(arg_idx, param_idx) && filled[param_idx]) {
+                        verification_error(ident, "repeated named parameter `{}`", param->var.name);
                     }
-                    filled[j] = true;
+                    filled[param_idx] = true;
                     break;
                 }
             }
-            if (j == -1) {
+            if (param_idx == -1) {
                 diag::prepare_error(cc, ident->location,
                     "named parameter doesn't match any function parameter name");
                 diag::print_line(cc.lexer.string, ident->location);
                 verification_error(fn, "function definition:");
             }
-            if (std::cmp_not_equal(i, j)) {
-                std::swap(call->args[i], call->args[j]);
-                --i;
+            if (std::cmp_not_equal(arg_idx, param_idx)) {
+                std::swap(call->args[arg_idx], call->args[param_idx]);
+                --arg_idx;
             }
-            auto *expected = fn->params[j]->var.type;
+            auto *expected = fn->params[param_idx]->var.type;
             verify_expr(cc, named_param->right, WarnDiscardedReturn::No, expected);
         } else {
-            auto *wanted_type = fn->params[i]->var.type;
+            auto *wanted_type = fn->params[arg_idx]->var.type;
             verify_expr(cc, arg, WarnDiscardedReturn::No, wanted_type);
         }
     }

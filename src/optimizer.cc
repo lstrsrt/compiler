@@ -288,7 +288,40 @@ Type *get_fitting_int_type(uint64_t x)
     if (x > max_for_type(s32_type())) {
         return u32_type();
     }
-    return s32_type();
+    if (x > max_for_type(u16_type())) {
+        return s32_type();
+    }
+    if (x > max_for_type(s16_type())) {
+        return u16_type();
+    }
+    if (x > max_for_type(u8_type())) {
+        return s16_type();
+    }
+    if (x > max_for_type(s8_type())) {
+        return u8_type();
+    }
+    return s8_type();
+}
+
+uint64_t truncate(Type *type, uint64_t v)
+{
+    bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
+    switch (type->size) {
+        case 1:
+            return static_cast<uint64_t>(static_cast<bool>(v));
+        case 8:
+            return static_cast<uint64_t>(
+                is_unsigned ? static_cast<uint8_t>(v) : static_cast<int8_t>(v));
+        case 16:
+            return static_cast<uint64_t>(
+                is_unsigned ? static_cast<uint16_t>(v) : static_cast<int16_t>(v));
+        case 32:
+            return static_cast<uint64_t>(
+                is_unsigned ? static_cast<uint32_t>(v) : static_cast<int32_t>(v));
+        case 64:
+            return is_unsigned ? v : static_cast<int64_t>(v);
+    }
+    TODO();
 }
 
 #define fold_and_warn_overflow(left_const, right_const, result, expected, fn)               \
@@ -307,6 +340,7 @@ Type *get_fitting_int_type(uint64_t x)
                 }                                                                           \
             }                                                                               \
             if (overridable == TypeOverridable::No || warn) {                               \
+                result = truncate(expected, result);                                        \
                 diag::ast_warning(                                                          \
                     cc, binary, "constant expression overflows type `{}`", expected->name); \
             }                                                                               \
@@ -349,9 +383,13 @@ bool is_negative(Type *type, uint64_t v)
 {
     assert(!type->has_flag(TypeFlags::UNSIGNED));
     switch (type->size) {
-        case 4:
-            return static_cast<int32_t>(v) < 0;
         case 8:
+            return static_cast<int8_t>(v) < 0;
+        case 16:
+            return static_cast<int16_t>(v) < 0;
+        case 32:
+            return static_cast<int32_t>(v) < 0;
+        case 64:
             return static_cast<int64_t>(v) < 0;
         default:
             TODO();
@@ -397,10 +435,16 @@ void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, uint64_t left_cons
         switch (expected->size) {
             case 8:
                 return check_shift_overflow(
-                    static_cast<int64_t>(left_const), static_cast<int>(right_const));
-            case 4:
+                    static_cast<int8_t>(left_const), static_cast<int>(right_const));
+            case 16:
+                return check_shift_overflow(
+                    static_cast<int16_t>(left_const), static_cast<int>(right_const));
+            case 32:
                 return check_shift_overflow(
                     static_cast<int32_t>(left_const), static_cast<int>(right_const));
+            case 64:
+                return check_shift_overflow(
+                    static_cast<int64_t>(left_const), static_cast<int>(right_const));
             default:
                 todo(func, __FILE__, __LINE__);
         }
@@ -506,11 +550,19 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             break;
         case Operation::LeftRotate:
             switch (expected->size) {
-                case 4:
+                case 8:
+                    result = std::rotl(
+                        static_cast<uint8_t>(left_const), static_cast<int>(right_const));
+                    break;
+                case 16:
+                    result = std::rotl(
+                        static_cast<uint16_t>(left_const), static_cast<int>(right_const));
+                    break;
+                case 32:
                     result = std::rotl(
                         static_cast<uint32_t>(left_const), static_cast<int>(right_const));
                     break;
-                case 8:
+                case 64:
                     result = std::rotl(left_const, static_cast<int>(right_const));
                     break;
                 default:
@@ -519,11 +571,19 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
             break;
         case Operation::RightRotate:
             switch (expected->size) {
-                case 4:
+                case 8:
+                    result = std::rotr(
+                        static_cast<uint8_t>(left_const), static_cast<int>(right_const));
+                    break;
+                case 16:
+                    result = std::rotr(
+                        static_cast<uint16_t>(left_const), static_cast<int>(right_const));
+                    break;
+                case 32:
                     result = std::rotr(
                         static_cast<uint32_t>(left_const), static_cast<int>(right_const));
                     break;
-                case 8:
+                case 64:
                     result = std::rotr(left_const, static_cast<int>(right_const));
                     break;
                 default:

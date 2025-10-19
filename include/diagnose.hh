@@ -5,7 +5,6 @@
 #include "frontend.hh"
 #include "lexer.hh"
 #include "testing.hh"
-#include <format>
 
 //
 // Diagnostics

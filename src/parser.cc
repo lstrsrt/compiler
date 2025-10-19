@@ -253,6 +253,8 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         if (number > std::numeric_limits<int32_t>::max()) {
             return new AstLiteral(u32_type(), number, token.location);
         }
+        // Default to s32. If the user wants a smaller type,
+        // it can be specified explicitly.
         return new AstLiteral(s32_type(), number, token.location);
     }
 
@@ -457,7 +459,7 @@ Type *parse_type(Compiler &cc)
 
         auto *ptr = new Type;
         *ptr = *type;
-        ptr->size = 8;
+        ptr->size = 64;
         ptr->pointer = type->pointer + pointer;
         ptr->real = type;
         return ptr;
