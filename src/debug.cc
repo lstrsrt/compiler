@@ -101,7 +101,7 @@ static void print_var_decl(File &file, AstVariableDecl *var_decl)
         if (type->has_flag(TypeFlags::ALIAS)) {
             file.fwrite("-> {}", get_unaliased_type(type)->name);
         } else if (!type->has_flag(TypeFlags::UNRESOLVED)) {
-            file.fwrite("size {}", type->size);
+            file.fwrite("size {}", type->byte_size());
         }
     }
     file.fwrite("]\n");
