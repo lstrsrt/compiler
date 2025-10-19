@@ -1,0 +1,4 @@
+#{error(verify)}
+fn f(x: s32, y: s32) {
+}
+f(y=3, y=2)

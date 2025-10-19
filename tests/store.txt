@@ -1,0 +1,9 @@
+#{returns(1)}
+b := false
+pb := &b
+ppb := &pb
+**ppb = true
+if b {
+    return 1
+}
+return 0
