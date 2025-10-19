@@ -72,15 +72,12 @@ bool files_are_equal(const std::string &path1, const std::string &path2)
     }
     if (!file2.open(path2, OpenFlags::Open | OpenFlags::READ)) {
         std::println("couldn't open file '{}'", path2);
-        file1.close();
         return false;
     }
 
     std::string_view s1 = file1.map;
     std::string_view s2 = file2.map;
     bool equals = std::equal(s1.begin(), s1.end(), s2.begin());
-    file1.close();
-    file2.close();
     return equals;
 }
 

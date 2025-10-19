@@ -2,7 +2,7 @@
 
 [[noreturn]] void usage(int errc)
 {
-    std::println("usage: compiler [switches...] <filename>");
+    std::println("usage: compiler [options...] <filename>");
     std::println("COMMANDS:\n"
                  "\t-h, --help: print this message");
     std::println("OPTIONS:\n"

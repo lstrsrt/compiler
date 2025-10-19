@@ -63,10 +63,10 @@ std::string write_comparison_file(
     if (file.is_valid()) {
         dump_callback(file, object);
         if (!file.close()) {
-            std::println("failed to write to comparison file");
+            die("failed to write to comparison file");
         }
     } else {
-        std::println("failed to create comparison file");
+        die("failed to create comparison file");
     }
     return file.filename;
 }

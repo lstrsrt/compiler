@@ -908,12 +908,12 @@ std::string extract_integer_constant(AstLiteral *literal)
     auto *type = get_unaliased_type(literal->expr_type);
     if (type->get_kind() == TypeFlags::Integer) {
         if (type->has_flag(TypeFlags::UNSIGNED)) {
-            if (type->size == 8) {
-                return std::to_string(literal->u.u64);
+            if (type->size == 64) {
+                return std::format("{:#x}", literal->u.u64);
             }
-            return std::to_string(literal->u.u32);
+            return std::format("{:#x}", literal->u.u64);
         }
-        if (type->size == 8) {
+        if (type->size == 64) {
             return std::to_string(literal->u.s64);
         }
         return std::to_string(literal->u.s32);
@@ -922,7 +922,7 @@ std::string extract_integer_constant(AstLiteral *literal)
         return std::to_string(literal->u.boolean);
     }
     if (type->is_pointer()) {
-        return std::to_string(literal->u.u64);
+        return std::format("{:#x}", literal->u.u64);
     }
     TODO();
 }
