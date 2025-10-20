@@ -610,7 +610,8 @@ void compile_to_exe(const std::string &asm_file, const std::string &output_name)
     if (spawn_blocking_process(
             "/usr/bin/nasm", { "-f elf64", "-o", output_name + ".o", asm_file })) {
         die("nasm failure", colors::Red, colors::Default);
-    } else if (spawn_blocking_process("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
+    } else if (spawn_blocking_process(
+                   "/usr/bin/gcc", { "-no-pie", output_name + ".o", "-o", output_name })) {
         die("gcc failure", colors::Red, colors::Default);
     }
 }
