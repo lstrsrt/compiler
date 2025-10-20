@@ -105,7 +105,7 @@ constexpr uint64_t KiB(uint64_t bytes)
 #ifdef AST_USE_ARENA
 inline auto *ast_arena()
 {
-    static arena::Arena arena(KiB(8), ARENA_FL_GROW);
+    static arena::Arena arena(KiB(1024), ARENA_FL_GROW);
     return &arena;
 }
 
@@ -490,9 +490,10 @@ struct AstContinue : Ast {
 };
 
 enum_flags(FunctionAttributes, int){
-    DumpAst = (1 << 0),
-    DumpIR = (1 << 1),
-    DumpAsm = (1 << 2),
+    DumpAst = 1 << 0,
+    DumpIR = 1 << 1,
+    DumpAsm = 1 << 2,
+    BuiltinPrint = 1 << 3,
 };
 
 #ifdef AST_USE_ARENA
@@ -526,6 +527,8 @@ struct AstFunction : Ast {
 };
 
 Ast *parse_stmt(Compiler &, AstFunction *);
+
+AstFunction *print_builtin();
 
 void free_ast(Ast *);
 void free_ast(std::vector<Ast *> &);

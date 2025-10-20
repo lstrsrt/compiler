@@ -213,7 +213,6 @@ void emit_cond_jump(IR *ir, const std::string &jcc, BasicBlock *false_block, Bas
 void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
     static int stack_balance = 0;
-    static int reg_restores = 0;
     switch (ir->operation) {
         case Operation::Negate:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
@@ -251,7 +250,11 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             }
             break;
         case Operation::Call:
-            emit("call {}", ir->left.u.function->name);
+            if (has_flag(ir->left.u.function->attributes, FunctionAttributes::BuiltinPrint)) {
+                emit("call printf wrt ..plt");
+            } else {
+                emit("call {}", ir->left.u.function->name);
+            }
             if (stack_balance > 0) {
                 emit("add rsp, {}", stack_balance);
                 stack_balance = 0;
@@ -259,10 +262,6 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             if (ir->target != -1) {
                 emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             }
-            while (reg_restores) {
-                emit("pop {}", param_regs[--reg_restores]);
-            }
-            assert(reg_restores == 0);
             break;
         case Operation::Cast:
             // TODO: implement properly and skip if avoidable
@@ -583,7 +582,8 @@ void emit_asm(Compiler &cc)
         die("{}: unable to open or create output file '{}'", cc.lexer.input.filename, output);
     }
 
-    emit_impl("section .text\n");
+    emit_impl("section .text\n"
+              "extern printf\n");
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
     }

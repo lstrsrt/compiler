@@ -127,6 +127,21 @@ Variable *unresolved_var(std::string_view name)
     return new Variable(unresolved_type(), name);
 }
 
+AstFunction *print_builtin()
+{
+#ifdef AST_USE_ARENA
+    StmtVec stmts(ast_vec_allocator());
+    VariableDecls params(ast_vec_allocator());
+#else
+    StmtVec stmts;
+    VariableDecls params;
+#endif
+    params.push_back(new AstVariableDecl(string_type(), "__fmt", nullptr, {}));
+    static auto *print_fn = new AstFunction("print", void_type(), params, new AstBlock(stmts), {});
+    print_fn->attributes |= FunctionAttributes::BuiltinPrint;
+    return print_fn;
+}
+
 AstFunction *get_callee(Compiler &cc, AstCall *call)
 {
     if (!call->fn) {
@@ -535,9 +550,67 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     return TypeError::None;
 }
 
-void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded)
+void verify_print(Compiler &cc, Ast *ast)
 {
+    auto *print = static_cast<AstCall *>(ast);
+    if (print->args.size() < 1) {
+        verification_error(print, "print needs at least one argument");
+    }
+    auto *fmt = print->args[0];
+    verify_expr(cc, fmt, WarnDiscardedReturn::No, string_type());
+    // Handle fmt string
+    auto &str = static_cast<AstString *>(fmt)->string;
+    std::vector<size_t> to_replace;
+    for (size_t i = 0; i < str.size(); ++i) {
+        char c = str[i];
+        if (c == '{') {
+            if (i == str.size() || str[i + 1] != '}') {
+                verification_error(fmt, "unterminated format argument");
+            }
+            to_replace.push_back(i);
+            ++i;
+        }
+    }
+    if (to_replace.size() != print->args.size() - 1) {
+        verification_error(ast, "format string argument count doesn't match argument count");
+    }
+    for (size_t i = 1; i < print->args.size(); ++i) {
+        verify_expr(cc, print->args[i], WarnDiscardedReturn::No);
+        ExprConstness constness;
+        auto *type = get_unaliased_type(
+            get_expression_type(cc, print->args[i], &constness, TypeOverridable::No));
+        if (type->get_kind() == TypeFlags::Integer) {
+            std::string fmt_s = [&]() {
+                switch (type->size) {
+                    case 64:
+                        return type->is_unsigned() ? "%lu" : "%l";
+                    case 32:
+                        return type->is_unsigned() ? "%u" : "%d";
+                    case 16:
+                        return type->is_unsigned() ? "%hu" : "%hd";
+                    case 8:
+                        return type->is_unsigned() ? "%hhu" : "%hhd";
+                }
+                return "%d";
+            }();
+            str.replace(to_replace[i - 1], fmt_s.size(), fmt_s);
+        } else if (type->get_kind() == TypeFlags::String) {
+            str.replace(to_replace[i - 1], 2, "%s");
+        } else {
+            TODO();
+        }
+    }
+}
+
+void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+{
+    auto *call = static_cast<AstCall *>(ast);
     auto *fn = get_callee(cc, call);
+    if (has_flag(fn->attributes, FunctionAttributes::BuiltinPrint)) {
+        verify_print(cc, ast);
+        return;
+    }
+
     if (call->args.size() != fn->params.size()) {
         const char *plural = fn->params.size() == 1 ? "" : "s";
         verification_error(call, "function `{}` takes {} argument{} but was called with {}",
@@ -556,7 +629,6 @@ void verify_call(Compiler &cc, AstCall *call, WarnDiscardedReturn warn_discarded
             verification_error(p, "either no or all parameters must be named");
         }
         if (named_param) {
-            // Named parameter
             auto *named_param = static_cast<AstBinary *>(arg);
             if (named_param->left->type != AstType::Identifier) {
                 verification_error(
@@ -924,7 +996,7 @@ void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, T
 {
     switch (ast->operation) {
         case Operation::Call:
-            verify_call(cc, static_cast<AstCall *>(ast), warn_discarded);
+            verify_call(cc, ast, warn_discarded);
             break;
         case Operation::AddressOf:
             verify_addressof(cc, ast, expected, warn_discarded);
@@ -1056,7 +1128,7 @@ void verify_return(
         if (return_stmt->expr) {
             if (return_stmt->expr->operation == Operation::Call) {
                 auto *call = static_cast<AstCall *>(return_stmt->expr);
-                verify_call(cc, call, WarnDiscardedReturn::No);
+                verify_call(cc, return_stmt->expr, WarnDiscardedReturn::No);
                 if (get_callee(cc, call)->returns_void()) {
                     // Returning f() (where f returns void) is allowed
                     return;
@@ -1085,7 +1157,7 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
     if (if_stmt->expr->operation == Operation::VariableDecl) {
         verify_var_decl(cc, static_cast<AstVariableDecl *>(if_stmt->expr));
     } else {
-        // If verify_expr was called immediately, "x + 123" would be converted to "(x != 0) + 123"
+        // If verify_expr was called immediately, "x + 123" would be converted to "(x != 0) + 123".
         // The conversion has to happen on the uppermost level instead: "(x + 123) != 0".
         convert_expr_to_boolean(cc, if_stmt->expr);
         verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type(), InConditional::Yes);
@@ -1166,7 +1238,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
         if (ast->operation == Operation::Assign) {
             verify_assign(cc, ast);
         } else if (ast->operation == Operation::Call) {
-            verify_call(cc, static_cast<AstCall *>(ast), WarnDiscardedReturn::Yes);
+            verify_call(cc, ast, WarnDiscardedReturn::Yes);
         } else {
             ExprConstness constness{};
             verify_expr(cc, ast, WarnDiscardedReturn::Yes,

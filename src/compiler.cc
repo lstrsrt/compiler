@@ -117,6 +117,7 @@ void Compiler::add_default_types()
     global_scope->types["s64"] = s64_type();
     global_scope->types["bool"] = bool_type();
     global_scope->types["string"] = string_type();
+    global_scope->functions["print"] = print_builtin();
 }
 
 void free_types()
