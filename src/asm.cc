@@ -50,15 +50,18 @@ uint64_t get_key(IRArg src)
     if (src.arg_type == IRArgType::Variable) {
         return reinterpret_cast<uint64_t>(src.u.variable);
     }
+    if (src.arg_type == IRArgType::Parameter) {
+        return reinterpret_cast<uint64_t>(src.u.variable);
+    }
     TODO();
 }
 
 void debug_stack_location(int location, IRArg src)
 {
-    if (src.arg_type == IRArgType::Variable) {
-        emit(";; [rbp{:+}]: {}", location, src.u.variable->name);
-    } else {
+    if (src.arg_type == IRArgType::Vreg) {
         emit(";; [rbp{:+}]: v{}", location, src.u.vreg);
+    } else {
+        emit(";; [rbp{:+}]: {}", location, src.u.variable->name);
     }
 }
 
@@ -75,7 +78,7 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
 
     if (src.arg_type == IRArgType::Variable) {
         offset += align_up(get_unaliased_type(src.u.variable->type)->byte_size(), 8);
-    } else if (src.arg_type == IRArgType::Vreg) {
+    } else {
         offset += 8;
     }
 
@@ -85,13 +88,18 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
 
 bool is_on_stack(IRArgType src_type)
 {
-    return src_type == IRArgType::Variable || src_type == IRArgType::Vreg;
+    return src_type == IRArgType::Variable || src_type == IRArgType::Parameter
+        || src_type == IRArgType::Vreg;
 }
 
 int allocate_stack(IRFunction &ir_fn)
 {
     auto &stack_offsets = ir_fn.stack_offsets;
     int stack_size = 0;
+    for (auto *arg : ir_fn.ast->params) {
+        auto ir_arg = IRArg::make_parameter(&arg->var);
+        extend_stack(stack_size, ir_fn, ir_arg);
+    }
     for (auto *bb : ir_fn.basic_blocks) {
         if (bb->code.empty()) {
             continue;
@@ -134,11 +142,8 @@ std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 std::string extract_ir_arg(const IRFunction &ir_fn, IRArg arg)
 {
     if (arg.arg_type == IRArgType::Parameter) {
-        auto index = arg.u.variable->param_index;
-        if (index < ssize(param_regs)) {
-            return param_regs[index];
-        }
-        return std::format("[rbp+{}]", (index - ssize(param_regs) + 2) * 8);
+        // NOTE: Parameters in registers are also pushed to the stack
+        return stack_addr(ir_fn, get_key(arg));
     }
     if (arg.arg_type == IRArgType::String) {
         return std::format("str_{}", arg.string_index - 1);
@@ -235,9 +240,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::PushArg:
             if (ir->target < ssize(param_regs)) {
-                emit("push {}", param_regs[ir->target]);
                 emit("mov {}, {}", param_regs[ir->target], extract_ir_arg(ir_fn, ir->left));
-                ++reg_restores;
             } else {
                 if (ir->left.arg_type == IRArgType::Constant) {
                     emit("push {}", extract_integer_constant(ir->left.u.constant));
@@ -490,6 +493,11 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
     }
 }
 
+std::string param_offset(size_t index)
+{
+    return std::format("[rbp+{}]", (index - ssize(param_regs) + 2) * 8);
+}
+
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
     if (has_flag(ir_fn.ast->attributes, FunctionAttributes::DumpAsm)) {
@@ -505,6 +513,16 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
         ir_fn.ast->name);
     int stack_size = allocate_stack(ir_fn);
     emit_prologue(stack_size);
+    for (size_t i = 0; i < ir_fn.ast->params.size(); ++i) {
+        auto *arg = ir_fn.ast->params[i];
+        if (i < size(param_regs)) {
+            emit("mov {}, {}", stack_addr(ir_fn, reinterpret_cast<uint64_t>(&arg->var)),
+                param_regs[i]);
+        } else {
+            emit("mov rax, {}", param_offset(i));
+            emit("mov {}, rax", stack_addr(ir_fn, reinterpret_cast<uint64_t>(&arg->var)));
+        }
+    }
     for (auto *bb : ir_fn.basic_blocks) {
         if (!bb->reachable) {
             continue;
@@ -523,7 +541,7 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
     }
 }
 
-std::string escape_string(const std::string &s)
+std::string string_to_nasm(const std::string &s)
 {
     std::string ret;
     bool did_escape = false;
@@ -572,7 +590,7 @@ void emit_asm(Compiler &cc)
 
     emit_impl("\nsection .data\n");
     for (size_t i = 0; i < string_map.size(); ++i) {
-        emit_impl("str_{}: db {}, 0\n", i, escape_string(string_map[i]));
+        emit_impl("str_{}: db {}, 0\n", i, string_to_nasm(string_map[i]));
     }
 
     if (cc.test_mode.compare_type == CompareType::Asm) {
