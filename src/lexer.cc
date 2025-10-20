@@ -494,7 +494,6 @@ Token lex(Compiler &cc)
 
     skip_whitespace(lexer);
     skip_comments(cc);
-    skip_whitespace(lexer);
 
     if (lexer.out_of_bounds()) {
         return Token::make_empty();
