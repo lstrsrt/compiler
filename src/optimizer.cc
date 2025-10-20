@@ -288,19 +288,7 @@ Type *get_fitting_int_type(uint64_t x)
     if (x > max_for_type(s32_type())) {
         return u32_type();
     }
-    if (x > max_for_type(u16_type())) {
-        return s32_type();
-    }
-    if (x > max_for_type(s16_type())) {
-        return u16_type();
-    }
-    if (x > max_for_type(u8_type())) {
-        return s16_type();
-    }
-    if (x > max_for_type(s8_type())) {
-        return u8_type();
-    }
-    return s8_type();
+    return s32_type();
 }
 
 uint64_t truncate(Type *type, uint64_t v)
@@ -324,31 +312,53 @@ uint64_t truncate(Type *type, uint64_t v)
     TODO();
 }
 
-#define fold_and_warn_overflow(left_const, right_const, result, expected, fn)               \
-    {                                                                                       \
-        bool overflows_u64 = fn(left_const, right_const, &result);                          \
-        bool overflows_type = get_unaliased_type(expected) != bool_type()                   \
-            && result > max_for_type(get_unaliased_type(expected));                         \
-        bool warn = false;                                                                  \
-        if (overflows_u64 || overflows_type) {                                              \
-            if (overridable == TypeOverridable::Yes) {                                      \
-                if (overflows_u64) {                                                        \
-                    warn = true;                                                            \
-                    expected = u64_type();                                                  \
-                } else if (overflows_type) {                                                \
-                    expected = get_fitting_int_type(result);                                \
-                }                                                                           \
-            }                                                                               \
-            if (overridable == TypeOverridable::No || warn) {                               \
-                result = truncate(expected, result);                                        \
-                diag::ast_warning(                                                          \
-                    cc, binary, "constant expression overflows type `{}`", expected->name); \
-            }                                                                               \
-        }                                                                                   \
+void handle_overflow(
+    Compiler &cc, AstBinary *binary, Integer result, Type *&expected, TypeOverridable overridable)
+{
+    if (overridable == TypeOverridable::Yes) {
+        expected = get_fitting_int_type(result);
+    } else {
+        result.value = truncate(expected, result.value);
+        diag::ast_warning(cc, binary, "constant expression overflows type `{}`", expected->name);
+    }
+}
+
+#define fold_and_warn_overflow(left_const, right_const, result, expected, fn) \
+    {                                                                         \
+        bool overflows_u64 = fn(left_const, right_const, &result);            \
+        bool overflows_type = get_unaliased_type(expected) != bool_type()     \
+            && result > max_for_type(get_unaliased_type(expected));           \
+        bool warn = false;                                                    \
+        if (overflows_u64 || overflows_type) {                                \
+            handle_overflow(cc, ast, result, expected, overridable)           \
+        }                                                                     \
     }
 
-uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t left_const,
-    uint64_t right_const, Type *&expected, TypeOverridable overridable)
+enum class Overflow {
+    No,
+    SignBitOnly,
+    Yes,
+};
+
+Overflow check_overflow(Integer left_const, Integer right_const, Integer result, Type *&expected)
+{
+    if (expected->is_unsigned()) {
+        if (result.value < right_const || result.value > max_for_type(expected)) {
+            return Overflow::Yes;
+        }
+    } else {
+        result.is_signed = true;
+        if ((left_const.is_nonnegative() == right_const.is_nonnegative()
+                && result.is_nonnegative() != left_const.is_nonnegative())
+            || result.as_signed() > static_cast<int64_t>(max_for_type(expected))) {
+            return Overflow::Yes;
+        }
+    }
+    return Overflow::No;
+}
+
+uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
+    Integer right_const, Type *&expected, TypeOverridable overridable)
 {
     if (expected->has_flag(TypeFlags::UNSIGNED)) {
         // `0 - 0xffff_ffff` resolves to `1` (of type unsigned int) in C/C++. In this
@@ -357,8 +367,8 @@ uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t le
             if (expected->size < 8 && overridable == TypeOverridable::Yes) {
                 expected = s64_type();
             } else {
-                diag::warning_at(cc, binary->location, "constant expression overflows type `{}`",
-                    expected->name);
+                handle_overflow(
+                    cc, binary, Integer(left_const - right_const, false), expected, overridable);
             }
         }
         return left_const - right_const;
@@ -368,42 +378,13 @@ uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, uint64_t le
     bool overflows_i64 = __builtin_sub_overflow(
         static_cast<int64_t>(left_const), static_cast<int64_t>(right_const), &i64);
     if ((expected->size < 8 && i64 < std::numeric_limits<int32_t>::min()) || overflows_i64) {
-        if (overridable == TypeOverridable::Yes) {
-            expected = s64_type();
-        }
-        if (overridable == TypeOverridable::No || overflows_i64) {
-            diag::ast_warning(
-                cc, binary, "constant expression overflows type `{}`", expected->name);
-        }
+        handle_overflow(
+            cc, binary, Integer(static_cast<uint64_t>(i64), true), expected, overridable);
     }
     return static_cast<uint64_t>(i64);
 }
 
-bool is_negative(Type *type, uint64_t v)
-{
-    assert(!type->has_flag(TypeFlags::UNSIGNED));
-    switch (type->size) {
-        case 8:
-            return static_cast<int8_t>(v) < 0;
-        case 16:
-            return static_cast<int16_t>(v) < 0;
-        case 32:
-            return static_cast<int32_t>(v) < 0;
-        case 64:
-            return static_cast<int64_t>(v) < 0;
-        default:
-            TODO();
-    }
-}
-
-enum class Overflow {
-    No,
-    SignBitOnly,
-    Yes,
-};
-
-template<class T>
-requires std::integral<T>
+template<std::integral T>
 Overflow check_shift_overflow(T left, int right)
 {
     using UnsignedT = std::make_unsigned_t<T>;
@@ -426,8 +407,8 @@ Overflow check_shift_overflow(T left, int right)
     return Overflow::No;
 }
 
-void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, uint64_t left_const,
-    uint64_t right_const, uint64_t result, Type *&expected, TypeOverridable overridable)
+void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
+    Integer right_const, Integer result, Type *&expected, TypeOverridable overridable)
 {
     bool is_signed = !expected->has_flag(TypeFlags::UNSIGNED);
     const char *shift_type = binary->operation == Operation::LeftShift ? "left" : "right";
@@ -458,92 +439,89 @@ void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, uint64_t left_cons
         return;
     }
 
-    if (overflow != Overflow::Yes) {
+    bool overflows_u64 = right_const >= u64_type()->size;
+    if (overflow != Overflow::Yes && !overflows_u64) {
         return;
     }
 
-    bool overflows_u64 = right_const >= u64_type()->size;
-    if (overridable == TypeOverridable::Yes) {
-        if (overflows_u64) {
-            expected = u64_type(); // TODO: does this make sense?
-        } else {
-            expected = get_fitting_int_type(result);
-        }
-    }
-    if (overridable == TypeOverridable::No || overflows_u64) {
-        diag::ast_warning(
-            cc, binary, "{} shift overflows expected type `{}`", shift_type, expected->get_name());
-    }
+    handle_overflow(cc, binary, result, expected, overridable);
 }
 
-Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, uint64_t right_const,
+Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Integer right_const,
     Type *&expected, TypeOverridable overridable)
 {
-    uint64_t result;
+    Integer result{};
     switch (binary->operation) {
-        case Operation::Add:
-            fold_and_warn_overflow(
-                left_const, right_const, result, expected, __builtin_add_overflow);
+        case Operation::Add: {
+            result.value = left_const + right_const;
+            if (check_overflow(left_const, right_const, result, expected) == Overflow::Yes) {
+                handle_overflow(cc, binary, result, expected, overridable);
+            }
             break;
+        }
         case Operation::Subtract: {
-            result = fold_sub_and_warn_overflow(
+            result.value = fold_sub_and_warn_overflow(
                 cc, binary, left_const, right_const, expected, overridable);
             break;
         }
-        case Operation::Multiply:
-            fold_and_warn_overflow(
-                left_const, right_const, result, expected, __builtin_mul_overflow);
+        case Operation::Multiply: {
+            result.value = left_const * right_const;
+            if (check_overflow(left_const, right_const, result, expected) == Overflow::Yes) {
+                handle_overflow(cc, binary, result, expected, overridable);
+            }
             break;
+        }
         case Operation::Divide:
-            result = left_const / right_const;
+            result.value = left_const / right_const;
             break;
         case Operation::Modulo:
-            result = left_const % right_const;
+            result.value = left_const % right_const;
             break;
         case Operation::Equals:
-            result = left_const == right_const;
+            result.value = left_const == right_const;
             break;
         case Operation::NotEquals:
-            result = left_const != right_const;
+            result.value = left_const != right_const;
             break;
         case Operation::Less:
-            result = left_const < right_const;
+            result.value = left_const < right_const;
             break;
         case Operation::LessEquals:
-            result = left_const <= right_const;
+            result.value = left_const <= right_const;
             break;
         case Operation::Greater:
-            result = left_const > right_const;
+            result.value = left_const > right_const;
             break;
         case Operation::GreaterEquals:
-            result = left_const >= right_const;
+            result.value = left_const >= right_const;
             break;
         case Operation::LogicalAnd:
-            result = left_const && right_const;
+            result.value = left_const && right_const;
             break;
         case Operation::LogicalOr:
-            result = left_const || right_const;
+            result.value = left_const || right_const;
             break;
         case Operation::And:
-            result = left_const & right_const;
+            result.value = left_const & right_const;
             break;
         case Operation::Or:
-            result = left_const | right_const;
+            result.value = left_const | right_const;
             break;
         case Operation::Xor:
-            result = left_const ^ right_const;
+            result.value = left_const ^ right_const;
             break;
         case Operation::LeftShift: {
-            result = left_const << right_const;
+            result.value = left_const << right_const;
             diagnose_shift_overflow(
                 cc, binary, left_const, right_const, result, expected, overridable);
             break;
         }
         case Operation::RightShift:
             if (!expected->has_flag(TypeFlags::UNSIGNED)) {
-                result = static_cast<int64_t>(left_const) >> static_cast<int64_t>(right_const);
+                result.value
+                    = static_cast<int64_t>(left_const) >> static_cast<int64_t>(right_const);
             } else {
-                result = left_const >> right_const;
+                result.value = left_const >> right_const;
             }
             diagnose_shift_overflow(
                 cc, binary, left_const, right_const, result, expected, overridable);
@@ -551,19 +529,19 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
         case Operation::LeftRotate:
             switch (expected->size) {
                 case 8:
-                    result = std::rotl(
+                    result.value = std::rotl(
                         static_cast<uint8_t>(left_const), static_cast<int>(right_const));
                     break;
                 case 16:
-                    result = std::rotl(
+                    result.value = std::rotl(
                         static_cast<uint16_t>(left_const), static_cast<int>(right_const));
                     break;
                 case 32:
-                    result = std::rotl(
+                    result.value = std::rotl(
                         static_cast<uint32_t>(left_const), static_cast<int>(right_const));
                     break;
                 case 64:
-                    result = std::rotl(left_const, static_cast<int>(right_const));
+                    result.value = std::rotl(left_const.value, static_cast<int>(right_const));
                     break;
                 default:
                     TODO();
@@ -572,19 +550,19 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
         case Operation::RightRotate:
             switch (expected->size) {
                 case 8:
-                    result = std::rotr(
+                    result.value = std::rotr(
                         static_cast<uint8_t>(left_const), static_cast<int>(right_const));
                     break;
                 case 16:
-                    result = std::rotr(
+                    result.value = std::rotr(
                         static_cast<uint16_t>(left_const), static_cast<int>(right_const));
                     break;
                 case 32:
-                    result = std::rotr(
+                    result.value = std::rotr(
                         static_cast<uint32_t>(left_const), static_cast<int>(right_const));
                     break;
                 case 64:
-                    result = std::rotr(left_const, static_cast<int>(right_const));
+                    result.value = std::rotr(left_const.value, static_cast<int>(right_const));
                     break;
                 default:
                     TODO();
@@ -595,7 +573,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, uint64_t left_const, ui
     }
 
     if (get_unaliased_type(expected) == bool_type()) {
-        result = std::clamp<uint64_t>(result, 0, 1);
+        result.value = std::clamp<uint64_t>(result, 0, 1);
     }
 
     auto loc = binary->location;
@@ -615,12 +593,13 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         return binary;
     }
 
-    uint64_t left_const, right_const;
+    Integer left_const{};
+    Integer right_const{};
     if (left_is_const) {
-        left_const = get_int_literal(left);
+        left_const = static_cast<AstLiteral *>(left)->u.any;
     }
     if (right_is_const) {
-        right_const = get_int_literal(right);
+        right_const = static_cast<AstLiteral *>(right)->u.any;
     }
 
     if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {

@@ -116,8 +116,6 @@ inline auto &ast_vec_allocator()
 }
 #endif
 
-struct Type;
-
 struct Ast {
     Scope *scope;
     AstType type;
@@ -154,8 +152,119 @@ inline void free_ast_arena()
 
 Type *bool_type();
 
+struct Integer {
+    uint64_t value;
+    bool is_signed;
+
+    explicit Integer() = default;
+
+    explicit Integer(uint64_t _value, bool _is_signed)
+        : value(_value)
+        , is_signed(_is_signed)
+    {
+    }
+
+    int64_t as_signed() const
+    {
+        return static_cast<int64_t>(value);
+    }
+
+    bool is_negative() const
+    {
+        return is_signed && (as_signed() & (1UL << 63));
+    }
+
+    bool is_nonnegative() const
+    {
+        return !is_negative();
+    }
+
+    operator uint64_t() const
+    {
+        return value;
+    }
+};
+
+enum_flags(TypeFlags, int){
+    //
+    // Type kind
+    //
+    Void = 1,
+    Integer,
+    Boolean,
+    String,
+    // Float,
+    // Char, // should this be considered separate from Integer?
+    // Struct,
+    kind_mask = 0b1111,
+
+    //
+    // Flags: zero, one or multiple of these can be set
+    //
+    UNRESOLVED = 1 << 4,
+    ALIAS = 1 << 5,
+    BUILTIN = 1 << 6,
+
+    // Integer flags
+    UNSIGNED = 1 << 7,
+};
+
+struct Type {
+    std::string name{};
+    TypeFlags flags{};
+    uint8_t size = 0;
+    uint8_t pointer = 0;
+    Type *real = nullptr; // If this type is an alias or a pointer, this points to the underlying
+                          // type (which may also be an alias or pointer)
+    SourceLocation location{};
+
+    TypeFlags get_kind() const
+    {
+        return flags & TypeFlags::kind_mask;
+    }
+
+    TypeFlags get_flags() const
+    {
+        return flags & ~TypeFlags::kind_mask;
+    }
+
+    size_t byte_size() const
+    {
+        if (size == 1) {
+            return 1;
+        }
+        return size / 8;
+    }
+
+    bool has_flag(TypeFlags flag) const
+    {
+        return ::has_flag(flags, flag);
+    }
+
+    bool is_unsigned() const
+    {
+        return ::has_flag(flags, TypeFlags::UNSIGNED);
+    }
+
+    bool is_pointer() const
+    {
+        return pointer > 0;
+    }
+
+    std::string get_name() const
+    {
+        std::string s;
+        if (is_pointer()) {
+            s += std::string(pointer, '*');
+        }
+        s += name;
+        return s;
+    }
+};
+
 struct AstLiteral : Ast {
     union {
+        Integer any;
         uint32_t u32;
         uint64_t u64;
         int32_t s32;
@@ -167,7 +276,8 @@ struct AstLiteral : Ast {
         : Ast(AstType::Integer, Operation::None, _location)
     {
         expr_type = _type;
-        u.u64 = _literal;
+        u.any.value = _literal;
+        u.any.is_signed = !_type->is_unsigned();
     }
 
     explicit AstLiteral(bool _literal, SourceLocation _location)
@@ -273,83 +383,6 @@ struct AstReturn : Ast {
         : Ast(AstType::Statement, Operation::Return, _location)
         , expr(_expr)
     {
-    }
-};
-
-enum_flags(TypeFlags, int){
-    //
-    // Type kind
-    //
-    Void = 1,
-    Integer,
-    Boolean,
-    String,
-    // Float,
-    // Char, // should this be considered separate from Integer?
-    // Struct,
-    kind_mask = 0b1111,
-
-    //
-    // Flags: zero, one or multiple of these can be set
-    //
-    UNRESOLVED = (1 << 4),
-    ALIAS = (1 << 5),
-    BUILTIN = (1 << 6),
-
-    // Integer flags
-    UNSIGNED = (1 << 7),
-};
-
-struct Type {
-    std::string name{};
-    TypeFlags flags{};
-    uint8_t size = 0;
-    uint8_t pointer = 0;
-    Type *real = nullptr; // If this type is an alias or a pointer, this points to the underlying
-                          // type (which may also be an alias or pointer)
-    SourceLocation location{};
-
-    TypeFlags get_kind() const
-    {
-        return flags & TypeFlags::kind_mask;
-    }
-
-    TypeFlags get_flags() const
-    {
-        return flags & ~TypeFlags::kind_mask;
-    }
-
-    size_t byte_size() const
-    {
-        if (size == 1) {
-            return 1;
-        }
-        return size / 8;
-    }
-
-    bool has_flag(TypeFlags flag) const
-    {
-        return ::has_flag(flags, flag);
-    }
-
-    bool is_unsigned() const
-    {
-        return ::has_flag(flags, TypeFlags::UNSIGNED);
-    }
-
-    bool is_pointer() const
-    {
-        return pointer > 0;
-    }
-
-    std::string get_name() const
-    {
-        std::string s;
-        if (is_pointer()) {
-            s += std::string(pointer, '*');
-        }
-        s += name;
-        return s;
     }
 };
 
