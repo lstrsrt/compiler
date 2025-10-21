@@ -57,39 +57,58 @@ Ast *partial_fold_associative(
     return ret;
 }
 
+bool is_bitwise_operation(Operation);
+
 Ast *try_fold_identities(
     AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *expected)
 {
-    if (binary->operation == Operation::Add) {
-        if (constant == 0) {
-            // x+0=x and 0+x=x
-            delete static_cast<AstLiteral *>(constant_ast);
-            delete static_cast<AstBinary *>(binary);
-            // TODO: delete var->type if not builtin
-            static_cast<AstIdentifier *>(variable_ast)->var->type = expected;
-            return variable_ast;
-        }
-    } else /* multiply */ {
-        if (constant == 0) {
-            // x*0=0 and 0*x=0
-            delete static_cast<AstIdentifier *>(variable_ast);
-            delete static_cast<AstBinary *>(binary);
-            static_cast<AstLiteral *>(constant_ast)->expr_type = expected;
-            return constant_ast;
-        }
-        if (constant == 1) {
-            // x*1=x and 1*x=x
-            delete static_cast<AstLiteral *>(constant_ast);
-            delete static_cast<AstBinary *>(binary);
-            // TODO: delete var->type if not builtin
-            static_cast<AstIdentifier *>(variable_ast)->var->type = expected;
-            return variable_ast;
-        }
+    auto return_constant = [&]() {
+        delete static_cast<AstLiteral *>(variable_ast);
+        delete binary;
+        static_cast<AstLiteral *>(constant_ast)->expr_type = expected;
+        return constant_ast;
+    };
+    auto return_variable = [&]() {
+        delete static_cast<AstLiteral *>(constant_ast);
+        delete binary;
+        static_cast<AstIdentifier *>(variable_ast)->var->type = expected;
+        return variable_ast;
+    };
+
+    // TODO: only do this if operands don't have side effects
+
+    switch (binary->operation) {
+        case Operation::And:
+            if (constant == 0) {
+                // x & 0 == 0 and 0 & x == 0
+                return return_constant();
+            }
+            break;
+        case Operation::Multiply:
+            if (constant == 0) {
+                // x * 0 == 0 and 0 * x ==0
+                return return_constant();
+            }
+            if (constant == 1) {
+                // x * 1 == x and 1 * x == x
+                return return_variable();
+            }
+            break;
+        case Operation::Or:
+        case Operation::Xor:
+        case Operation::Add:
+            if (constant == 0) {
+                // x | 0 == x and 0 | x == x
+                return return_variable();
+            }
+            break;
+        default:
+            TODO();
     }
     return nullptr;
 }
 
-Ast *try_partial_fold_associative(
+Ast *try_partial_fold_commutative(
     AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *expected)
 {
     if (auto *id = try_fold_identities(binary, constant_ast, variable_ast, constant, expected)) {
@@ -582,6 +601,20 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Int
     return new AstLiteral(expected, result, loc);
 }
 
+bool is_commutative_operation(Operation op)
+{
+    switch (op) {
+        case Operation::Add:
+        case Operation::Multiply:
+        case Operation::And:
+        case Operation::Or:
+        case Operation::Xor:
+            return true;
+        default:
+            return false;
+    }
+}
+
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)
 {
     // Figure out which parts of the expression are constant.
@@ -609,33 +642,18 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         }
     }
 
-    // TODO: also do this for rotate, maybe other bit ops
-    // TODO: free nodes?
-    if (binary->operation == Operation::LeftShift || binary->operation == Operation::RightShift) {
-        if (right_is_const && right_const == 0) {
-            diag::ast_warning(cc, binary->right, "shift by 0 has no effect");
-            return binary->left;
-        }
-        if (left_is_const && left_const == 0) {
-            diag::ast_warning(cc, binary->left, "shifting 0 has no effect");
-            return binary->left;
-        }
-    }
-
     if (left_is_const && right_is_const) {
         // Easy case: if both sides are constants, fold unless the operation is illegal.
         return try_fold_constants(cc, binary, left_const, right_const, expected, overridable);
     }
 
-    if (binary->operation == Operation::Multiply || binary->operation == Operation::Add) {
-        // Only one side is a constant, and the operation is associative.
+    if (is_commutative_operation(binary->operation)) {
+        // Only one side is a constant, and the operation is commutative.
         auto *constant_ast = left_is_const ? left : right;
         auto *variable_ast = left_is_const ? right : left;
         auto constant = left_is_const ? left_const : right_const;
-        return try_partial_fold_associative(binary, constant_ast, variable_ast, constant, expected);
+        return try_partial_fold_commutative(binary, constant_ast, variable_ast, constant, expected);
     }
-
-    // TODO: non-associative folding
 
     return binary;
 }
