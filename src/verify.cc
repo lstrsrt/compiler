@@ -331,7 +331,7 @@ Type *get_binary_expression_type(
 
 Type *make_unsigned(Type *type)
 {
-    assert(type->has_flag(TypeFlags::Integer));
+    assert(type->get_kind() == TypeFlags::Integer);
     if (type->has_flag(TypeFlags::UNSIGNED)) {
         return type;
     }
@@ -524,7 +524,7 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (wanted_type == type) {
         return TypeError::None;
     }
-    if (!type->has_flag(TypeFlags::Integer) || !wanted_type->has_flag(TypeFlags::Integer)) {
+    if (type->get_kind() != TypeFlags::Integer || wanted_type->get_kind() != TypeFlags::Integer) {
         return TypeError::Default;
     }
     if (type->pointer != wanted_type->pointer) {
@@ -726,7 +726,7 @@ void verify_negate(
             expected->get_name());
     };
 
-    if (!expected->has_flag(TypeFlags::Integer) || expected->has_flag(TypeFlags::UNSIGNED)
+    if (expected->get_kind() != TypeFlags::Integer || expected->has_flag(TypeFlags::UNSIGNED)
         || expected->is_pointer()) {
         negation_error();
     }
@@ -735,7 +735,7 @@ void verify_negate(
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
-    if (!type->has_flag(TypeFlags::Integer) || type->has_flag(TypeFlags::UNSIGNED)) {
+    if (type->get_kind() != TypeFlags::Integer || type->has_flag(TypeFlags::UNSIGNED)) {
         negation_error();
     }
 }
@@ -749,7 +749,7 @@ bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
 void verify_not(Compiler &cc, Ast *ast, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstNot *>(ast);
-    if (!expected->has_flag(TypeFlags::Integer) || !expected->has_flag(TypeFlags::UNSIGNED)) {
+    if (expected->get_kind() != TypeFlags::Integer || !expected->has_flag(TypeFlags::UNSIGNED)) {
         verification_type_error(unary->location, "only unsigned types may be bitwise negated");
     }
 
@@ -757,7 +757,7 @@ void verify_not(Compiler &cc, Ast *ast, Type *expected, WarnDiscardedReturn warn
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
-    if (!type->has_flag(TypeFlags::Integer) || !is_unsigned_or_convertible(type, constness)) {
+    if (type->get_kind() != TypeFlags::Integer || !is_unsigned_or_convertible(type, constness)) {
         verification_type_error(unary->location, "only unsigned types may be bitwise negated");
     }
 }
@@ -918,8 +918,8 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     bool is_left_const = expr_is_fully_constant(lhs_constness);
     bool is_right_const = expr_is_fully_constant(rhs_constness);
     bool one_side_const = is_left_const || is_right_const;
-    if (one_side_const && lhs_type->has_flag(TypeFlags::Integer)
-        && rhs_type->has_flag(TypeFlags::Integer)) {
+    if (one_side_const && lhs_type->get_kind() == TypeFlags::Integer
+        && rhs_type->get_kind() == TypeFlags::Integer) {
         exp = get_common_integer_type(lhs_type, rhs_type);
     } else if (auto err = types_match(lhs_type, rhs_type); err != TypeError::None) {
         type_error(cc, cmp, lhs_type, rhs_type, err);
