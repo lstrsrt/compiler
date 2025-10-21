@@ -176,10 +176,12 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
         case TypeError::SizeMismatch: {
             const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
+            const char *lhs_plural = lhs_type->byte_size() > 1 ? "s" : "";
+            const char *rhs_plural = rhs_type->byte_size() > 1 ? "s" : "";
             verification_type_error(ast->location,
-                "incompatible sizes for types `{}` ({} {} bytes) and `{}` ({} {} bytes)",
-                rhs_type->get_name(), rhs_str, rhs_type->size, lhs_type->get_name(), lhs_str,
-                lhs_type->size);
+                "incompatible sizes for types `{}` ({} {} byte{}) and `{}` ({} {} byte{})",
+                rhs_type->get_name(), rhs_str, rhs_type->byte_size(), rhs_plural,
+                lhs_type->get_name(), lhs_str, lhs_type->byte_size(), lhs_plural);
             break;
         }
         case TypeError::SignednessMismatch: {
@@ -492,22 +494,21 @@ void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullp
 
 uint64_t max_for_type(Type *t)
 {
-    bool is_unsigned = t->has_flag(TypeFlags::UNSIGNED);
     switch (t->size) {
         case 1:
             return 1;
         case 8:
-            return is_unsigned ? std::numeric_limits<uint8_t>::max()
-                               : std::numeric_limits<int8_t>::max();
+            return t->is_unsigned() ? std::numeric_limits<uint8_t>::max()
+                                    : std::numeric_limits<int8_t>::max();
         case 16:
-            return is_unsigned ? std::numeric_limits<uint16_t>::max()
-                               : std::numeric_limits<int16_t>::max();
+            return t->is_unsigned() ? std::numeric_limits<uint16_t>::max()
+                                    : std::numeric_limits<int16_t>::max();
         case 32:
-            return is_unsigned ? std::numeric_limits<uint32_t>::max()
-                               : std::numeric_limits<int32_t>::max();
+            return t->is_unsigned() ? std::numeric_limits<uint32_t>::max()
+                                    : std::numeric_limits<int32_t>::max();
         case 64:
-            return is_unsigned ? std::numeric_limits<uint64_t>::max()
-                               : std::numeric_limits<int64_t>::max();
+            return t->is_unsigned() ? std::numeric_limits<uint64_t>::max()
+                                    : std::numeric_limits<int64_t>::max();
     }
     TODO();
 }
@@ -914,8 +915,9 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::No);
 
     auto *exp = rhs_type;
-    bool one_side_const
-        = expr_is_fully_constant(lhs_constness) || expr_is_fully_constant(rhs_constness);
+    bool is_left_const = expr_is_fully_constant(lhs_constness);
+    bool is_right_const = expr_is_fully_constant(rhs_constness);
+    bool one_side_const = is_left_const || is_right_const;
     if (one_side_const && lhs_type->has_flag(TypeFlags::Integer)
         && rhs_type->has_flag(TypeFlags::Integer)) {
         exp = get_common_integer_type(lhs_type, rhs_type);
@@ -928,6 +930,15 @@ void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_di
     if (kind == TypeFlags::Integer || kind == TypeFlags::Boolean) {
         verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
         verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
+
+        if (kind == TypeFlags::Integer && one_side_const) {
+            if ((is_left_const && get_int_literal(cmp->left) > max_for_type(rhs_type))
+                || get_int_literal(cmp->right) > max_for_type(lhs_type)) {
+                auto *non_const_type = is_left_const ? rhs_type : lhs_type;
+                diag::ast_warning(cc, cmp, "comparison value exceeds maximum for type `{}`",
+                    non_const_type->get_name());
+            }
+        }
     } else {
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
