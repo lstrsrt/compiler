@@ -85,6 +85,59 @@ void print_types(Scope *scope)
     }
 }
 
+std::string escape_string(const std::string &s)
+{
+    std::string ret;
+    ret.reserve(s.size());
+
+    for (char c : s) {
+        if (std::isprint(static_cast<unsigned char>(c))) {
+            ret += c;
+            continue;
+        }
+        switch (c) {
+            case '\0':
+                // TODO other control chars
+                ret += "\\0";
+                break;
+            case '\a':
+                ret += "\\a";
+                break;
+            case '\b':
+                ret += "\\b";
+                break;
+            case '\e':
+                ret += "\\e";
+                break;
+            case '\f':
+                ret += "\\f";
+                break;
+            case '\n':
+                ret += "\\n";
+                break;
+            case '\r':
+                ret += "\\r";
+                break;
+            case '\t':
+                ret += "\\t";
+                break;
+            case '\v':
+                ret += "\\v";
+                break;
+            case '\\':
+                ret += "\\";
+                break;
+            case '\"':
+                ret += "\"";
+                break;
+            default:
+                return ret += std::format("\\x{:X}", static_cast<uint32_t>(c));
+        }
+    }
+
+    return ret;
+}
+
 static std::string var_type_name(Variable *var)
 {
     return var->type->name.empty() ? "<auto>" : var->type->name;
@@ -117,8 +170,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
             file.fwrite("{} ({})", extract_integer_constant(literal), literal->expr_type->name);
         } else if (ast->type == AstType::String) {
             auto *string = static_cast<AstString *>(ast);
-            // TODO - print escaped?
-            file.fwrite("{} (string)", string->string);
+            file.fwrite("{} (string)", escape_string(string->string));
         } else if (ast->type == AstType::Identifier) {
             auto *ident = static_cast<AstIdentifier *>(ast);
             file.fwrite("{} ({})", ident->string, var_type_name(ident->var));
@@ -260,7 +312,7 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::Constant:
             return extract_integer_constant(src.u.constant);
         case IRArgType::String:
-            return src.u.string->string;
+            return "\"" + escape_string(src.u.string->string) + "\"";
         case IRArgType::Vreg:
             return "v" + std::to_string(src.u.vreg);
         case IRArgType::Parameter:
