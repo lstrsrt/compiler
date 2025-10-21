@@ -614,8 +614,6 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
         }
         return new AstVariableDecl(type, name.string, maybe_expr, loc);
     }
-    // TODO can this be hit?
-    assert(!"parse_var_decl");
     return nullptr;
 }
 
@@ -857,25 +855,23 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         if (token.kind == TokenKind::Else) {
             parser_error(token.location, "`else` not associated with an if-statement");
         }
+        // `true`, `false`, `null` are handled by parse_expr
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
         const auto prev_pos = cc.lexer.position;
         const auto prev_col = cc.lexer.column;
-        consume(cc.lexer, token);
-        const auto next_token = lex(cc);
-        if (next_token.kind == TokenKind::Colon || next_token.kind == TokenKind::ColonEquals) {
-            cc.lexer.ignore_newlines = false;
-            // FIXME - make the name be found by parse_var_decl
+        cc.lexer.ignore_newlines = false;
+        auto *var_decl = parse_var_decl(cc);
+        if (!var_decl) {
+            // It's not a var decl, go back
             cc.lexer.position = prev_pos;
             cc.lexer.column = prev_col;
-            auto *var_decl = parse_var_decl(cc);
+            cc.lexer.ignore_newlines = true;
+        } else {
             current_scope->add_variable(cc, var_decl);
             consume_newline_or_eof(cc, lex(cc));
             cc.lexer.ignore_newlines = true;
             return var_decl;
         }
-        // It's not a var decl, go back
-        cc.lexer.position = prev_pos;
-        cc.lexer.column = prev_col;
     } else if (token.kind == TokenKind::LBrace) {
         enter_new_scope();
         auto *block = parse_block(cc, current_function);
