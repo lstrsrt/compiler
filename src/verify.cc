@@ -243,8 +243,20 @@ Type *get_common_integer_type(Type *t1, Type *t2)
     if (t1->size != t2->size) {
         return (t1->size > t2->size) ? t1 : t2;
     }
-    if (t1->has_flag(TypeFlags::UNSIGNED)) {
-        return t1;
+    if (t1->is_unsigned() ^ t2->is_unsigned()) {
+        auto *signed_type = t1->is_unsigned() ? t2 : t1;
+        switch (signed_type->size) {
+            case 8:
+                return s16_type();
+            case 16:
+                return s32_type();
+            case 32:
+                [[fallthrough]];
+            case 64:
+                return s64_type();
+            default:
+                TODO();
+        }
     }
     return t2;
 }
