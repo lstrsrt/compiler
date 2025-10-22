@@ -445,9 +445,6 @@ void generate_ir_if(Compiler &cc, Ast *ast)
         if (if_stmt->else_body) {
             generate_ir_impl(cc, if_stmt->else_body);
         }
-        auto *after_block = add_block(ir_fn);
-        generate_ir_branch(cc, after_block);
-        ir_fn->current_block = after_block;
         return;
     }
 
