@@ -282,7 +282,7 @@ void generate_ir_cond_branch(
     auto *ir_fn = cc.ir_builder.current_function;
     auto get_branch_type = [&, func = __func__](Operation operation) {
         assert(ast->expr_type);
-        bool is_unsigned = ast->expr_type->has_flag(TypeFlags::UNSIGNED);
+        bool is_unsigned = ast->expr_type->is_unsigned();
         using enum Operation;
         switch (operation) {
             case Equals:

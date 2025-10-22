@@ -294,7 +294,7 @@ void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
     const char *op = [ir, func = __func__]() {
         auto *type = ir->ast->expr_type;
         assert(type);
-        bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
+        bool is_unsigned = type->is_unsigned();
         switch (ir->operation) {
             case Operation::Equals:
                 return "sete";
@@ -352,7 +352,7 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             emit("mov r10, {}", extract_ir_arg(ir_fn, ir->right));
             auto *type = ir->ast->expr_type;
             assert(type);
-            if (type->has_flag(TypeFlags::UNSIGNED)) {
+            if (type->is_unsigned()) {
                 emit("xor edx, edx");
                 emit("div r10");
             } else {
@@ -392,8 +392,7 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
                     case Operation::RightShift: {
                         auto *type = ir->ast->expr_type;
                         assert(type);
-                        bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
-                        return is_unsigned ? "shr" : "sar";
+                        return type->is_unsigned() ? "shr" : "sar";
                     }
                     case Operation::LeftShift:
                         return "shl";

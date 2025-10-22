@@ -174,8 +174,8 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     assert(err != TypeError::None);
     switch (err) {
         case TypeError::SizeMismatch: {
-            const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
-            const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
+            const char *lhs_str = lhs_type->is_unsigned() ? "unsigned" : "signed";
+            const char *rhs_str = rhs_type->is_unsigned() ? "unsigned" : "signed";
             const char *lhs_plural = lhs_type->byte_size() > 1 ? "s" : "";
             const char *rhs_plural = rhs_type->byte_size() > 1 ? "s" : "";
             verification_type_error(ast->location,
@@ -185,8 +185,8 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
             break;
         }
         case TypeError::SignednessMismatch: {
-            const char *lhs_str = lhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
-            const char *rhs_str = rhs_type->has_flag(TypeFlags::UNSIGNED) ? "unsigned" : "signed";
+            const char *lhs_str = lhs_type->is_unsigned() ? "unsigned" : "signed";
+            const char *rhs_str = rhs_type->is_unsigned() ? "unsigned" : "signed";
             verification_type_error(ast->location,
                 "incompatible {} expression applied to left-hand {} variable of type `{}`", rhs_str,
                 lhs_str, lhs_type->get_name());
@@ -344,7 +344,7 @@ Type *get_binary_expression_type(
 Type *make_unsigned(Type *type)
 {
     assert(type->get_kind() == TypeFlags::Integer);
-    if (type->has_flag(TypeFlags::UNSIGNED)) {
+    if (type->is_unsigned()) {
         return type;
     }
     switch (type->size) {
@@ -552,8 +552,7 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     }
     // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
     // where y is a s64.
-    if (expr_has_no_constants(constness)
-        && (type->has_flag(TypeFlags::UNSIGNED) ^ wanted_type->has_flag(TypeFlags::UNSIGNED))) {
+    if (expr_has_no_constants(constness) && (type->is_unsigned() ^ wanted_type->is_unsigned())) {
         return TypeError::SignednessMismatch;
     }
     if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted_type)) {
@@ -738,7 +737,7 @@ void verify_negate(
             expected->get_name());
     };
 
-    if (expected->get_kind() != TypeFlags::Integer || expected->has_flag(TypeFlags::UNSIGNED)
+    if (expected->get_kind() != TypeFlags::Integer || expected->is_unsigned()
         || expected->is_pointer()) {
         negation_error();
     }
@@ -747,7 +746,7 @@ void verify_negate(
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
-    if (type->get_kind() != TypeFlags::Integer || type->has_flag(TypeFlags::UNSIGNED)) {
+    if (type->get_kind() != TypeFlags::Integer || type->is_unsigned()) {
         negation_error();
     }
 }
@@ -755,13 +754,13 @@ void verify_negate(
 bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
 {
     return type->get_kind() == TypeFlags::Integer
-        && (expr_is_fully_constant(constness) || type->has_flag(TypeFlags::UNSIGNED));
+        && (expr_is_fully_constant(constness) || type->is_unsigned());
 }
 
 void verify_not(Compiler &cc, Ast *ast, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstNot *>(ast);
-    if (expected->get_kind() != TypeFlags::Integer || !expected->has_flag(TypeFlags::UNSIGNED)) {
+    if (expected->get_kind() != TypeFlags::Integer || !expected->is_unsigned()) {
         verification_type_error(unary->location, "only unsigned types may be bitwise negated");
     }
 
@@ -903,7 +902,7 @@ TypeError types_match(Type *t1, Type *t2)
         if (t1_u->size != t2_u->size) {
             return TypeError::SizeMismatch;
         }
-        if (t1_u->has_flag(TypeFlags::UNSIGNED) ^ t2_u->has_flag(TypeFlags::UNSIGNED)) {
+        if (t1_u->is_unsigned() ^ t2_u->is_unsigned()) {
             return TypeError::SignednessMismatch;
         }
         return TypeError::None;

@@ -312,7 +312,7 @@ Type *get_fitting_int_type(uint64_t x)
 
 uint64_t truncate(Type *type, uint64_t v)
 {
-    bool is_unsigned = type->has_flag(TypeFlags::UNSIGNED);
+    bool is_unsigned = type->is_unsigned();
     switch (type->size) {
         case 1:
             return static_cast<uint64_t>(static_cast<bool>(v));
@@ -379,7 +379,7 @@ Overflow check_overflow(Integer left_const, Integer right_const, Integer result,
 uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
     Integer right_const, Type *&expected, TypeOverridable overridable)
 {
-    if (expected->has_flag(TypeFlags::UNSIGNED)) {
+    if (expected->is_unsigned()) {
         // `0 - 0xffff_ffff` resolves to `1` (of type unsigned int) in C/C++. In this
         // language, we either warn or cast up to s64.
         if (left_const < right_const) {
@@ -429,7 +429,7 @@ Overflow check_shift_overflow(T left, int right)
 void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
     Integer right_const, Integer result, Type *&expected, TypeOverridable overridable)
 {
-    bool is_signed = !expected->has_flag(TypeFlags::UNSIGNED);
+    bool is_signed = !expected->is_unsigned();
     const char *shift_type = binary->operation == Operation::LeftShift ? "left" : "right";
     auto overflow = [&, func = __func__]() {
         switch (expected->size) {
@@ -536,7 +536,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Int
             break;
         }
         case Operation::RightShift:
-            if (!expected->has_flag(TypeFlags::UNSIGNED)) {
+            if (!expected->is_unsigned()) {
                 result.value
                     = static_cast<int64_t>(left_const) >> static_cast<int64_t>(right_const);
             } else {
