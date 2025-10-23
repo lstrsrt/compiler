@@ -3,6 +3,8 @@
 #include "diagnose.hh"
 #include "lexer.hh"
 
+#include <algorithm>
+
 #define parser_ast_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
 
@@ -779,6 +781,34 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
     consume_expected(cc, TokenKind::RBrace, lex(cc));
 }
 
+bool has_side_effects(Ast *ast)
+{
+    if (!ast) {
+        return false;
+    }
+
+    switch (ast->type) {
+        case AstType::Integer:
+        case AstType::Boolean:
+        case AstType::String:
+            [[fallthrough]];
+        case AstType::Identifier:
+            return false;
+        case AstType::Binary:
+            return has_side_effects(static_cast<AstBinary *>(ast)->left)
+                || has_side_effects(static_cast<AstBinary *>(ast)->right);
+        case AstType::Unary:
+            if (ast->operation == Operation::Call) {
+                return true;
+            }
+            return has_side_effects(static_cast<AstUnary *>(ast)->operand);
+        case AstType::Block:
+            return std::ranges::any_of(static_cast<AstBlock *>(ast)->stmts, has_side_effects);
+        case AstType::Statement:
+            return true;
+    }
+}
+
 Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {
     auto token = lex(cc);
@@ -888,7 +918,9 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             && maybe_expr->operation != Operation::Call) {
             // TODO: this is not in the right location, should be at the start of the expression
             diag::ast_warning(cc, maybe_expr, "expression result is unused");
-            // TODO: don't do for impure expressions (call with side effects)
+            if (has_side_effects(maybe_expr)) {
+                return maybe_expr;
+            }
             free_ast(maybe_expr);
             return nullptr;
         }

@@ -57,51 +57,41 @@ Ast *partial_fold_associative(
     return ret;
 }
 
-bool is_bitwise_operation(Operation);
-
 Ast *try_fold_identities(
-    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *expected)
+    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *)
 {
-    auto return_constant = [&]() {
-        delete static_cast<AstLiteral *>(variable_ast);
-        delete binary;
-        static_cast<AstLiteral *>(constant_ast)->expr_type = expected;
-        return constant_ast;
-    };
-    auto return_variable = [&]() {
-        delete static_cast<AstLiteral *>(constant_ast);
-        delete binary;
-        static_cast<AstIdentifier *>(variable_ast)->var->type = expected;
-        return variable_ast;
-    };
+    bool has_side_effects(Ast *);
 
-    // TODO: only do this if operands don't have side effects
+    auto maybe_return_constant_if = [&](uint64_t cmp) -> Ast * {
+        if (constant == cmp && !has_side_effects(variable_ast)) {
+            delete static_cast<AstLiteral *>(variable_ast);
+            delete binary;
+            // constant_ast->expr_type = expected;
+            return constant_ast;
+        }
+        return nullptr;
+    };
+    auto return_variable_if = [&](uint64_t cmp) -> Ast * {
+        if (cmp == constant) {
+            delete static_cast<AstLiteral *>(constant_ast);
+            delete binary;
+            // variable_ast->expr_type = expected;
+            return variable_ast;
+        }
+        return nullptr;
+    };
 
     switch (binary->operation) {
         case Operation::And:
-            if (constant == 0) {
-                // x & 0 == 0 and 0 & x == 0
-                return return_constant();
-            }
-            break;
-        case Operation::Multiply:
-            if (constant == 0) {
-                // x * 0 == 0 and 0 * x ==0
-                return return_constant();
-            }
-            if (constant == 1) {
-                // x * 1 == x and 1 * x == x
-                return return_variable();
-            }
-            break;
+            return maybe_return_constant_if(0);
+        case Operation::Multiply: {
+            auto *ptr = maybe_return_constant_if(0);
+            return ptr ? ptr : return_variable_if(1);
+        }
         case Operation::Or:
         case Operation::Xor:
         case Operation::Add:
-            if (constant == 0) {
-                // x | 0 == x and 0 | x == x
-                return return_variable();
-            }
-            break;
+            return return_variable_if(0);
         default:
             TODO();
     }
@@ -188,7 +178,7 @@ bool is_equals_x(Ast *ast, bool value)
     return false;
 }
 
-bool is_logical(Operation operation)
+bool is_logical_operation(Operation operation)
 {
     switch (operation) {
         case Operation::Equals:
@@ -231,21 +221,19 @@ Ast *apply_de_morgan_laws(Ast *ast)
 
     auto *outer = static_cast<AstBinary *>(ast);
     auto *operand = outer->left;
-    if (!is_logical(operand->operation)) {
+    if (!is_logical_operation(operand->operation)) {
         return ast;
     }
-
-    // TODO: only do this if operands don't have side effects
 
     if (operand->operation == Operation::LogicalAnd || operand->operation == Operation::LogicalOr) {
         // Multiple operands.
         bool is_and = operand->operation == Operation::LogicalAnd;
+        Operation opposite = is_and ? Operation::LogicalOr : Operation::LogicalAnd;
         std::vector<Ast *> operands;
         flatten_binary(operand, operand->operation, operands);
         // If another inner operand is of a different chain type than this one, give up.
-        if (std::ranges::any_of(operands, [is_and](Ast *a) {
-                return a->operation == (is_and ? Operation::LogicalOr : Operation::LogicalAnd);
-            })) {
+        if (std::ranges::any_of(
+                operands, [opposite](Ast *a) { return a->operation == opposite; })) {
             return ast;
         }
         std::vector<Ast *> operations;
@@ -255,11 +243,7 @@ Ast *apply_de_morgan_laws(Ast *ast)
                 invert_logical(op);
             }
             for (auto *op : operations) {
-                if (is_and) {
-                    op->operation = Operation::LogicalOr;
-                } else {
-                    op->operation = Operation::LogicalAnd;
-                }
+                op->operation = opposite;
             }
             delete ast;
             return operand;
