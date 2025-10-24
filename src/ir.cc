@@ -170,12 +170,6 @@ void generate_ir_return(Compiler &cc, Ast *ast)
     ir_fn->current_block = add_block(ir_fn);
 }
 
-enum class ComparisonKind {
-    ConstantFalse,
-    ConstantTrue,
-    Runtime,
-};
-
 AstLiteral *true_bool()
 {
     static AstLiteral ast{ true, {} };
@@ -244,24 +238,6 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
         bb1->reachable = true;
     }
     add_ir(ir, bb);
-}
-
-AstLiteral *null_s32()
-{
-    static AstLiteral ast{ s32_type(), 0, {} };
-    return &ast;
-}
-
-ComparisonKind get_if_comparison_kind(Compiler &, AstIf *if_stmt)
-{
-    auto *expr = if_stmt->expr;
-    while (expr->operation == Operation::Cast) {
-        expr = static_cast<AstCast *>(expr)->operand;
-    }
-    if (expr->type == AstType::Integer || expr->type == AstType::Boolean) {
-        return get_int_literal(expr) ? ComparisonKind::ConstantTrue : ComparisonKind::ConstantFalse;
-    }
-    return ComparisonKind::Runtime;
 }
 
 IRCondBranch *new_cond_branch(
@@ -428,25 +404,6 @@ void generate_ir_if(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *if_stmt = static_cast<AstIf *>(ast);
-
-    auto cmp_kind = get_if_comparison_kind(cc, if_stmt);
-
-    if (cmp_kind == ComparisonKind::ConstantTrue) {
-        diag::ast_warning(cc, if_stmt->expr, "condition is always true");
-        generate_ir_impl(cc, if_stmt->body);
-        auto *after_block = add_block(ir_fn);
-        generate_ir_branch(cc, after_block);
-        ir_fn->current_block = after_block;
-        return;
-    }
-
-    if (cmp_kind == ComparisonKind::ConstantFalse) {
-        diag::ast_warning(cc, if_stmt->expr, "condition is always false");
-        if (if_stmt->else_body) {
-            generate_ir_impl(cc, if_stmt->else_body);
-        }
-        return;
-    }
 
     auto *true_block = new_block();
     auto *else_block = if_stmt->else_body ? new_block() : nullptr;
@@ -685,7 +642,6 @@ void visit_successors(Compiler &cc, IRFunction *fn, BasicBlock *block,
         if (is_main || fn->ast->returns_void()) {
             insert_return(fn, 0);
         } else {
-            // TODO: print demangled name
             diag::error_at(cc, fn->ast->location, ErrorType::Verification,
                 "non-void function does not return a value on all paths");
         }
