@@ -533,33 +533,44 @@ uint64_t get_int_literal(Ast *ast)
 
 TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
 {
-    Type *wanted_type = get_unaliased_type(wanted);
-    if (wanted_type == type) {
+    wanted = get_unaliased_type(wanted);
+    type = get_unaliased_type(type);
+
+    if (wanted == type) {
         return TypeError::None;
     }
-    if (type->get_kind() != TypeFlags::Integer || wanted_type->get_kind() != TypeFlags::Integer) {
+    if (type->get_kind() != TypeFlags::Integer || wanted->get_kind() != TypeFlags::Integer) {
         return TypeError::Default;
     }
-    if (type->pointer != wanted_type->pointer) {
+    if (type->pointer != wanted->pointer) {
         return TypeError::PointerMismatch;
     }
 
-    if (type->size > wanted_type->size) {
+    bool needs_cast = false;
+    if (type->size != wanted->size) {
         // If the below check is false, this is a literal that can be casted down
-        if (!expr_is_fully_constant(constness)
-            || get_int_literal(expr) > max_for_type(wanted_type)) {
+        if (!expr_is_fully_constant(constness) || get_int_literal(expr) > max_for_type(wanted)) {
             return TypeError::SizeMismatch;
         }
+        needs_cast = true;
     }
     // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
     // where y is a s64.
-    if (expr_has_no_constants(constness) && (type->is_unsigned() ^ wanted_type->is_unsigned())) {
-        return TypeError::SignednessMismatch;
+    if (type->is_unsigned() ^ wanted->is_unsigned()) {
+        if (expr_has_no_constants(constness)) {
+            return TypeError::SignednessMismatch;
+        }
+        needs_cast = true;
     }
-    if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted_type)) {
-        return TypeError::SizeMismatch;
+    if (get_int_literal(expr) > max_for_type(wanted)) {
+        if (expr_is_fully_constant(constness)) {
+            return TypeError::SizeMismatch;
+        }
+        needs_cast = true;
     }
-    insert_cast(expr, wanted_type);
+    if (needs_cast) {
+        insert_cast(expr, wanted);
+    }
     return TypeError::None;
 }
 
@@ -964,6 +975,58 @@ void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discar
     verify_comparison(cc, static_cast<AstBinary *>(ast), warn_discarded);
 }
 
+void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
+{
+    void convert_expr_to_boolean(Compiler &, Ast *&);
+    bool is_logical_operation(Operation);
+
+    if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
+        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);
+        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
+    } else if (expr->operation == Operation::LogicalNot) {
+        convert_expr_to_boolean(cc, static_cast<AstLogicalNot *>(expr)->operand);
+    } else if (type->get_kind() != TypeFlags::Integer) {
+        if (auto err = types_match(type, bool_type()); err != TypeError::None) {
+            type_error(cc, expr, bool_type(), type, err);
+        }
+    }
+
+    if (!is_logical_operation(expr->operation)) {
+        expr = new AstBinary(
+            Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
+        expr->expr_type = type;
+    }
+}
+
+void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
+{
+    ExprConstness constness{};
+    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness));
+    convert_expr_to_boolean(cc, expr, type);
+}
+
+void match_type_or_cast(
+    Compiler &cc, Ast *&ast, ExprConstness constness, Type *type, Type *expected)
+{
+    auto err = types_match(type, expected);
+    if (err == TypeError::None) {
+        return;
+    }
+
+    if (expected->get_kind() == TypeFlags::Boolean) {
+        convert_expr_to_boolean(cc, ast, type);
+        return;
+    }
+
+    if (expected->get_kind() == TypeFlags::Integer) {
+        if (err = maybe_cast_int(expected, type, ast, constness); err == TypeError::None) {
+            return;
+        }
+    }
+
+    type_error(cc, ast, expected, type, err);
+}
+
 void verify_int(Compiler &cc, Ast *&ast, Type *expected)
 {
     if (!expected) {
@@ -976,39 +1039,8 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
     }
 
     ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
-    if (types_match(type, expected) == TypeError::None) {
-        return;
-    }
-
-    if (auto err = maybe_cast_int(expected, type, ast, constness); err != TypeError::None) {
-        type_error(cc, ast, expected, type, err);
-    }
-}
-
-void convert_expr_to_boolean(Compiler &, Ast *&);
-
-void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
-{
-    if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
-        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);
-        convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
-    } else if (expr->operation == Operation::LogicalNot) {
-        convert_expr_to_boolean(cc, static_cast<AstLogicalNot *>(expr)->operand);
-    } else if (type->get_kind() == TypeFlags::Integer) {
-        expr = new AstBinary(
-            Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
-        expr->expr_type = type;
-    } else if (auto err = types_match(type, bool_type()); err != TypeError::None) {
-        type_error(cc, expr, bool_type(), type, err);
-    }
-}
-
-void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
-{
-    ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness));
-    convert_expr_to_boolean(cc, expr, type);
+    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness));
+    match_type_or_cast(cc, ast, constness, type, expected);
 }
 
 void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
@@ -1088,17 +1120,8 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     }
     if (expected) {
         ExprConstness constness{};
-        type = get_unaliased_type(get_expression_type(cc, ast, &constness, TypeOverridable::No));
-        if (get_unaliased_type(expected) == bool_type()) {
-            if (type->get_kind() == TypeFlags::Boolean) {
-                return;
-            }
-            convert_expr_to_boolean(cc, ast, type);
-            return;
-        }
-        if (auto err = types_match(type, expected); err != TypeError::None) {
-            type_error(cc, ast, expected, type, err);
-        }
+        type = get_unaliased_type(get_expression_type(cc, ast, &constness));
+        match_type_or_cast(cc, ast, constness, type, expected);
     }
 }
 

@@ -3,7 +3,9 @@
         [VariableDecl x: s32 Integer size 4]
             0 (s32)
         [While]
-            1 (bool)
+            [NotEquals]
+                1 (bool)
+                0 (bool)
             [Block]
                 [Assign]
                     x (s32)
