@@ -361,8 +361,8 @@ Type *make_unsigned(Type *type)
     TODO();
 }
 
-Type *get_expression_type(
-    Compiler &cc, Ast *&ast, ExprConstness *constness, TypeOverridable overridable)
+Type *get_expression_type(Compiler &cc, Ast *&ast, ExprConstness *constness,
+    TypeOverridable overridable = TypeOverridable::No)
 {
     if (!ast) {
         return nullptr;
@@ -590,8 +590,7 @@ void verify_print(Compiler &cc, Ast *ast)
     for (size_t i = 1; i < print->args.size(); ++i) {
         verify_expr(cc, print->args[i], WarnDiscardedReturn::No);
         ExprConstness constness;
-        auto *type = get_unaliased_type(
-            get_expression_type(cc, print->args[i], &constness, TypeOverridable::No));
+        auto *type = get_unaliased_type(get_expression_type(cc, print->args[i], &constness));
         if (type->get_kind() == TypeFlags::Integer) {
             std::string fmt_s = [&]() {
                 switch (type->size) {
@@ -700,7 +699,7 @@ void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_
     }
 
     ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
+    auto *type = get_expression_type(cc, unary->operand, &constness);
     if (type->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
         verification_error(unary, "exceeded indirection limit");
     }
@@ -718,7 +717,7 @@ void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn war
     }
 
     ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
+    auto *type = get_expression_type(cc, unary->operand, &constness);
     if (!type->is_pointer()) {
         verification_error(unary, "cannot dereference non-pointer of type `{}`", type->get_name());
     }
@@ -746,7 +745,7 @@ void verify_negate(
     verify_expr(cc, unary->operand, warn_discarded, expected);
 
     ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
+    auto *type = get_expression_type(cc, unary->operand, &constness);
     if (type->get_kind() != TypeFlags::Integer || type->is_unsigned()) {
         negation_error();
     }
@@ -811,10 +810,8 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 {
     ExprConstness lhs_constness{};
     ExprConstness rhs_constness{};
-    auto *lhs_type = get_unaliased_type(
-        get_expression_type(cc, binary->left, &lhs_constness, TypeOverridable::No));
-    auto *rhs_type = get_unaliased_type(
-        get_expression_type(cc, binary->right, &rhs_constness, TypeOverridable::No));
+    auto *lhs_type = get_unaliased_type(get_expression_type(cc, binary->left, &lhs_constness));
+    auto *rhs_type = get_unaliased_type(get_expression_type(cc, binary->right, &rhs_constness));
 
     if (is_arithmetic_operation(binary->operation) || is_bitwise_operation(binary->operation)) {
         if (lhs_type->get_kind() != TypeFlags::Integer
@@ -960,8 +957,7 @@ void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discar
 {
     // Canonicalize into a binary Equals
     ExprConstness constness{};
-    auto *type = get_expression_type(
-        cc, static_cast<AstLogicalNot *>(ast)->operand, &constness, TypeOverridable::No);
+    auto *type = get_expression_type(cc, static_cast<AstLogicalNot *>(ast)->operand, &constness);
     ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
         new AstLiteral(type, 0, ast->location), ast->location);
     ast->expr_type = type;
@@ -1011,7 +1007,7 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
 void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
 {
     ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness, TypeOverridable::No));
+    auto *type = get_unaliased_type(get_expression_type(cc, expr, &constness));
     convert_expr_to_boolean(cc, expr, type);
 }
 
@@ -1161,8 +1157,7 @@ void verify_return(
             verification_error(return_stmt->expr,
                 "void function `{}` must not return a value (got type `{}`)",
                 current_function->name,
-                get_expression_type(cc, return_stmt->expr, &constness, TypeOverridable::No)
-                    ->get_name());
+                get_expression_type(cc, return_stmt->expr, &constness)->get_name());
         }
         return;
     }
@@ -1213,7 +1208,7 @@ void verify_assign(Compiler &cc, Ast *ast)
     }
     verify_expr(cc, binary->left, WarnDiscardedReturn::No);
     ExprConstness constness{};
-    auto *expected = get_expression_type(cc, binary->left, &constness, TypeOverridable::No);
+    auto *expected = get_expression_type(cc, binary->left, &constness);
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
 }
 
@@ -1264,8 +1259,8 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
             verify_call(cc, ast, WarnDiscardedReturn::Yes);
         } else {
             ExprConstness constness{};
-            verify_expr(cc, ast, WarnDiscardedReturn::Yes,
-                get_expression_type(cc, ast, &constness, TypeOverridable::No));
+            verify_expr(
+                cc, ast, WarnDiscardedReturn::Yes, get_expression_type(cc, ast, &constness));
         }
     }
 }
