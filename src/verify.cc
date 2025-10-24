@@ -98,11 +98,12 @@ Type *string_type()
 
 Type *null_type()
 {
+
     static Type s_null{ .name = "null",
         .flags = TypeFlags::Integer | TypeFlags::BUILTIN,
         .size = 64,
         .pointer = 1,
-        .real = nullptr,
+        .real = s64_type(),
         .location = {} };
     return &s_null;
 }
