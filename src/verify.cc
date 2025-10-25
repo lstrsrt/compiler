@@ -817,6 +817,25 @@ bool is_bitwise_operation(Operation op)
     }
 }
 
+bool is_logical_operation(Operation op)
+{
+    switch (op) {
+        case Operation::Equals:
+        case Operation::NotEquals:
+        case Operation::Greater:
+        case Operation::GreaterEquals:
+        case Operation::Less:
+        case Operation::LessEquals:
+        case Operation::LogicalAnd:
+        case Operation::LogicalOr:
+            [[fallthrough]];
+        case Operation::LogicalNot:
+            return true;
+        default:
+            return false;
+    }
+}
+
 void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 {
     ExprConstness lhs_constness{};
@@ -978,7 +997,6 @@ void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discar
 void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
 {
     void convert_expr_to_boolean(Compiler &, Ast *&);
-    bool is_logical_operation(Operation);
 
     if (expr->operation == Operation::LogicalAnd || expr->operation == Operation::LogicalOr) {
         convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->left);

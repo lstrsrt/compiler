@@ -246,6 +246,11 @@ struct Type {
         return ::has_flag(flags, TypeFlags::UNSIGNED);
     }
 
+    bool is_signed() const
+    {
+        return !is_unsigned();
+    }
+
     bool is_pointer() const
     {
         return pointer > 0;

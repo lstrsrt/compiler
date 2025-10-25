@@ -178,25 +178,6 @@ bool is_equals_x(Ast *ast, bool value)
     return false;
 }
 
-bool is_logical_operation(Operation operation)
-{
-    switch (operation) {
-        case Operation::Equals:
-        case Operation::NotEquals:
-        case Operation::Greater:
-        case Operation::GreaterEquals:
-        case Operation::Less:
-        case Operation::LessEquals:
-        case Operation::LogicalAnd:
-        case Operation::LogicalOr:
-            [[fallthrough]];
-        case Operation::LogicalNot:
-            return true;
-        default:
-            return false;
-    }
-}
-
 void invert_logical(Ast *ast)
 {
     using enum Operation;
@@ -215,6 +196,8 @@ void invert_logical(Ast *ast)
 
 Ast *apply_de_morgan_laws(Ast *ast)
 {
+    bool is_logical_operation(Operation);
+
     if (ast->type != AstType::Binary) {
         return ast;
     }
@@ -316,7 +299,7 @@ uint64_t truncate(Type *type, uint64_t v)
 }
 
 void handle_overflow(
-    Compiler &cc, AstBinary *binary, Integer result, Type *&expected, TypeOverridable overridable)
+    Compiler &cc, AstBinary *binary, Integer &result, Type *&expected, TypeOverridable overridable)
 {
     if (overridable == TypeOverridable::Yes) {
         expected = get_fitting_int_type(result);
@@ -325,17 +308,6 @@ void handle_overflow(
         diag::ast_warning(cc, binary, "constant expression overflows type `{}`", expected->name);
     }
 }
-
-#define fold_and_warn_overflow(left_const, right_const, result, expected, fn) \
-    {                                                                         \
-        bool overflows_u64 = fn(left_const, right_const, &result);            \
-        bool overflows_type = get_unaliased_type(expected) != bool_type()     \
-            && result > max_for_type(get_unaliased_type(expected));           \
-        bool warn = false;                                                    \
-        if (overflows_u64 || overflows_type) {                                \
-            handle_overflow(cc, ast, result, expected, overridable)           \
-        }                                                                     \
-    }
 
 enum class Overflow {
     No,
@@ -360,9 +332,13 @@ Overflow check_overflow(Integer left_const, Integer right_const, Integer result,
     return Overflow::No;
 }
 
-uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
+uint64_t fold_sub_and_diagnose_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
     Integer right_const, Type *&expected, TypeOverridable overridable)
 {
+    Integer result{};
+    result.value = left_const - right_const;
+    result.is_signed = expected->is_signed();
+
     if (expected->is_unsigned()) {
         // `0 - 0xffff_ffff` resolves to `1` (of type unsigned int) in C/C++. In this
         // language, we either warn or cast up to s64.
@@ -370,21 +346,20 @@ uint64_t fold_sub_and_warn_overflow(Compiler &cc, AstBinary *binary, Integer lef
             if (expected->size < 8 && overridable == TypeOverridable::Yes) {
                 expected = s64_type();
             } else {
-                handle_overflow(
-                    cc, binary, Integer(left_const - right_const, false), expected, overridable);
+                handle_overflow(cc, binary, result, expected, overridable);
             }
         }
-        return left_const - right_const;
+        return result.value;
     }
 
     int64_t i64;
     bool overflows_i64 = __builtin_sub_overflow(
         static_cast<int64_t>(left_const), static_cast<int64_t>(right_const), &i64);
+    result.value = static_cast<uint64_t>(i64);
     if ((expected->size < 8 && i64 < std::numeric_limits<int32_t>::min()) || overflows_i64) {
-        handle_overflow(
-            cc, binary, Integer(static_cast<uint64_t>(i64), true), expected, overridable);
+        handle_overflow(cc, binary, result, expected, overridable);
     }
-    return static_cast<uint64_t>(i64);
+    return result.value;
 }
 
 template<std::integral T>
@@ -463,7 +438,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Int
             break;
         }
         case Operation::Subtract: {
-            result.value = fold_sub_and_warn_overflow(
+            result.value = fold_sub_and_diagnose_overflow(
                 cc, binary, left_const, right_const, expected, overridable);
             break;
         }
