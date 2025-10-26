@@ -426,8 +426,15 @@ Type *get_expression_type(Compiler &cc, Ast *&ast, ExprConstness *constness,
                 }
                 if (ast->operation == Operation::Not) {
                     *constness |= ExprConstness::SawNonConstant;
-                    return get_expression_type(
+                    auto *type = get_expression_type(
                         cc, static_cast<AstNot *>(ast)->operand, constness, overridable);
+
+                    if (type->get_kind() != TypeFlags::Integer) {
+                        verification_error(static_cast<AstUnary *>(ast)->operand,
+                            "bitwise not can only be applied to only unsigned integers");
+                    }
+
+                    return make_unsigned(type);
                 }
                 if (ast->operation == Operation::Cast) {
                     *constness |= ExprConstness::SawNonConstant;
@@ -599,9 +606,10 @@ void verify_print(Compiler &cc, Ast *ast)
         verification_error(ast, "format string argument count doesn't match argument count");
     }
     for (size_t i = 1; i < print->args.size(); ++i) {
-        verify_expr(cc, print->args[i], WarnDiscardedReturn::No);
         ExprConstness constness;
-        auto *type = get_unaliased_type(get_expression_type(cc, print->args[i], &constness));
+        auto *type = get_unaliased_type(
+            get_expression_type(cc, print->args[i], &constness, TypeOverridable::Yes));
+        verify_expr(cc, print->args[i], WarnDiscardedReturn::No, type);
         if (type->get_kind() == TypeFlags::Integer) {
             std::string fmt_s = [&]() {
                 switch (type->size) {
@@ -768,19 +776,21 @@ bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
         && (expr_is_fully_constant(constness) || type->is_unsigned());
 }
 
-void verify_not(Compiler &cc, Ast *ast, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_not(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstNot *>(ast);
-    if (expected->get_kind() != TypeFlags::Integer || !expected->is_unsigned()) {
-        verification_type_error(unary->location, "only unsigned types may be bitwise negated");
+    if (expected->get_kind() != TypeFlags::Integer) {
+        verification_type_error(
+            unary->location, "bitwise not can only be applied to only unsigned integers");
     }
 
+    ExprConstness constness{};
+    auto *type = get_expression_type(cc, unary->operand, &constness);
     verify_expr(cc, unary->operand, warn_discarded, expected);
 
-    ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness, TypeOverridable::No);
     if (type->get_kind() != TypeFlags::Integer || !is_unsigned_or_convertible(type, constness)) {
-        verification_type_error(unary->location, "only unsigned types may be bitwise negated");
+        verification_type_error(
+            unary->location, "bitwise not can only be applied to only unsigned integers");
     }
 }
 
@@ -946,40 +956,114 @@ TypeError types_match(Type *t1, Type *t2)
     return TypeError::Default;
 }
 
-void verify_comparison(Compiler &cc, AstBinary *cmp, WarnDiscardedReturn warn_discarded)
+bool exprs_identical(Ast *left, Ast *right)
 {
-    ExprConstness lhs_constness{};
-    ExprConstness rhs_constness{};
-    auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness, TypeOverridable::No);
-    auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::No);
+    bool has_side_effects(Ast *);
 
-    auto *exp = rhs_type;
-    bool is_left_const = expr_is_fully_constant(lhs_constness);
-    bool is_right_const = expr_is_fully_constant(rhs_constness);
-    bool one_side_const = is_left_const || is_right_const;
-    if (one_side_const && lhs_type->get_kind() == TypeFlags::Integer
-        && rhs_type->get_kind() == TypeFlags::Integer) {
-        exp = get_common_integer_type(lhs_type, rhs_type);
-    } else if (auto err = types_match(lhs_type, rhs_type); err != TypeError::None) {
-        type_error(cc, cmp, lhs_type, rhs_type, err);
+    if (left->operation != right->operation) {
+        return false;
+    }
+    if (has_side_effects(left) || has_side_effects(right)) {
+        return false;
     }
 
-    cmp->expr_type = exp;
-    auto kind = cmp->expr_type->get_kind();
-    if (kind == TypeFlags::Integer || kind == TypeFlags::Boolean) {
-        verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
-        verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
+    switch (left->type) {
+        case AstType::Integer:
+            [[fallthrough]];
+        case AstType::Boolean:
+            return get_int_literal(left) == get_int_literal(right);
+        case AstType::String:
+            return hash(static_cast<AstString *>(left)->string)
+                == hash(static_cast<AstString *>(right)->string);
+        case AstType::Identifier:
+            return static_cast<AstIdentifier *>(left)->var
+                == static_cast<AstIdentifier *>(right)->var;
+        case AstType::Binary:
+            return exprs_identical(
+                       static_cast<AstBinary *>(left)->left, static_cast<AstBinary *>(right)->left)
+                && exprs_identical(
+                    static_cast<AstBinary *>(left)->right, static_cast<AstBinary *>(right)->right);
+        case AstType::Unary:
+            return exprs_identical(
+                static_cast<AstUnary *>(left)->operand, static_cast<AstUnary *>(right)->operand);
+        default:
+            TODO();
+    }
+}
 
-        if (kind == TypeFlags::Integer && one_side_const) {
-            if ((is_left_const && get_int_literal(cmp->left) > max_for_type(rhs_type))
-                || get_int_literal(cmp->right) > max_for_type(lhs_type)) {
-                auto *non_const_type = is_left_const ? rhs_type : lhs_type;
-                diag::ast_warning(cc, cmp, "comparison value exceeds maximum for type `{}`",
-                    non_const_type->get_name());
+enum class ComparisonLogicError {
+    None,
+    AlwaysFalse,
+    AlwaysTrue,
+};
+
+ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer constant)
+{
+    assert(is_logical_operation(cmp));
+
+    if (cmp == Operation::Greater) {
+        if (constant.is_signed
+            && constant.as_signed() >= static_cast<int64_t>(max_for_type(type))) {
+            return ComparisonLogicError::AlwaysFalse;
+        }
+        if (!constant.is_signed && constant > max_for_type(type)) {
+            return ComparisonLogicError::AlwaysFalse;
+        }
+    }
+
+    if (type->is_unsigned() || type->get_kind() == TypeFlags::Boolean) {
+        if (constant == 0) {
+            if (cmp == Operation::GreaterEquals) {
+                return ComparisonLogicError::AlwaysTrue;
+            }
+            if (cmp == Operation::Less) {
+                return ComparisonLogicError::AlwaysFalse;
             }
         }
-    } else {
+    }
+
+    return ComparisonLogicError::None;
+}
+
+void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+{
+    auto *cmp = static_cast<AstBinary *>(ast);
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
+    auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness);
+    auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness);
+
+    bool is_left_const = expr_is_fully_constant(lhs_constness);
+    bool is_right_const = expr_is_fully_constant(rhs_constness);
+    cmp->expr_type = is_left_const ? rhs_type : lhs_type;
+
+    auto kind = cmp->expr_type->get_kind();
+    if (kind != TypeFlags::Integer && kind != TypeFlags::Boolean) {
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
+    }
+
+    // TODO: this warns if one operand overflows but get_expression_type has warned already
+    verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
+    verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
+
+    if (is_left_const || is_right_const) {
+        auto constant
+            = Integer(is_left_const ? get_int_literal(cmp->left) : get_int_literal(cmp->right),
+                cmp->expr_type->is_signed());
+        if (auto err = is_illogical_comparison(cmp->expr_type, cmp->operation, constant);
+            err != ComparisonLogicError::None) {
+            const char *s = err == ComparisonLogicError::AlwaysFalse ? "false" : "true";
+            diag::ast_warning(cc, cmp, "logical expression is always {}", s);
+        } else if (is_left_const && is_right_const) {
+            ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::No);
+            if (cmp->type == AstType::Integer || cmp->type == AstType::Boolean) {
+                diag::ast_warning(cc, cmp, "logical expression is always {}",
+                    get_int_literal(cmp) ? "true" : "false");
+            }
+        }
+    } else if (exprs_identical(cmp->left, cmp->right)) {
+        const char *s = cmp->operation == Operation::Equals ? "true" : "false";
+        diag::ast_warning(cc, cmp, "logical expression is always {}", s);
     }
 }
 
@@ -991,7 +1075,7 @@ void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discar
     ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
         new AstLiteral(type, 0, ast->location), ast->location);
     ast->expr_type = type;
-    verify_comparison(cc, static_cast<AstBinary *>(ast), warn_discarded);
+    verify_comparison(cc, ast, warn_discarded);
 }
 
 void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
@@ -1117,7 +1201,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 case Operation::Less:
                     [[fallthrough]];
                 case Operation::LessEquals:
-                    verify_comparison(cc, binary, warn_discarded);
+                    verify_comparison(cc, ast, warn_discarded);
                     break;
                 default:
                     verify_binary(cc, binary, expected, warn_discarded, in_conditional);
