@@ -139,7 +139,7 @@ AstFunction *print_builtin()
 #endif
     params.push_back(new AstVariableDecl(string_type(), "__fmt", nullptr, {}));
     static auto *print_fn = new AstFunction("print", void_type(), params, new AstBlock(stmts), {});
-    print_fn->attributes |= FunctionAttributes::BuiltinPrint;
+    print_fn->attributes |= FunctionAttributes::BUILTIN_PRINT;
     return print_fn;
 }
 
@@ -209,23 +209,23 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
 }
 
 enum_flags(ExprConstness, uint8_t){
-    SawConstant = 1 << 0,
-    SawNonConstant = 1 << 1,
+    SAW_CONSTANT = 1 << 0,
+    SAW_NON_CONSTANT = 1 << 1,
 };
 
 bool expr_has_no_constants(ExprConstness e)
 {
-    return e == ExprConstness::SawNonConstant;
+    return e == ExprConstness::SAW_NON_CONSTANT;
 }
 
 bool expr_is_fully_constant(ExprConstness e)
 {
-    return e == ExprConstness::SawConstant;
+    return e == ExprConstness::SAW_CONSTANT;
 }
 
 bool expr_is_partly_constant(ExprConstness e)
 {
-    return e == (ExprConstness::SawConstant | ExprConstness::SawNonConstant);
+    return e == (ExprConstness::SAW_CONSTANT | ExprConstness::SAW_NON_CONSTANT);
 }
 
 bool expr_is_const_int(Type *t, ExprConstness e)
@@ -372,29 +372,29 @@ Type *get_expression_type(Compiler &cc, Ast *&ast, ExprConstness *constness,
     ast->expr_type = [&, func = __func__]() -> Type * {
         switch (ast->type) {
             case AstType::Integer: {
-                *constness |= ExprConstness::SawConstant;
+                *constness |= ExprConstness::SAW_CONSTANT;
                 return static_cast<AstLiteral *>(ast)->expr_type;
             }
             case AstType::Boolean:
-                *constness |= ExprConstness::SawConstant;
+                *constness |= ExprConstness::SAW_CONSTANT;
                 return bool_type();
             case AstType::String:
-                *constness |= ExprConstness::SawConstant;
+                *constness |= ExprConstness::SAW_CONSTANT;
                 return string_type();
             case AstType::Identifier:
-                *constness |= ExprConstness::SawNonConstant;
+                *constness |= ExprConstness::SAW_NON_CONSTANT;
                 return static_cast<AstIdentifier *>(ast)->var->type;
             case AstType::Binary: {
                 return get_binary_expression_type(cc, ast, *constness, overridable);
             }
             case AstType::Unary:
                 if (ast->operation == Operation::Call) {
-                    *constness |= ExprConstness::SawNonConstant;
+                    *constness |= ExprConstness::SAW_NON_CONSTANT;
                     auto *call = static_cast<AstCall *>(ast);
                     return get_callee(cc, call)->return_type;
                 }
                 if (ast->operation == Operation::AddressOf) {
-                    *constness |= ExprConstness::SawNonConstant;
+                    *constness |= ExprConstness::SAW_NON_CONSTANT;
                     auto *operand = static_cast<AstAddressOf *>(ast)->operand;
                     auto *type = get_expression_type(cc, operand, constness, overridable);
                     auto *ptr = new Type;
@@ -416,16 +416,16 @@ Type *get_expression_type(Compiler &cc, Ast *&ast, ExprConstness *constness,
                     return type->real;
                 }
                 if (ast->operation == Operation::Negate) {
-                    *constness |= ExprConstness::SawNonConstant;
+                    *constness |= ExprConstness::SAW_NON_CONSTANT;
                     return get_expression_type(
                         cc, static_cast<AstNegate *>(ast)->operand, constness, overridable);
                 }
                 if (ast->operation == Operation::LogicalNot) {
-                    *constness |= ExprConstness::SawNonConstant;
+                    *constness |= ExprConstness::SAW_NON_CONSTANT;
                     return bool_type();
                 }
                 if (ast->operation == Operation::Not) {
-                    *constness |= ExprConstness::SawNonConstant;
+                    *constness |= ExprConstness::SAW_NON_CONSTANT;
                     auto *type = get_expression_type(
                         cc, static_cast<AstNot *>(ast)->operand, constness, overridable);
 
@@ -437,7 +437,7 @@ Type *get_expression_type(Compiler &cc, Ast *&ast, ExprConstness *constness,
                     return make_unsigned(type);
                 }
                 if (ast->operation == Operation::Cast) {
-                    *constness |= ExprConstness::SawNonConstant;
+                    *constness |= ExprConstness::SAW_NON_CONSTANT;
                     return static_cast<AstCast *>(ast)->cast_type;
                 }
                 [[fallthrough]];
@@ -637,7 +637,7 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
 {
     auto *call = static_cast<AstCall *>(ast);
     auto *fn = get_callee(cc, call);
-    if (has_flag(fn->attributes, FunctionAttributes::BuiltinPrint)) {
+    if (has_flag(fn->attributes, FunctionAttributes::BUILTIN_PRINT)) {
         verify_print(cc, ast);
         return;
     }

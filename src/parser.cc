@@ -698,9 +698,9 @@ FunctionAttributes parse_fn_attributes(Compiler &cc)
 {
     FunctionAttributes attrs{};
     static const std::unordered_map<std::string_view, FunctionAttributes> dump_attr_map{
-        { "ast", FunctionAttributes::DumpAst },
-        { "ir", FunctionAttributes::DumpIR },
-        { "asm", FunctionAttributes::DumpAsm },
+        { "ast", FunctionAttributes::DUMP_AST },
+        { "ir", FunctionAttributes::DUMP_IR },
+        { "asm", FunctionAttributes::DUMP_ASM },
     };
     consume_expected(cc, TokenKind::LParen, lex(cc));
     for (;;) {

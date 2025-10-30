@@ -250,7 +250,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             }
             break;
         case Operation::Call:
-            if (has_flag(ir->left.u.function->attributes, FunctionAttributes::BuiltinPrint)) {
+            if (has_flag(ir->left.u.function->attributes, FunctionAttributes::BUILTIN_PRINT)) {
                 emit("call printf wrt ..plt");
             } else {
                 emit("call {}", ir->left.u.function->name);
@@ -498,7 +498,7 @@ std::string param_offset(size_t index)
 
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 {
-    if (has_flag(ir_fn.ast->attributes, FunctionAttributes::DumpAsm)) {
+    if (has_flag(ir_fn.ast->attributes, FunctionAttributes::DUMP_ASM)) {
         write_stdout = true;
         if (!opts.testing) {
             std::println("{}============= {}ASM for `{}`{} ============={}", colors::Cyan,

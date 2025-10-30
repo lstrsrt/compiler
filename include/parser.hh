@@ -495,10 +495,10 @@ struct AstContinue : Ast {
 };
 
 enum_flags(FunctionAttributes, int){
-    DumpAst = 1 << 0,
-    DumpIR = 1 << 1,
-    DumpAsm = 1 << 2,
-    BuiltinPrint = 1 << 3,
+    DUMP_AST = 1 << 0,
+    DUMP_IR = 1 << 1,
+    DUMP_ASM = 1 << 2,
+    BUILTIN_PRINT = 1 << 3,
 };
 
 #ifdef AST_USE_ARENA

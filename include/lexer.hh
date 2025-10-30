@@ -48,12 +48,12 @@ enum class TokenKind : uint32_t {
     // Group
     //
     GroupEmpty = 1 << 16,
-    GroupNewline = 1 << 17,
-    GroupNumber = 1 << 18,
-    GroupIdentifier = 1 << 19,
-    GroupString = 1 << 20,
-    GroupOperator = 1 << 21,
-    GroupKeyword = 1 << 22,
+    GroupNewline = 2 << 16,
+    GroupNumber = 3 << 16,
+    GroupIdentifier = 4 << 16,
+    GroupString = 5 << 16,
+    GroupOperator = 6 << 16,
+    GroupKeyword = 7 << 16,
     group_mask = 0xffff'0000,
 
     //

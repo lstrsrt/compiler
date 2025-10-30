@@ -44,7 +44,7 @@ void add_ir(IR *ir, BasicBlock *bb)
 void new_ir_function(Compiler &cc, AstFunction *ast)
 {
     if (!opts.testing) {
-        if (has_flag(ast->attributes, FunctionAttributes::DumpAst)) {
+        if (has_flag(ast->attributes, FunctionAttributes::DUMP_AST)) {
             std::println("{}============= {}AST for `{}`{} ============={}", colors::Cyan,
                 colors::DefaultBold, ast->name, colors::Cyan, colors::Default);
             print_ast(stdout_file(), ast);
@@ -703,7 +703,7 @@ void optimize_ir(Compiler &cc)
 
     if (!opts.testing) {
         for (auto *ir_fn : cc.ir_builder.functions) {
-            if (has_flag(ir_fn->ast->attributes, FunctionAttributes::DumpIR)) {
+            if (has_flag(ir_fn->ast->attributes, FunctionAttributes::DUMP_IR)) {
                 std::println("{}============= {}IR for `{}`{} ============={}", colors::Green,
                     colors::Cyan, demangled_name(ir_fn->ast->name), colors::Green, colors::Default);
                 print_ir(stdout_file(), *ir_fn);
