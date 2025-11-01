@@ -233,7 +233,8 @@ bool expr_is_const_int(Type *t, ExprConstness e)
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
 
-Type *get_expression_type(Compiler &, Ast *&, ExprConstness *, TypeOverridable);
+Type *get_expression_type(
+    Compiler &, Ast *, ExprConstness *, TypeOverridable = TypeOverridable::No);
 
 Type *get_common_integer_type(Type *t1, Type *t2)
 {
@@ -281,7 +282,7 @@ void traverse_postorder(Ast *&ast, auto &&callback)
 }
 
 Type *get_binary_expression_type(
-    Compiler &cc, Ast *&ast, ExprConstness &constness, TypeOverridable overridable)
+    Compiler &cc, Ast *ast, ExprConstness &constness, TypeOverridable overridable)
 {
     auto *binary = static_cast<AstBinary *>(ast);
 
@@ -361,8 +362,8 @@ Type *make_unsigned(Type *type)
     TODO();
 }
 
-Type *get_expression_type(Compiler &cc, Ast *&ast, ExprConstness *constness,
-    TypeOverridable overridable = TypeOverridable::No)
+Type *get_expression_type(
+    Compiler &cc, Ast *ast, ExprConstness *constness, TypeOverridable overridable)
 {
     if (!ast) {
         return nullptr;
@@ -1025,8 +1026,8 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
     auto *cmp = static_cast<AstBinary *>(ast);
     ExprConstness lhs_constness{};
     ExprConstness rhs_constness{};
-    auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness);
-    auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness);
+    auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness, TypeOverridable::Yes);
+    auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::Yes);
 
     bool is_left_const = expr_is_fully_constant(lhs_constness);
     bool is_right_const = expr_is_fully_constant(rhs_constness);
@@ -1037,7 +1038,6 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
 
-    // TODO: this warns if one operand overflows but get_expression_type has warned already
     verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
     verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
 
@@ -1050,7 +1050,7 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
             const char *s = err == ComparisonLogicError::AlwaysFalse ? "false" : "true";
             diag::ast_warning(cc, cmp, "logical expression is always {}", s);
         } else if (is_left_const && is_right_const) {
-            ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::No);
+            ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::Yes);
             if (cmp->type == AstType::Integer || cmp->type == AstType::Boolean) {
                 diag::ast_warning(cc, cmp, "logical expression is always {}",
                     get_int_literal(cmp) ? "true" : "false");
