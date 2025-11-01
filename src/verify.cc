@@ -504,13 +504,7 @@ enum class WarnDiscardedReturn {
     Yes
 };
 
-enum class InConditional {
-    No,
-    Yes
-};
-
-void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullptr,
-    InConditional = InConditional::No);
+void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullptr);
 
 uint64_t max_for_type(Type *t)
 {
@@ -589,6 +583,7 @@ void verify_print(Compiler &cc, Ast *ast)
     }
     auto *fmt = print->args[0];
     verify_expr(cc, fmt, WarnDiscardedReturn::No, string_type());
+
     // Handle fmt string
     auto &str = static_cast<AstString *>(fmt)->string;
     std::vector<size_t> to_replace;
@@ -911,13 +906,13 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
     }
 }
 
-void verify_binary(Compiler &cc, AstBinary *binary, Type *expected,
-    WarnDiscardedReturn warn_discarded, InConditional in_conditional)
+void verify_binary(
+    Compiler &cc, AstBinary *binary, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     // TODO: operator overloading
     verify_binary_operation(cc, binary, expected);
-    verify_expr(cc, binary->left, warn_discarded, expected, in_conditional);
-    verify_expr(cc, binary->right, warn_discarded, expected, in_conditional);
+    verify_expr(cc, binary->left, warn_discarded, expected);
+    verify_expr(cc, binary->right, warn_discarded, expected);
 }
 
 TypeError types_match(Type *t1, Type *t2)
@@ -1176,8 +1171,7 @@ void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, T
     }
 }
 
-void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected,
-    InConditional in_conditional)
+void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
 {
     Type *type;
     switch (ast->type) {
@@ -1204,7 +1198,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                     verify_comparison(cc, ast, warn_discarded);
                     break;
                 default:
-                    verify_binary(cc, binary, expected, warn_discarded, in_conditional);
+                    verify_binary(cc, binary, expected, warn_discarded);
                     break;
             }
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
@@ -1303,7 +1297,7 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
         // If verify_expr was called immediately, "x + 123" would be converted to "(x != 0) + 123".
         // The conversion has to happen on the uppermost level instead: "(x + 123) != 0".
         convert_expr_to_boolean(cc, if_stmt->expr);
-        verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type(), InConditional::Yes);
+        verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type());
     }
     verify_ast(cc, if_stmt->body, current_function);
     if (if_stmt->else_body) {
