@@ -170,7 +170,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
             file.fwrite("{} ({})", extract_integer_constant(literal), literal->expr_type->name);
         } else if (ast->type == AstType::String) {
             auto *string = static_cast<AstString *>(ast);
-            file.fwrite("{} (string)", escape_string(string->string));
+            file.fwrite("\"{}\" (string)", escape_string(string->string));
         } else if (ast->type == AstType::Identifier) {
             auto *ident = static_cast<AstIdentifier *>(ast);
             file.fwrite("{} ({})", ident->string, var_type_name(ident->var));
