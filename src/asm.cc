@@ -597,11 +597,10 @@ void emit_asm(Compiler &cc)
             ".asm", nullptr, [](File &f, void *) { f.write(write_buffer); });
     }
 
-    output_file.write(write_buffer);
-    write_buffer.clear();
-    if (!output_file.commit()) {
+    if (!output_file.write(write_buffer)) {
         die("{}: unable to write to output file '{}'", cc.lexer.input.filename, output);
     }
+    write_buffer.clear();
 }
 
 void compile_to_exe(const std::string &asm_file, const std::string &output_name)
