@@ -598,10 +598,15 @@ void verify_print(Compiler &cc, Ast *ast)
             ++i;
         }
     }
+
     if (to_replace.size() != print->args.size() - 1) {
-        verification_error(ast, "format string argument count doesn't match argument count");
+        verification_error(ast,
+            "format specifier amount ({}) does not match format argument amount ({})",
+            to_replace.size(), print->args.size() - 1);
     }
-    for (size_t i = 1; i < print->args.size(); ++i) {
+
+    // Loop in reverse so the format specifier replacement indices stay correct
+    for (size_t i = print->args.size() - 1; i >= 1; --i) {
         ExprConstness constness;
         auto *type = get_unaliased_type(
             get_expression_type(cc, print->args[i], &constness, TypeOverridable::Yes));
@@ -620,9 +625,10 @@ void verify_print(Compiler &cc, Ast *ast)
                 }
                 return "%d";
             }();
-            str.replace(to_replace[i - 1], fmt_s.size(), fmt_s);
+            str.erase(to_replace[i - 1], __builtin_strlen("{}"));
+            str.insert(to_replace[i - 1], fmt_s);
         } else if (type->get_kind() == TypeFlags::String) {
-            str.replace(to_replace[i - 1], 2, "%s");
+            str.replace(to_replace[i - 1], __builtin_strlen("{}"), "%s");
         } else {
             TODO();
         }
