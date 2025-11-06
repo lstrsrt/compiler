@@ -17,7 +17,7 @@ void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened
     }
 }
 
-Ast *partial_fold_associative(
+Ast *partial_fold_commutative(
     AstBinary *binary, const std::vector<Ast *> &operands, Operation operation, Type *expected)
 {
     std::vector<Ast *> non_constants;
@@ -111,7 +111,7 @@ Ast *try_partial_fold_commutative(
     }
     std::vector<Ast *> flattened;
     flatten_binary(binary, binary->operation, flattened);
-    return partial_fold_associative(binary, flattened, binary->operation, expected);
+    return partial_fold_commutative(binary, flattened, binary->operation, expected);
 }
 
 Ast *try_fold_logical_chain(
@@ -194,10 +194,10 @@ void invert_logical(Ast *ast)
     ast->operation = it->second;
 }
 
+bool is_logical_operation(Operation);
+
 Ast *apply_de_morgan_laws(Ast *ast)
 {
-    bool is_logical_operation(Operation);
-
     if (ast->type != AstType::Binary) {
         return ast;
     }
@@ -429,125 +429,136 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Int
     Type *&expected, TypeOverridable overridable)
 {
     Integer result{};
-    switch (binary->operation) {
-        case Operation::Add: {
-            result.value = left_const + right_const;
-            if (check_overflow(left_const, right_const, result, expected) == Overflow::Yes) {
-                handle_overflow(cc, binary, result, expected, overridable);
-            }
-            break;
+
+    if (is_logical_operation(binary->operation)) {
+        if (overridable == TypeOverridable::Yes) {
+            expected = bool_type();
         }
-        case Operation::Subtract: {
-            result.value = fold_sub_and_diagnose_overflow(
-                cc, binary, left_const, right_const, expected, overridable);
-            break;
+        switch (binary->operation) {
+            case Operation::Equals:
+                result.value = left_const == right_const;
+                break;
+            case Operation::NotEquals:
+                result.value = left_const != right_const;
+                break;
+            case Operation::Less:
+                result.value = left_const < right_const;
+                break;
+            case Operation::LessEquals:
+                result.value = left_const <= right_const;
+                break;
+            case Operation::Greater:
+                result.value = left_const > right_const;
+                break;
+            case Operation::GreaterEquals:
+                result.value = left_const >= right_const;
+                break;
+            case Operation::LogicalAnd:
+                result.value = left_const && right_const;
+                break;
+            case Operation::LogicalOr:
+                result.value = left_const || right_const;
+                break;
+            default:
+                TODO();
         }
-        case Operation::Multiply: {
-            result.value = left_const * right_const;
-            if (check_overflow(left_const, right_const, result, expected) == Overflow::Yes) {
-                handle_overflow(cc, binary, result, expected, overridable);
+    } else {
+        switch (binary->operation) {
+            case Operation::Add: {
+                result.value = left_const + right_const;
+                if (check_overflow(left_const, right_const, result, expected) == Overflow::Yes) {
+                    handle_overflow(cc, binary, result, expected, overridable);
+                }
+                break;
             }
-            break;
+            case Operation::Subtract: {
+                result.value = fold_sub_and_diagnose_overflow(
+                    cc, binary, left_const, right_const, expected, overridable);
+                break;
+            }
+            case Operation::Multiply: {
+                result.value = left_const * right_const;
+                if (check_overflow(left_const, right_const, result, expected) == Overflow::Yes) {
+                    handle_overflow(cc, binary, result, expected, overridable);
+                }
+                break;
+            }
+            case Operation::Divide:
+                result.value = left_const / right_const;
+                break;
+            case Operation::Modulo:
+                result.value = left_const % right_const;
+                break;
+            case Operation::And:
+                result.value = left_const & right_const;
+                break;
+            case Operation::Or:
+                result.value = left_const | right_const;
+                break;
+            case Operation::Xor:
+                result.value = left_const ^ right_const;
+                break;
+            case Operation::LeftShift: {
+                result.value = left_const << right_const;
+                diagnose_shift_overflow(
+                    cc, binary, left_const, right_const, result, expected, overridable);
+                break;
+            }
+            case Operation::RightShift:
+                if (!expected->is_unsigned()) {
+                    result.value
+                        = static_cast<int64_t>(left_const) >> static_cast<int64_t>(right_const);
+                } else {
+                    result.value = left_const >> right_const;
+                }
+                diagnose_shift_overflow(
+                    cc, binary, left_const, right_const, result, expected, overridable);
+                break;
+            case Operation::LeftRotate:
+                switch (expected->size) {
+                    case 8:
+                        result.value = std::rotl(
+                            static_cast<uint8_t>(left_const), static_cast<int>(right_const));
+                        break;
+                    case 16:
+                        result.value = std::rotl(
+                            static_cast<uint16_t>(left_const), static_cast<int>(right_const));
+                        break;
+                    case 32:
+                        result.value = std::rotl(
+                            static_cast<uint32_t>(left_const), static_cast<int>(right_const));
+                        break;
+                    case 64:
+                        result.value = std::rotl(left_const.value, static_cast<int>(right_const));
+                        break;
+                    default:
+                        TODO();
+                }
+                break;
+            case Operation::RightRotate:
+                switch (expected->size) {
+                    case 8:
+                        result.value = std::rotr(
+                            static_cast<uint8_t>(left_const), static_cast<int>(right_const));
+                        break;
+                    case 16:
+                        result.value = std::rotr(
+                            static_cast<uint16_t>(left_const), static_cast<int>(right_const));
+                        break;
+                    case 32:
+                        result.value = std::rotr(
+                            static_cast<uint32_t>(left_const), static_cast<int>(right_const));
+                        break;
+                    case 64:
+                        result.value = std::rotr(left_const.value, static_cast<int>(right_const));
+                        break;
+                    default:
+                        TODO();
+                }
+                break;
+            default:
+                return binary; // Do nothing
         }
-        case Operation::Divide:
-            result.value = left_const / right_const;
-            break;
-        case Operation::Modulo:
-            result.value = left_const % right_const;
-            break;
-        case Operation::Equals:
-            result.value = left_const == right_const;
-            break;
-        case Operation::NotEquals:
-            result.value = left_const != right_const;
-            break;
-        case Operation::Less:
-            result.value = left_const < right_const;
-            break;
-        case Operation::LessEquals:
-            result.value = left_const <= right_const;
-            break;
-        case Operation::Greater:
-            result.value = left_const > right_const;
-            break;
-        case Operation::GreaterEquals:
-            result.value = left_const >= right_const;
-            break;
-        case Operation::LogicalAnd:
-            result.value = left_const && right_const;
-            break;
-        case Operation::LogicalOr:
-            result.value = left_const || right_const;
-            break;
-        case Operation::And:
-            result.value = left_const & right_const;
-            break;
-        case Operation::Or:
-            result.value = left_const | right_const;
-            break;
-        case Operation::Xor:
-            result.value = left_const ^ right_const;
-            break;
-        case Operation::LeftShift: {
-            result.value = left_const << right_const;
-            diagnose_shift_overflow(
-                cc, binary, left_const, right_const, result, expected, overridable);
-            break;
-        }
-        case Operation::RightShift:
-            if (!expected->is_unsigned()) {
-                result.value
-                    = static_cast<int64_t>(left_const) >> static_cast<int64_t>(right_const);
-            } else {
-                result.value = left_const >> right_const;
-            }
-            diagnose_shift_overflow(
-                cc, binary, left_const, right_const, result, expected, overridable);
-            break;
-        case Operation::LeftRotate:
-            switch (expected->size) {
-                case 8:
-                    result.value = std::rotl(
-                        static_cast<uint8_t>(left_const), static_cast<int>(right_const));
-                    break;
-                case 16:
-                    result.value = std::rotl(
-                        static_cast<uint16_t>(left_const), static_cast<int>(right_const));
-                    break;
-                case 32:
-                    result.value = std::rotl(
-                        static_cast<uint32_t>(left_const), static_cast<int>(right_const));
-                    break;
-                case 64:
-                    result.value = std::rotl(left_const.value, static_cast<int>(right_const));
-                    break;
-                default:
-                    TODO();
-            }
-            break;
-        case Operation::RightRotate:
-            switch (expected->size) {
-                case 8:
-                    result.value = std::rotr(
-                        static_cast<uint8_t>(left_const), static_cast<int>(right_const));
-                    break;
-                case 16:
-                    result.value = std::rotr(
-                        static_cast<uint16_t>(left_const), static_cast<int>(right_const));
-                    break;
-                case 32:
-                    result.value = std::rotr(
-                        static_cast<uint32_t>(left_const), static_cast<int>(right_const));
-                    break;
-                case 64:
-                    result.value = std::rotr(left_const.value, static_cast<int>(right_const));
-                    break;
-                default:
-                    TODO();
-            }
-            break;
-        default:
-            return binary; // Do nothing
     }
 
     if (get_unaliased_type(expected) == bool_type()) {
