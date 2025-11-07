@@ -4,6 +4,9 @@
 #include "optimizer.hh"
 #include "parser.hh"
 
+#include <algorithm>
+#include <map>
+
 #define verification_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
 
@@ -228,7 +231,7 @@ bool expr_is_partly_constant(ExprConstness e)
     return e == (ExprConstness::SAW_CONSTANT | ExprConstness::SAW_NON_CONSTANT);
 }
 
-bool expr_is_const_int(Type *t, ExprConstness e)
+bool type_is_const_int(Type *t, ExprConstness e)
 {
     return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
 }
@@ -320,7 +323,7 @@ Type *get_binary_expression_type(
             // If we got a non-constant, override the type unless it has already been overwritten.
             seen_non_const = true;
             ret = current;
-        } else if (expr_is_const_int(current, expr_constness)) {
+        } else if (type_is_const_int(current, expr_constness)) {
             ret = get_common_integer_type(current, ret);
         } else if (types_match(ret, current) != TypeError::None) {
             verification_type_error(ast->location,
@@ -509,6 +512,7 @@ void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullp
 
 uint64_t max_for_type(Type *t)
 {
+    assert(t->get_kind() == TypeFlags::Integer);
     switch (t->size) {
         case 1:
             return 1;
@@ -526,6 +530,26 @@ uint64_t max_for_type(Type *t)
                                     : std::numeric_limits<int64_t>::max();
     }
     TODO();
+}
+
+Integer min_for_type(Type *t)
+{
+    assert(t->get_kind() == TypeFlags::Integer);
+    if (t->is_unsigned()) {
+        return Integer(0, false);
+    }
+    switch (t->size) {
+        case 64:
+            return Integer(std::numeric_limits<int64_t>::min(), true);
+        case 32:
+            return Integer(std::numeric_limits<int32_t>::min(), true);
+        case 16:
+            return Integer(std::numeric_limits<int16_t>::min(), true);
+        case 8:
+            return Integer(std::numeric_limits<int8_t>::min(), true);
+        default:
+            TODO();
+    }
 }
 
 uint64_t get_int_literal(Ast *ast)
@@ -848,14 +872,191 @@ bool is_logical_operation(Operation op)
     }
 }
 
+bool has_side_effects(Ast *);
+
+enum class CheckSideEffects {
+    No,
+    Yes
+};
+
+bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
+{
+    if (left->operation != right->operation) {
+        return false;
+    }
+    if (check_side_effects == CheckSideEffects::Yes
+        && (has_side_effects(left) || has_side_effects(right))) {
+        return false;
+    }
+
+    switch (left->type) {
+        case AstType::Integer:
+            [[fallthrough]];
+        case AstType::Boolean:
+            return get_int_literal(left) == get_int_literal(right);
+        case AstType::String:
+            return hash(static_cast<AstString *>(left)->string)
+                == hash(static_cast<AstString *>(right)->string);
+        case AstType::Identifier:
+            return static_cast<AstIdentifier *>(left)->var
+                == static_cast<AstIdentifier *>(right)->var;
+        case AstType::Binary:
+            return exprs_identical(static_cast<AstBinary *>(left)->left,
+                       static_cast<AstBinary *>(right)->left, CheckSideEffects::Yes)
+                && exprs_identical(static_cast<AstBinary *>(left)->right,
+                    static_cast<AstBinary *>(right)->right, CheckSideEffects::Yes);
+        case AstType::Unary:
+            return exprs_identical(static_cast<AstUnary *>(left)->operand,
+                static_cast<AstUnary *>(right)->operand, CheckSideEffects::Yes);
+        default:
+            TODO();
+    }
+}
+
+bool expr_is_integral(Ast *ast)
+{
+    return ast->type == AstType::Integer || ast->type == AstType::Boolean;
+}
+
+void verify_logical_chain(Compiler &cc, AstBinary *cmp)
+{
+    if (has_side_effects(cmp->left) || has_side_effects(cmp->right)) {
+        return;
+    }
+
+    if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::No)) {
+        diag::ast_warning(cc, cmp, "redundant logical chain");
+        return;
+    }
+
+    if (cmp->operation == Operation::LogicalOr) {
+        return;
+    }
+
+    auto get_parts = [](AstBinary *ast) -> std::pair<AstIdentifier *, AstLiteral *> {
+        if (ast->left->type == AstType::Identifier) {
+            if (expr_is_integral(ast->right)) {
+                return { static_cast<AstIdentifier *>(ast->left),
+                    static_cast<AstLiteral *>(ast->right) };
+            }
+        } else if (ast->right->type == AstType::Identifier) {
+            if (expr_is_integral(ast->left)) {
+                return { static_cast<AstIdentifier *>(ast->right),
+                    static_cast<AstLiteral *>(ast->left) };
+            }
+        }
+        return { nullptr, nullptr };
+    };
+
+    enum class LogicalType {
+        Equals,
+        NotEquals,
+        Range
+    };
+
+    struct LogicalRange {
+        Integer first{};
+        Integer last{};
+        Ast *ast = nullptr;
+        LogicalType logical_type{};
+
+        explicit LogicalRange(Ast *operand, AstLiteral *constant, Type *type)
+            : ast(operand)
+            , logical_type(LogicalType::Range)
+        {
+            const auto literal = get_int_literal(constant);
+            first.is_signed = last.is_signed = type->is_signed();
+            // TODO: canonicalize L/LE into G/GE earlier?
+            switch (operand->operation) {
+                case Operation::Equals:
+                    first.value = literal;
+                    logical_type = LogicalType::Equals;
+                    break;
+                case Operation::GreaterEquals:
+                    first.value = literal;
+                    last.value = max_for_type(type);
+                    break;
+                case Operation::Greater:
+                    first.value = literal + 1; // TODO: account for overflow
+                    last.value = max_for_type(type);
+                    break;
+                case Operation::Less:
+                    first = min_for_type(type);
+                    last.value = literal - 1; // TODO: account for overflow
+                    break;
+                case Operation::LessEquals:
+                    first = min_for_type(type);
+                    last.value = literal;
+                    break;
+                case Operation::NotEquals:
+                    first.value = get_int_literal(constant);
+                    logical_type = LogicalType::NotEquals;
+                    break;
+                default:
+                    break;
+            }
+        }
+    };
+
+    std::vector<Ast *> flattened;
+    flatten_binary(cmp, cmp->operation, flattened);
+    std::map<Variable *, std::vector<LogicalRange>> ranges_map;
+
+    for (auto *ast : flattened) {
+        assert(ast->type == AstType::Binary);
+        auto *operand = static_cast<AstBinary *>(ast);
+        auto [ident, constant] = get_parts(operand);
+        if (!ident || !constant) {
+            continue;
+        }
+        ranges_map[ident->var].emplace_back(ast, constant, ident->var->type);
+    }
+
+    auto overlap_warning = [&](Ast *first, Ast *second, bool result) {
+        diag::prepare_warning(cc, first->location, "this comparison:");
+        diag::print_line(cc.lexer.string, first->location);
+        diag::ast_warning(cc, second, "{} with this comparison, so the result will always be {}:",
+            result ? "fully overlaps" : "does not overlap", result ? "true" : "false");
+    };
+
+    for (auto &[var, ranges] : ranges_map) {
+        auto is_signed = var->type->is_signed();
+        std::ranges::sort(ranges, [is_signed](const LogicalRange &a, const LogicalRange &b) {
+            if (is_signed) {
+                // TODO: add sle/ule helpers
+                return a.first.as_signed() < b.first.as_signed();
+            }
+            return a.first < b.first;
+        });
+
+        for (size_t i = 0; i < size(ranges) - 1; ++i) {
+            auto &range = ranges[i];
+            auto &next = ranges[i + 1];
+
+            if (range.logical_type == LogicalType::Equals
+                && next.logical_type == LogicalType::Equals) {
+                overlap_warning(range.ast, next.ast, range.first == next.first);
+                continue;
+            }
+            if (range.logical_type == LogicalType::Range
+                || next.logical_type == LogicalType::Range) {
+                if (range.last < next.first) {
+                    overlap_warning(range.ast, next.ast, false);
+                }
+            }
+        }
+    }
+}
+
 void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 {
     ExprConstness lhs_constness{};
     ExprConstness rhs_constness{};
     auto *lhs_type = get_unaliased_type(get_expression_type(cc, binary->left, &lhs_constness));
     auto *rhs_type = get_unaliased_type(get_expression_type(cc, binary->right, &rhs_constness));
+    auto op = binary->operation;
 
-    if (is_arithmetic_operation(binary->operation) || is_bitwise_operation(binary->operation)) {
+    if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
         if (lhs_type->get_kind() != TypeFlags::Integer
             || rhs_type->get_kind() != TypeFlags::Integer) {
             verification_type_error(binary->location,
@@ -863,15 +1064,14 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
                 rhs_type->get_name());
         }
 
-        if (binary->operation == Operation::LeftRotate
-            || binary->operation == Operation::RightRotate) {
+        if (op == Operation::LeftRotate || op == Operation::RightRotate) {
             if (!is_unsigned_or_convertible(lhs_type, lhs_constness)) {
                 verification_error(binary, "rotate must be performed on an unsigned expression");
             }
             if (binary->left->operation == Operation::Negate) {
                 diag::ast_warning(cc, binary->left, "rotating negative value");
             }
-            if (!expr_is_const_int(rhs_type, rhs_constness)) {
+            if (!type_is_const_int(rhs_type, rhs_constness)) {
                 return;
             }
 
@@ -882,16 +1082,14 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             return;
         }
 
-        if (binary->operation == Operation::LeftShift
-            || binary->operation == Operation::RightShift) {
+        if (op == Operation::LeftShift || op == Operation::RightShift) {
             if (binary->right->operation == Operation::Negate) {
                 verification_error(binary->right, "negative shift counts are not allowed");
             }
-            if (binary->operation == Operation::LeftShift
-                && binary->left->operation == Operation::Negate) {
+            if (op == Operation::LeftShift && binary->left->operation == Operation::Negate) {
                 diag::ast_warning(cc, binary->left, "left shifting negative value");
             }
-            if (!expr_is_const_int(rhs_type, rhs_constness)) {
+            if (!type_is_const_int(rhs_type, rhs_constness)) {
                 return;
             }
 
@@ -900,16 +1098,19 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
                     std::numeric_limits<uint8_t>::max());
             }
             // The lhs check is here so we don't warn twice (here and again in the optimizer)
-            if (!expr_is_const_int(lhs_type, lhs_constness)) {
+            if (!type_is_const_int(lhs_type, lhs_constness)) {
                 if (get_int_literal(binary->right) >= expected->size) {
-                    const char *shift_type
-                        = binary->operation == Operation::LeftShift ? "left" : "right";
+                    const char *shift_type = op == Operation::LeftShift ? "left" : "right";
                     diag::ast_warning(cc, binary, "{} shift overflows expected type `{}`",
                         shift_type, expected->get_name());
                 }
             }
             return;
         }
+    }
+
+    if (op == Operation::LogicalAnd || op == Operation::LogicalOr) {
+        verify_logical_chain(cc, binary);
     }
 }
 
@@ -956,41 +1157,6 @@ TypeError types_match(Type *t1, Type *t2)
     }
 
     return TypeError::Default;
-}
-
-bool exprs_identical(Ast *left, Ast *right)
-{
-    bool has_side_effects(Ast *);
-
-    if (left->operation != right->operation) {
-        return false;
-    }
-    if (has_side_effects(left) || has_side_effects(right)) {
-        return false;
-    }
-
-    switch (left->type) {
-        case AstType::Integer:
-            [[fallthrough]];
-        case AstType::Boolean:
-            return get_int_literal(left) == get_int_literal(right);
-        case AstType::String:
-            return hash(static_cast<AstString *>(left)->string)
-                == hash(static_cast<AstString *>(right)->string);
-        case AstType::Identifier:
-            return static_cast<AstIdentifier *>(left)->var
-                == static_cast<AstIdentifier *>(right)->var;
-        case AstType::Binary:
-            return exprs_identical(
-                       static_cast<AstBinary *>(left)->left, static_cast<AstBinary *>(right)->left)
-                && exprs_identical(
-                    static_cast<AstBinary *>(left)->right, static_cast<AstBinary *>(right)->right);
-        case AstType::Unary:
-            return exprs_identical(
-                static_cast<AstUnary *>(left)->operand, static_cast<AstUnary *>(right)->operand);
-        default:
-            TODO();
-    }
 }
 
 enum class ComparisonLogicError {
@@ -1054,17 +1220,17 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
         if (auto err = is_illogical_comparison(cmp->expr_type, cmp->operation, constant);
             err != ComparisonLogicError::None) {
             const char *s = err == ComparisonLogicError::AlwaysFalse ? "false" : "true";
-            diag::ast_warning(cc, cmp, "logical expression is always {}", s);
+            diag::ast_warning(cc, cmp, "comparison is always {}", s);
         } else if (is_left_const && is_right_const) {
             ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::Yes);
-            if (cmp->type == AstType::Integer || cmp->type == AstType::Boolean) {
-                diag::ast_warning(cc, cmp, "logical expression is always {}",
-                    get_int_literal(cmp) ? "true" : "false");
+            if (expr_is_integral(cmp)) {
+                diag::ast_warning(
+                    cc, cmp, "comparison is always {}", get_int_literal(cmp) ? "true" : "false");
             }
         }
-    } else if (exprs_identical(cmp->left, cmp->right)) {
+    } else if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::Yes)) {
         const char *s = cmp->operation == Operation::Equals ? "true" : "false";
-        diag::ast_warning(cc, cmp, "logical expression is always {}", s);
+        diag::ast_warning(cc, cmp, "comparison is always {}", s);
     }
 }
 
