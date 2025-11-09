@@ -407,7 +407,7 @@ void skip_comments(Compiler &cc)
 void expect(Compiler &cc, const std::string &exp, const Token &tk)
 {
     if (tk.string != exp) {
-        diag::lexer_error(cc, "expected `{}`, got `{}`", diag::make_printable(exp),
+        diag::lexer_error(cc, tk.location, "expected `{}`, got `{}`", diag::make_printable(exp),
             diag::make_printable(tk.string));
     }
 }
@@ -415,8 +415,8 @@ void expect(Compiler &cc, const std::string &exp, const Token &tk)
 void expect(Compiler &cc, TokenKind kind, const Token &tk)
 {
     if (tk.kind != kind) {
-        diag::lexer_error(
-            cc, "expected `{}`, got `{}`", to_string(kind), diag::make_printable(tk.string));
+        diag::lexer_error(cc, tk.location, "expected `{}`, got `{}`", to_string(kind),
+            diag::make_printable(tk.string));
     }
 }
 
@@ -439,7 +439,7 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
     } else if (is_group(tk.kind, TokenKind::GroupEmpty)) {
         consume(cc.lexer, tk);
     } else {
-        diag::lexer_error(cc,
+        diag::lexer_error(cc, tk.location,
             "expected `<new line>`, got `{}`.\n"
             "only one statement per line is allowed.",
             diag::make_printable(tk.string));

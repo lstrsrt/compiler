@@ -54,6 +54,12 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
     }
 }
 
+[[noreturn]] void lexer_error(
+    Compiler &cc, SourceLocation loc, std::string_view fmt, auto &&...args)
+{
+    error_at(cc, loc, ErrorType::Lexer, fmt, args...);
+}
+
 [[noreturn]] void lexer_error(Compiler &cc, std::string_view fmt, auto &&...args)
 {
     error_at(cc, cc.lexer.location(), ErrorType::Lexer, fmt, args...);
