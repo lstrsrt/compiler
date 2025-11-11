@@ -5,6 +5,7 @@
 #include "parser.hh"
 
 #include <algorithm>
+#include <limits>
 #include <map>
 
 #define verification_error(ast, msg, ...) \
@@ -233,7 +234,7 @@ bool expr_is_partly_constant(ExprConstness e)
 
 bool type_is_const_int(Type *t, ExprConstness e)
 {
-    return expr_is_fully_constant(e) && t->get_kind() == TypeFlags::Integer;
+    return expr_is_fully_constant(e) && t->is_int();
 }
 
 Type *get_expression_type(
@@ -348,7 +349,7 @@ Type *get_binary_expression_type(
 
 Type *make_unsigned(Type *type)
 {
-    assert(type->get_kind() == TypeFlags::Integer);
+    assert(type->is_int());
     if (type->is_unsigned()) {
         return type;
     }
@@ -433,7 +434,7 @@ Type *get_expression_type(
                     auto *type = get_expression_type(
                         cc, static_cast<AstNot *>(ast)->operand, constness, overridable);
 
-                    if (type->get_kind() != TypeFlags::Integer) {
+                    if (!type->is_int()) {
                         verification_error(static_cast<AstUnary *>(ast)->operand,
                             "bitwise not can only be applied to only unsigned integers");
                     }
@@ -512,7 +513,7 @@ void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullp
 
 uint64_t max_for_type(Type *t)
 {
-    assert(t->get_kind() == TypeFlags::Integer);
+    assert(t->is_int());
     switch (t->size) {
         case 1:
             return 1;
@@ -534,7 +535,7 @@ uint64_t max_for_type(Type *t)
 
 Integer min_for_type(Type *t)
 {
-    assert(t->get_kind() == TypeFlags::Integer);
+    assert(t->is_int());
     if (t->is_unsigned()) {
         return Integer(0, false);
     }
@@ -565,7 +566,7 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (wanted == type) {
         return TypeError::None;
     }
-    if (type->get_kind() != TypeFlags::Integer || wanted->get_kind() != TypeFlags::Integer) {
+    if (!type->is_int() || !wanted->is_int()) {
         return TypeError::Default;
     }
     if (type->pointer != wanted->pointer) {
@@ -575,7 +576,7 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     bool needs_cast = false;
     if (type->size != wanted->size) {
         // If the below check is false, this is a literal that can be casted down
-        if (!expr_is_fully_constant(constness) || get_int_literal(expr) > max_for_type(wanted)) {
+        if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
             return TypeError::SizeMismatch;
         }
         needs_cast = true;
@@ -635,7 +636,7 @@ void verify_print(Compiler &cc, Ast *ast)
         auto *type = get_unaliased_type(
             get_expression_type(cc, print->args[i], &constness, TypeOverridable::Yes));
         verify_expr(cc, print->args[i], WarnDiscardedReturn::No, type);
-        if (type->get_kind() == TypeFlags::Integer) {
+        if (type->is_int()) {
             std::string fmt_s = [&]() {
                 switch (type->size) {
                     case 64:
@@ -770,8 +771,7 @@ void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn war
     verify_expr(cc, unary->operand, warn_discarded);
 }
 
-void verify_negate(
-    Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded, TypeOverridable)
+void verify_negate(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstNegate *>(ast);
 
@@ -782,8 +782,7 @@ void verify_negate(
             expected->get_name());
     };
 
-    if (expected->get_kind() != TypeFlags::Integer || expected->is_unsigned()
-        || expected->is_pointer()) {
+    if (!expected->is_int() || expected->is_unsigned() || expected->is_pointer()) {
         negation_error();
     }
 
@@ -791,30 +790,29 @@ void verify_negate(
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness);
-    if (type->get_kind() != TypeFlags::Integer || type->is_unsigned()) {
+    if (!type->is_int() || type->is_unsigned()) {
         negation_error();
     }
 }
 
 bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
 {
-    return type->get_kind() == TypeFlags::Integer
-        && (expr_is_fully_constant(constness) || type->is_unsigned());
+    return type->is_int() && (expr_is_fully_constant(constness) || type->is_unsigned());
 }
 
 void verify_not(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstNot *>(ast);
-    if (expected->get_kind() != TypeFlags::Integer) {
+    if (!expected->is_int()) {
         verification_type_error(
-            unary->location, "bitwise not can only be applied to only unsigned integers");
+            unary->location, "bitwise not can only be applied to unsigned integers");
     }
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness);
     verify_expr(cc, unary->operand, warn_discarded, expected);
 
-    if (type->get_kind() != TypeFlags::Integer || !is_unsigned_or_convertible(type, constness)) {
+    if (!type->is_int() || !is_unsigned_or_convertible(type, constness)) {
         verification_type_error(
             unary->location, "bitwise not can only be applied to only unsigned integers");
     }
@@ -1057,8 +1055,7 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
     auto op = binary->operation;
 
     if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
-        if (lhs_type->get_kind() != TypeFlags::Integer
-            || rhs_type->get_kind() != TypeFlags::Integer) {
+        if (is_arithmetic_operation(op) && (!lhs_type->is_int() || !rhs_type->is_int())) {
             verification_type_error(binary->location,
                 "invalid operator applied to types `{}` and `{}`", lhs_type->get_name(),
                 rhs_type->get_name());
@@ -1109,7 +1106,7 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
         }
     }
 
-    if (op == Operation::LogicalAnd || op == Operation::LogicalOr) {
+    if (binary->operation == Operation::LogicalAnd || binary->operation == Operation::LogicalOr) {
         verify_logical_chain(cc, binary);
     }
 }
@@ -1136,8 +1133,8 @@ TypeError types_match(Type *t1, Type *t2)
         return TypeError::PointerMismatch;
     }
 
-    if (t1_u->get_kind() == TypeFlags::Integer) {
-        if (t2_u->get_kind() != TypeFlags::Integer) {
+    if (t1_u->is_int()) {
+        if (!t2_u->is_int()) {
             return TypeError::Default;
         }
         if (t1_u->size != t2_u->size) {
@@ -1149,8 +1146,8 @@ TypeError types_match(Type *t1, Type *t2)
         return TypeError::None;
     }
 
-    if (t1_u->get_kind() == TypeFlags::Boolean) {
-        if (t2_u->get_kind() != TypeFlags::Boolean) {
+    if (t1_u->is_bool()) {
+        if (!t2_u->is_bool()) {
             return TypeError::Default;
         }
         return TypeError::None;
@@ -1177,9 +1174,11 @@ ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer 
         if (!constant.is_signed && constant > max_for_type(type)) {
             return ComparisonLogicError::AlwaysFalse;
         }
-    }
-
-    if (type->is_unsigned() || type->get_kind() == TypeFlags::Boolean) {
+    } else if (cmp == Operation::LessEquals) {
+        if (constant == max_for_type(type)) {
+            return ComparisonLogicError::AlwaysTrue;
+        }
+    } else if (type->is_unsigned() || type->is_bool()) {
         if (constant == 0) {
             if (cmp == Operation::GreaterEquals) {
                 return ComparisonLogicError::AlwaysTrue;
@@ -1254,7 +1253,7 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
         convert_expr_to_boolean(cc, static_cast<AstBinary *>(expr)->right);
     } else if (expr->operation == Operation::LogicalNot) {
         convert_expr_to_boolean(cc, static_cast<AstLogicalNot *>(expr)->operand);
-    } else if (type->get_kind() != TypeFlags::Integer) {
+    } else if (!type->is_int()) {
         if (auto err = types_match(type, bool_type()); err != TypeError::None) {
             type_error(cc, expr, bool_type(), type, err);
         }
@@ -1282,12 +1281,12 @@ void match_type_or_cast(
         return;
     }
 
-    if (expected->get_kind() == TypeFlags::Boolean) {
+    if (expected->is_bool()) {
         convert_expr_to_boolean(cc, ast, type);
         return;
     }
 
-    if (expected->get_kind() == TypeFlags::Integer) {
+    if (expected->is_int()) {
         if (err = maybe_cast_int(expected, type, ast, constness); err == TypeError::None) {
             return;
         }
@@ -1312,6 +1311,40 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
     match_type_or_cast(cc, ast, constness, type, expected);
 }
 
+void remove_cast(Ast *&ast)
+{
+    ast = static_cast<AstCast *>(ast)->operand;
+}
+
+void verify_explicit_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+{
+    // Current behavior notes
+    //
+    // pointer casts: always allowed
+    // integer casts: always allowed // TODO: add overflow checks
+    // -> bool: not allowed
+    // self -> self: removed without warning
+
+    auto *cast = static_cast<AstCast *>(ast);
+    auto *expected = cast->cast_type;
+
+    ExprConstness constness{};
+    auto *type = get_unaliased_type(get_expression_type(cc, cast->operand, &constness));
+
+    if (expected->is_bool() && !type->is_bool()) {
+        verification_type_error(ast->location, "cannot cast {} to bool", type->get_name());
+    }
+
+    if (types_match(expected, type) == TypeError::None) {
+        remove_cast(ast);
+    }
+
+    // We don't pass anything for `expected` because verify_expr uses get_expression_type
+    // so passing `type` would always succeed, and passing the type we're casting to would
+    // always fail.
+    verify_expr(cc, cast->operand, warn_discarded);
+}
+
 void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
 {
     switch (ast->operation) {
@@ -1325,7 +1358,7 @@ void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, T
             verify_dereference(cc, ast, expected, warn_discarded);
             break;
         case Operation::Negate:
-            verify_negate(cc, ast, expected, warn_discarded, TypeOverridable::No);
+            verify_negate(cc, ast, expected, warn_discarded);
             break;
         case Operation::Not:
             verify_not(cc, ast, expected, warn_discarded);
@@ -1334,6 +1367,9 @@ void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, T
             verify_logical_not(cc, ast, warn_discarded);
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             ast = apply_de_morgan_laws(ast);
+            break;
+        case Operation::Cast:
+            verify_explicit_cast(cc, ast, warn_discarded);
             break;
         case Operation::Load:
             // synthetic operation

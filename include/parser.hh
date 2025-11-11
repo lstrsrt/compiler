@@ -223,6 +223,23 @@ struct Type {
         return flags & TypeFlags::kind_mask;
     }
 
+    bool is_int() const
+    {
+        return get_kind() == TypeFlags::Integer;
+    }
+
+    bool is_bool() const
+    {
+        return get_kind() == TypeFlags::Boolean;
+    }
+
+    // Is this a integer or an integer-like type?
+    // NOTE: Booleans may not be used in arithmetic operations.
+    bool is_integral() const
+    {
+        return is_int() || is_bool();
+    }
+
     TypeFlags get_flags() const
     {
         return flags & ~TypeFlags::kind_mask;
@@ -606,6 +623,6 @@ void diagnose_redeclaration_or_shadowing(Compiler &, Scope *, std::string_view n
     std::string_view type, SourceLocation, ErrorOnShadowing);
 
 struct ParseState {
-    bool inside_call = false;
+    bool in_call = false;
     AstWhile *current_loop = nullptr;
 };

@@ -388,7 +388,7 @@ Overflow check_shift_overflow(T left, int right)
 void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, Integer left_const,
     Integer right_const, Integer result, Type *&expected, TypeOverridable overridable)
 {
-    bool is_signed = !expected->is_unsigned();
+    bool is_signed = expected->is_signed();
     const char *shift_type = binary->operation == Operation::LeftShift ? "left" : "right";
     auto overflow = [&, func = __func__]() {
         switch (expected->size) {
@@ -590,8 +590,8 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
     // Figure out which parts of the expression are constant.
     auto *left = try_constant_fold(cc, binary->left, expected, overridable);
     auto *right = try_constant_fold(cc, binary->right, expected, overridable);
-    bool left_is_const = left->type == AstType::Integer;
-    bool right_is_const = right->type == AstType::Integer;
+    bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
+    bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
     if (!left_is_const && !right_is_const) {
         return binary;
     }

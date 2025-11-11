@@ -103,6 +103,7 @@ enum class TokenKind : uint32_t {
     Continue,
     Break,
     Null,
+    As,
 };
 
 struct Lexer;

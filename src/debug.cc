@@ -140,7 +140,7 @@ std::string escape_string(const std::string &s)
 
 static std::string var_type_name(Variable *var)
 {
-    return var->type->name.empty() ? "<auto>" : var->type->name;
+    return var->type->name.empty() ? "<auto>" : var->type->get_name();
 }
 
 static void print_var_decl(File &file, AstVariableDecl *var_decl)
@@ -150,7 +150,7 @@ static void print_var_decl(File &file, AstVariableDecl *var_decl)
         file.fwrite("{}: <auto>", var_decl->var.name);
     } else {
         const auto flags_str = type_flags_to_string(type->flags);
-        file.fwrite("{}: {} {}", var_decl->var.name, type->name, flags_str);
+        file.fwrite("{}: {} {}", var_decl->var.name, type->get_name(), flags_str);
         if (type->has_flag(TypeFlags::ALIAS)) {
             file.fwrite("-> {}", get_unaliased_type(type)->name);
         } else if (!type->has_flag(TypeFlags::UNRESOLVED)) {
@@ -167,7 +167,8 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
         file.fwrite("{}", indent);
         if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
             auto *literal = static_cast<AstLiteral *>(ast);
-            file.fwrite("{} ({})", extract_integer_constant(literal), literal->expr_type->name);
+            file.fwrite(
+                "{} ({})", extract_integer_constant(literal), literal->expr_type->get_name());
         } else if (ast->type == AstType::String) {
             auto *string = static_cast<AstString *>(ast);
             file.fwrite("\"{}\" (string)", escape_string(string->string));
@@ -187,7 +188,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
         file.fwriteln(" {} ({} args)]", call->name, call->args.size());
     } else if (ast->operation == Operation::FunctionDecl) {
         auto *function = static_cast<AstFunction *>(ast);
-        file.fwriteln(" {} -> {}]", function->name, function->return_type->name);
+        file.fwriteln(" {} -> {}]", function->name, function->return_type->get_name());
         for (auto *p : function->params) {
             file.fwrite("{}[Param: ", indent);
             print_var_decl(file, p);
@@ -196,7 +197,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
         file.fwrite(" ");
         print_var_decl(file, static_cast<AstVariableDecl *>(ast));
     } else if (ast->operation == Operation::Cast) {
-        file.fwriteln(" {}]", static_cast<AstCast *>(ast)->cast_type->name);
+        file.fwriteln(" {}]", static_cast<AstCast *>(ast)->cast_type->get_name());
     } else {
         file.fwriteln("]");
     }
@@ -324,7 +325,7 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::BasicBlock:
             return std::to_string(src.u.basic_block->index);
         case IRArgType::Type:
-            return src.u.type->name;
+            return src.u.type->get_name();
         default:
             TODO();
     }

@@ -1,0 +1,6 @@
+#{returns(1)}
+x: s64 = 1
+y := x as s32
+if y == 1 {
+    return y
+}

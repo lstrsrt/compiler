@@ -4,6 +4,7 @@
 #include "lexer.hh"
 
 #include <algorithm>
+#include <ranges>
 
 #define parser_ast_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
@@ -19,8 +20,9 @@ enum class Associativity {
 using Precedence = int;
 
 namespace prec {
-constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
-                     Bitwise = 6, AdditiveArithmetic = 7, MultiplicativeArithmetic = 8, Unary = 9;
+constexpr Precedence Comma = 1, Assignment = 2, ExplicitCast = 3, LogicalOr = 4, LogicalAnd = 5,
+                     Comparison = 6, Bitwise = 7, AdditiveArithmetic = 8,
+                     MultiplicativeArithmetic = 9, Unary = 10;
 constexpr Precedence Lowest = Comma, Highest = Unary;
 } // namespace prec
 
@@ -62,6 +64,8 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
             return { prec::LogicalAnd, Associativity::Left };
         case Or:
             return { prec::LogicalOr, Associativity::Left };
+        case As:
+            return { prec::ExplicitCast, Associativity::Right };
         case ColonEquals:
         case Equals:
             return { prec::Assignment, Associativity::Right };
@@ -93,7 +97,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
         return new AstCall(function, args, location); // Call without args
     }
 
-    cc.parse_state.inside_call = true;
+    cc.parse_state.in_call = true;
     for (;;) {
         args.emplace_back(parse_expr(cc, AllowVarDecl::No, prec::Comma + 1));
         auto token = lex(cc);
@@ -102,7 +106,7 @@ AstCall *parse_call(Compiler &cc, std::string_view function, SourceLocation loca
         }
         consume(cc.lexer, token);
     }
-    cc.parse_state.inside_call = false;
+    cc.parse_state.in_call = false;
 
     return new AstCall(function, args, location);
 }
@@ -165,7 +169,7 @@ void try_convert_string_to_u64(
     }
 }
 
-Ast *parse_atom(Compiler &, AllowVarDecl);
+Ast *parse_cast_expr(Compiler &, AllowVarDecl);
 
 template<Operation... ops>
 static void enforce_single_operator(Compiler &cc, Token &token, Ast *arg, uint32_t column)
@@ -185,7 +189,7 @@ Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
     if (token.kind == TokenKind::Minus) {
         consume(cc.lexer, token);
         auto prev_col = cc.lexer.column;
-        auto *arg = parse_atom(cc, allow_var_decl);
+        auto *arg = parse_cast_expr(cc, allow_var_decl);
         enforce_single_operator<Operation::Negate, Operation::LogicalNot>(cc, token, arg, prev_col);
         return new AstUnary(Operation::Negate, arg, token.location);
     }
@@ -193,7 +197,7 @@ Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
     if (token.kind == TokenKind::Excl) {
         consume(cc.lexer, token);
         auto prev_col = cc.lexer.column;
-        auto *arg = parse_atom(cc, allow_var_decl);
+        auto *arg = parse_cast_expr(cc, allow_var_decl);
         enforce_single_operator<Operation::LogicalNot>(cc, token, arg, prev_col);
         return new AstLogicalNot(Operation::LogicalNot, arg, token.location);
     }
@@ -201,7 +205,7 @@ Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
     if (token.kind == TokenKind::Tilde) {
         consume(cc.lexer, token);
         auto prev_col = cc.lexer.column;
-        auto *arg = parse_atom(cc, allow_var_decl);
+        auto *arg = parse_cast_expr(cc, allow_var_decl);
         enforce_single_operator<Operation::Not>(cc, token, arg, prev_col);
         return new AstLogicalNot(Operation::Not, arg, token.location);
     }
@@ -209,14 +213,14 @@ Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
     if (token.kind == TokenKind::Ampersand) {
         consume(cc.lexer, token);
         auto prev_col = cc.lexer.column;
-        auto *arg = parse_atom(cc, allow_var_decl);
+        auto *arg = parse_cast_expr(cc, allow_var_decl);
         enforce_single_operator<Operation::AddressOf>(cc, token, arg, prev_col);
         return new AstAddressOf(Operation::AddressOf, arg, token.location);
     }
 
     if (token.kind == TokenKind::Star) {
         consume(cc.lexer, token);
-        auto *arg = parse_atom(cc, allow_var_decl);
+        auto *arg = parse_cast_expr(cc, allow_var_decl);
         if (!arg) {
             parser_error(token.location, "missing operand");
         }
@@ -276,7 +280,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             return call;
         }
         auto *var_decl = find_variable(current_scope, std::string(token.string));
-        if (!var_decl && !cc.parse_state.inside_call) {
+        if (!var_decl && !cc.parse_state.in_call) {
             cc.lexer.column = prev_col;
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
@@ -303,6 +307,29 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     }
 
     return nullptr;
+}
+
+Ast *parse_cast_expr(Compiler &cc, AllowVarDecl allow_var_decl)
+{
+    void insert_cast(Ast *&, Type *);
+
+    auto *expr = parse_atom(cc, allow_var_decl);
+    auto token = lex(cc);
+    while (token.kind == TokenKind::As) {
+        if (!expr) {
+            parser_error(token.location, "expected expression");
+        }
+        consume(cc.lexer, token);
+        token = lex(cc);
+        auto *type = find_type(current_scope, std::string(token.string));
+        if (!type) {
+            parser_error(token.location, "type `{}` is not declared in this scope", token.string);
+        }
+        consume(cc.lexer, token);
+        insert_cast(expr, type);
+        token = lex(cc);
+    }
+    return expr;
 }
 
 AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, Ast *rhs)
@@ -404,12 +431,15 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
     auto prev_col = cc.lexer.column;
     auto prev_pos = cc.lexer.position;
 
-    auto *root = parse_atom(cc, allow_var_decl);
+    auto *root = parse_cast_expr(cc, allow_var_decl);
 
     for (;;) {
         const auto token = lex(cc);
-        if (!is_group(token.kind, TokenKind::GroupOperator) || token.kind == TokenKind::RParen
-            || token.kind == TokenKind::LBrace || token.kind == TokenKind::RBrace) {
+        if (!is_group(token.kind, TokenKind::GroupOperator)) {
+            break;
+        }
+        if (token.kind == TokenKind::RParen || token.kind == TokenKind::LBrace
+            || token.kind == TokenKind::RBrace) {
             break;
         }
 
@@ -934,7 +964,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 std::string extract_integer_constant(AstLiteral *literal)
 {
     auto *type = get_unaliased_type(literal->expr_type);
-    if (type->get_kind() == TypeFlags::Integer) {
+    if (type->is_int()) {
         if (type->is_unsigned()) {
             return std::format("{:#x}", literal->u.u64);
         }
@@ -943,7 +973,7 @@ std::string extract_integer_constant(AstLiteral *literal)
         }
         return std::to_string(literal->u.s32);
     }
-    if (type->get_kind() == TypeFlags::Boolean) {
+    if (type->is_bool()) {
         return std::to_string(literal->u.boolean);
     }
     if (type->is_pointer()) {
