@@ -354,8 +354,11 @@ void print_ir(File &file, IR *ir)
         return;
     }
     file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
-    if (ir->type == AstType::Binary || ir->operation == Operation::Cast) {
+    if (ir->type == AstType::Binary) {
         file.fwrite(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
+    } else if (ir->operation == Operation::Cast) {
+        auto *cast = dynamic_cast<IRCast *>(ir);
+        file.fwrite(", {} <Type>", cast->cast_type->get_name());
     }
     file.fwrite("\n");
     file.commit();

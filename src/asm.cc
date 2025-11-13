@@ -210,6 +210,70 @@ void emit_cond_jump(IR *ir, const std::string &jcc, BasicBlock *false_block, Bas
     }
 }
 
+void emit_asm_cast(const IRFunction &ir_fn, IR *ir)
+{
+    assert(ir->right.arg_type == IRArgType::Type);
+    assert(dynamic_cast<IRCast *>(ir) != nullptr);
+
+    // Adapted from chibicc
+    // https://github.com/rui314/chibicc/blob/main/codegen.c#L373
+    constexpr const char *i32i8 = "movsx eax, al";
+    constexpr const char *i32u8 = "movzx eax, al";
+    constexpr const char *i32i16 = "movsx eax, ax";
+    constexpr const char *i32u16 = "movzx eax, ax";
+    constexpr const char *i32i64 = "movsxd rax, eax";
+    constexpr const char *u32i64 = "mov eax, eax";
+
+    // clang-format off
+    static constexpr const char *cast_table[8][8]{
+        // i8      i16      i32      i64      u8       u16      u32      u64
+        { nullptr, nullptr, nullptr, i32i64,  i32u8,   i32u16,  nullptr, i32i64 },  // i8
+        { i32i8,   nullptr, nullptr, i32i64,  i32u8,   i32u16,  nullptr, i32i64 },  // i16
+        { i32i8,   i32i16,  nullptr, i32i64,  i32u8,   i32u16,  nullptr, i32i64 },  // i32
+        { i32i8,   i32i16,  nullptr, nullptr, i32u8,   i32u16,  nullptr, nullptr }, // i64
+        { i32i8,   nullptr, nullptr, i32i64,  nullptr, nullptr, nullptr, i32i64 },  // u8
+        { i32i8,   i32i16,  nullptr, i32i64,  i32u8,   nullptr, nullptr, i32i64 },  // u16
+        { i32i8,   i32i16,  nullptr, u32i64,  i32u8,   i32u16,  nullptr, u32i64 },  // u32
+        { i32i8,   i32i16,  nullptr, nullptr, i32u8,   i32u16,  nullptr, nullptr }, // u64
+    };
+    // clang-format on
+
+    auto *cast = dynamic_cast<IRCast *>(ir);
+    auto *to_type = cast->cast_type;
+    auto *from_type = ir->right.u.type;
+
+    emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+
+    enum {
+        I8,
+        I16,
+        I32,
+        I64,
+        U8,
+        U16,
+        U32,
+        U64
+    };
+
+    static auto get_id = [](Type *type) {
+        switch (type->size) {
+            case 64:
+                return type->is_unsigned() ? U64 : I64;
+            case 32:
+                return type->is_unsigned() ? U32 : I32;
+            case 16:
+                return type->is_unsigned() ? U16 : I16;
+            case 8:
+                return type->is_unsigned() ? U8 : I8;
+        }
+    };
+
+    if (auto const *res = cast_table[get_id(from_type)][get_id(to_type)]) {
+        emit("{}", res);
+    }
+    emit("mov {}, rax", stack_addr(ir_fn, cast->target));
+}
+
 void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
     static int stack_balance = 0;
@@ -264,9 +328,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             }
             break;
         case Operation::Cast:
-            // TODO: implement properly and skip if avoidable
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
-            emit("mov {}, rax", stack_addr(ir_fn, ir->target));
+            emit_asm_cast(ir_fn, ir);
             break;
         case Operation::Branch:
             emit_jump(ir, ir->left.u.basic_block);

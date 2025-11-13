@@ -4,7 +4,6 @@
 #include "lexer.hh"
 
 #include <algorithm>
-#include <ranges>
 
 #define parser_ast_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))

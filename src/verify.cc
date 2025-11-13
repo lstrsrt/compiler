@@ -1313,7 +1313,9 @@ void verify_int(Compiler &cc, Ast *&ast, Type *expected)
 
 void remove_cast(Ast *&ast)
 {
-    ast = static_cast<AstCast *>(ast)->operand;
+    auto *operand = static_cast<AstCast *>(ast)->operand;
+    delete static_cast<AstCast *>(ast);
+    ast = operand;
 }
 
 void verify_explicit_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
@@ -1326,23 +1328,31 @@ void verify_explicit_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_disc
     // self -> self: removed without warning
 
     auto *cast = static_cast<AstCast *>(ast);
-    auto *expected = cast->cast_type;
+    auto *cast_type = cast->cast_type;
 
     ExprConstness constness{};
     auto *type = get_unaliased_type(get_expression_type(cc, cast->operand, &constness));
 
-    if (expected->is_bool() && !type->is_bool()) {
-        verification_type_error(ast->location, "cannot cast {} to bool", type->get_name());
+    if (cast_type->is_bool() && !type->is_bool()) {
+        verification_type_error(ast->location, "cannot cast `{}` to `bool`", type->get_name());
     }
 
-    if (types_match(expected, type) == TypeError::None) {
+    if (cast_type->pointer != type->pointer) {
+        verification_type_error(ast->location,
+            "cannot cast `{}` to `{}` due to different indirection levels", type->get_name(),
+            cast_type->get_name());
+    }
+
+    if (types_match(cast_type, type) == TypeError::None) {
+        // TODO: there are more instances where a cast can be deleted
         remove_cast(ast);
+        verify_expr(cc, ast /* this is the operand now */, warn_discarded);
+    } else {
+        // We don't pass anything for `expected` because verify_expr uses get_expression_type
+        // so passing `type` would always succeed, and passing the type we're casting to would
+        // always fail.
+        verify_expr(cc, cast->operand, warn_discarded);
     }
-
-    // We don't pass anything for `expected` because verify_expr uses get_expression_type
-    // so passing `type` would always succeed, and passing the type we're casting to would
-    // always fail.
-    verify_expr(cc, cast->operand, warn_discarded);
 }
 
 void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)

@@ -131,6 +131,18 @@ struct IRCondBranch : IR {
     ~IRCondBranch() override = default;
 };
 
+struct IRCast : IR {
+    Type *cast_type;
+
+    explicit IRCast(Ast *_ast, Type *_cast_type)
+        : IR(_ast)
+        , cast_type(_cast_type)
+    {
+    }
+
+    ~IRCast() override = default;
+};
+
 struct BasicBlock {
     std::vector<IR *> code{};
     size_t index = 0; // Index in IRFunction

@@ -112,13 +112,16 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
             do_generic_unary();
             break;
         case Operation::Cast: {
+            delete ir;
+            ir = nullptr;
             auto *cast = static_cast<AstCast *>(ast);
-            ir->left.arg_type = IRArgType::Type;
-            ir->left.u.type = cast->cast_type;
-            generate_ir(cc, ir, ir->right, cast->operand);
-            ir->target = ++ir_fn->temp_regs;
-            add_ir(ir, get_current_block(ir_fn));
-            break;
+            auto *cast_ir = new IRCast(ast, cast->cast_type);
+            generate_ir(cc, cast_ir, cast_ir->left, cast->operand);
+            cast_ir->right.arg_type = IRArgType::Type;
+            cast_ir->right.u.type = cast->operand->expr_type;
+            cast_ir->target = ++ir_fn->temp_regs;
+            add_ir(cast_ir, get_current_block(ir_fn));
+            return IRArg::make_vreg(cast_ir->target);
         }
         default:
             TODO();
