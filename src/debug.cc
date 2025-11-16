@@ -57,6 +57,9 @@ std::string type_flags_to_string(TypeFlags flags)
     if (has_flag(flags, TypeFlags::ALIAS)) {
         ret += "alias ";
     }
+    if (has_flag(flags, TypeFlags::ENUM)) {
+        ret += "enum ";
+    }
     if (has_flag(flags, TypeFlags::UNSIGNED)) {
         ret += "unsigned ";
     }
@@ -163,6 +166,12 @@ static void print_var_decl(File &file, AstVariableDecl *var_decl)
     file.commit();
 }
 
+static void print_enum_decl(File &file, AstEnumDecl *decl)
+{
+    file.fwriteln("{}]", decl->enum_type->get_name());
+    file.commit();
+}
+
 static void print_node(File &file, Ast *ast, std::string_view indent)
 {
     if (ast->operation == Operation::None) {
@@ -198,6 +207,9 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
     } else if (ast->operation == Operation::VariableDecl) {
         file.fwrite(" ");
         print_var_decl(file, static_cast<AstVariableDecl *>(ast));
+    } else if (ast->operation == Operation::EnumDecl) {
+        file.fwrite(" ");
+        print_enum_decl(file, static_cast<AstEnumDecl *>(ast));
     } else if (ast->operation == Operation::Cast) {
         file.fwriteln(" {}]", static_cast<AstCast *>(ast)->cast_type->get_name());
     } else {
@@ -272,6 +284,12 @@ void print_ast(File &file, Ast *ast, std::string indent)
             } else if (ast->operation == Operation::Break
                 || ast->operation == Operation::Continue) {
                 break;
+            } else if (ast->operation == Operation::EnumDecl) {
+                auto *decl = static_cast<AstEnumDecl *>(ast);
+                for (const auto &[name, enumerator] : decl->members) {
+                    file.fwriteln("{}{} = {} ({})", indent, name, enumerator->u.u64,
+                        enumerator->expr_type->get_name());
+                }
             } else {
                 TODO();
             }

@@ -9,6 +9,7 @@
 #include "base.hh"
 #include "lexer.hh"
 
+#include <map>
 #include <unordered_map>
 
 //
@@ -65,6 +66,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(Return)        \
     __ENUMERATE_OPERATION(VariableDecl)  \
     __ENUMERATE_OPERATION(FunctionDecl)  \
+    __ENUMERATE_OPERATION(EnumDecl)      \
     __ENUMERATE_OPERATION(If)            \
     __ENUMERATE_OPERATION(While)         \
     __ENUMERATE_OPERATION(Break)         \
@@ -205,18 +207,25 @@ enum_flags(TypeFlags, int){
     UNRESOLVED = 1 << 4,
     ALIAS = 1 << 5,
     BUILTIN = 1 << 6,
+    ENUM = 1 << 7,
 
     // Integer flags
-    UNSIGNED = 1 << 7,
+    UNSIGNED = 1 << 8,
 };
 
 struct Type {
-    std::string name{};
+    std::string name;
     TypeFlags flags{};
     uint8_t size = 0;
     uint8_t pointer = 0;
-    Type *real = nullptr; // If this type is an alias or a pointer, this points to the underlying
-                          // type (which may also be an alias or pointer)
+
+    // If this type is an alias or a pointer, this points to the underlying
+    // type (which may also be an alias or pointer)
+    Type *real = nullptr;
+
+    // Used by AstEnum, and in the future also AstRecord.
+    Ast *decl = nullptr;
+
     SourceLocation location{};
 
     TypeFlags get_kind() const
@@ -239,6 +248,11 @@ struct Type {
     bool is_integral() const
     {
         return is_int() || is_bool();
+    }
+
+    bool is_string() const
+    {
+        return get_kind() == TypeFlags::String;
     }
 
     TypeFlags get_flags() const
@@ -551,6 +565,42 @@ struct AstFunction : Ast {
     }
 };
 
+struct AstEnumDecl;
+
+struct AstEnumMember : AstLiteral {
+    AstEnumDecl *enum_decl;
+    SourceLocation location; // The location of the name.
+
+    explicit AstEnumMember(
+        AstEnumDecl *_enum_decl, Type *_underlying, uint64_t _literal, SourceLocation _location)
+        : AstLiteral(_underlying, _literal, _location)
+        , enum_decl(_enum_decl)
+        , location(_location)
+    {
+    }
+
+    explicit AstEnumMember(AstEnumDecl *_enum_decl, AstLiteral *_literal, SourceLocation _location)
+        : AstLiteral(_literal->expr_type, _literal->u.u64, _location)
+        , enum_decl(_enum_decl)
+        , location(_location)
+    {
+    }
+};
+
+using EnumMembers = std::map<std::string, AstEnumMember *>;
+
+struct AstEnumDecl : Ast {
+    std::string name;
+    Type *enum_type;
+    EnumMembers members;
+
+    explicit AstEnumDecl(std::string_view _name, SourceLocation _location)
+        : Ast(AstType::Statement, Operation::EnumDecl, _location)
+        , name(_name)
+    {
+    }
+};
+
 Ast *parse_stmt(Compiler &, AstFunction *);
 
 AstFunction *print_builtin();
@@ -572,6 +622,7 @@ struct Scope {
     void add_variable(Compiler &, AstVariableDecl *);
     void add_function(Compiler &, Ast *, std::string_view unmangled_name);
     void add_alias(Compiler &, Type *, std::string_view alias, SourceLocation);
+    void add_enum(Compiler &, AstEnumDecl *, Type *underlying);
 };
 
 inline std::vector<Scope *> g_scopes;

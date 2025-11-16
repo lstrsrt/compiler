@@ -461,7 +461,10 @@ bool is_auto_inferred(Type *type)
 void resolve_type(Compiler &cc, Scope *scope, Type *&type)
 {
     // If a type is unresolved, it's a) invalid, b) auto inferred, or c) declared later
-    // (possibly as an alias). b) is dealt with in verify_var_decl.
+    // (possibly as an alias). b) only applies to variable declarations, so it is dealt with in
+    // verify_var_decl().
+    // This function also handles underlying enum types.
+
     if (type->has_flag(TypeFlags::UNRESOLVED)) {
         auto *resolved = find_type(scope, type->get_name());
         if (resolved) {
@@ -573,25 +576,26 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
 
     bool needs_cast = false;
     if (type->size != wanted->size) {
-        // If the below check is false, this is a literal that can be casted down
-        if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
+        if (!expr_is_fully_constant(constness)) {
+            // Needs an explicit cast.
             return TypeError::SizeMismatch;
         }
-        needs_cast = true;
+        // This is a literal that can be casted without precision loss.
+        if (get_int_literal(expr) <= max_for_type(wanted)) {
+            needs_cast = true;
+        }
     }
-    // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
-    // where y is a s64.
     if (type->is_unsigned() ^ wanted->is_unsigned()) {
+        // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
+        // where y is a s64.
         if (expr_has_no_constants(constness)) {
             return TypeError::SignednessMismatch;
         }
         needs_cast = true;
     }
-    if (get_int_literal(expr) > max_for_type(wanted)) {
-        if (expr_is_fully_constant(constness)) {
-            return TypeError::SizeMismatch;
-        }
-        needs_cast = true;
+    // TODO: duplicate logic
+    if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
+        return TypeError::SizeMismatch;
     }
     if (needs_cast) {
         insert_cast(expr, wanted);
@@ -767,6 +771,7 @@ void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_
 void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstDereference *>(ast);
+    // TODO: this is not ideal
     if (unary->operand->type != AstType::Identifier
         && unary->operand->operation != Operation::Dereference
         && unary->operand->operation != Operation::AddressOf) {
@@ -1287,6 +1292,8 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
 void match_type_or_cast(
     Compiler &cc, Ast *&ast, ExprConstness constness, Type *type, Type *expected)
 {
+    expected = get_unaliased_type(expected);
+
     auto err = types_match(type, expected);
     if (err == TypeError::None) {
         return;
@@ -1445,7 +1452,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     }
     if (expected) {
         ExprConstness constness{};
-        type = get_unaliased_type(get_expression_type(cc, ast, &constness));
+        type = get_expression_type(cc, ast, &constness);
         match_type_or_cast(cc, ast, constness, type, expected);
     }
 }
@@ -1570,6 +1577,70 @@ void verify_function_decl(Compiler &cc, Ast *ast)
     verify_ast(cc, fn->body, fn);
 }
 
+TypeError const_int_compatible_with_underlying(Type *type, Type *underlying, Ast *expr)
+{
+    underlying = get_unaliased_type(underlying);
+    type = get_unaliased_type(type);
+
+    if (underlying == type) {
+        return TypeError::None;
+    }
+    if (!type->is_int() || !underlying->is_int()) {
+        return TypeError::Default;
+    }
+    if (type->pointer != underlying->pointer) {
+        return TypeError::PointerMismatch;
+    }
+    // FIXME: enum(s64) with member 0xffff_ffff?
+    if (type->is_unsigned() ^ underlying->is_unsigned()) {
+        return TypeError::SignednessMismatch;
+    }
+    // FIXME: incorrect when type is signed and folded into negative?
+    if (get_int_literal(expr) > max_for_type(underlying)) {
+        return TypeError::SizeMismatch;
+    }
+
+    return TypeError::None;
+}
+
+void verify_enum_member(Compiler &cc, AstEnumMember *&ast)
+{
+    auto *enum_decl = ast->enum_decl;
+    auto *underlying = enum_decl->enum_type->real;
+    auto *real = get_unaliased_type(underlying);
+
+    if (!real->is_int() && !real->is_string()) {
+        verification_type_error(underlying->location,
+            "cannot declare type `{}` as the underlying enum type.\n"
+            "the underlying type must be an integer or string type.",
+            underlying->get_name());
+    }
+
+    ExprConstness constness{};
+    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness));
+
+    if (real->is_int()) {
+        // We don't do casting here so match_type_or_cast() is not suitable.
+        if (auto err = const_int_compatible_with_underlying(type, underlying, ast);
+            err == TypeError::None) {
+            // HACK: usage of this enum member relies on this being correct
+            ast->expr_type = real;
+        } else {
+            type_error(cc, ast, type, underlying, err);
+        }
+    }
+}
+
+void verify_enum_decl(Compiler &cc, Ast *ast)
+{
+    auto *enum_decl = static_cast<AstEnumDecl *>(ast);
+    // `enum_type` is guaranteed to exist.
+    resolve_type(cc, enum_decl->scope, enum_decl->enum_type->real);
+    for (auto &[name, member] : enum_decl->members) {
+        verify_enum_member(cc, member);
+    }
+}
+
 void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     if (ast->type == AstType::Statement) {
@@ -1579,6 +1650,9 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 break;
             case Operation::FunctionDecl:
                 verify_function_decl(cc, ast);
+                break;
+            case Operation::EnumDecl:
+                verify_enum_decl(cc, ast);
                 break;
             case Operation::If:
                 verify_if(cc, static_cast<AstIf *>(ast), current_function);

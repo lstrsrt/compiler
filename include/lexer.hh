@@ -81,6 +81,7 @@ enum class TokenKind : uint32_t {
     Equals,
     Excl,
     Colon,
+    DoubleColon,
     Hash,
     Ampersand,
     LAngleEquals,
@@ -104,6 +105,7 @@ enum class TokenKind : uint32_t {
     Break,
     Null,
     As,
+    Enum,
 };
 
 struct Lexer;

@@ -288,6 +288,30 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             consume_expected(cc, TokenKind::RParen, lex(cc));
             return call;
         }
+        if (next_token.kind == TokenKind::DoubleColon) {
+            consume(cc.lexer, next_token);
+            auto *type = find_type(current_scope, token.string);
+            // TODO: should be possible to use an enum that is declared later.
+            // move this to verifier phase
+            if (!type || !type->decl) {
+                parser_error(
+                    token.location, "type `{}` is not declared in this scope", token.string);
+            }
+            token = lex(cc);
+            if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
+                parser_error(token.location, "expected identifier");
+            }
+            auto *enum_decl = static_cast<AstEnumDecl *>(type->decl);
+            if (auto it = enum_decl->members.find(std::string(token.string));
+                it != enum_decl->members.end()) {
+                consume(cc.lexer, token);
+                // TODO: do we want a new AstEnumMember here?
+                // otherwise we will have to be careful with changing the member
+                return it->second;
+            }
+            parser_error(token.location, "enumerator `{}` is not a member of enum `{}`",
+                token.string, enum_decl->name);
+        }
         auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (!var_decl && !cc.parse_state.in_call) {
             cc.lexer.column = prev_col;
@@ -813,6 +837,97 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
     consume_expected(cc, TokenKind::RBrace, lex(cc));
 }
 
+Ast *parse_enum(Compiler &cc)
+{
+    auto try_add_enum_member
+        = [&](std::string_view name, AstEnumDecl *enum_decl, AstLiteral *literal,
+              const SourceLocation &new_location, EnumMembers &members) {
+              auto [it, success] = members.try_emplace(std::string(name),
+                  new AstEnumMember(enum_decl, literal->expr_type, literal->u.u64, new_location));
+              if (!success) {
+                  diag::prepare_error(cc, new_location,
+                      "enumerator `{}` cannot be redeclared.\n"
+                      "here is the existing declaration: ",
+                      name);
+                  diag::print_line(cc.lexer.string, it->second->location);
+                  parser_error(new_location, "and this is the new declaration: ");
+              }
+          };
+
+    auto token = lex(cc); // Name
+    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
+        parser_error(token.location, "expected identifier");
+    }
+    auto name = token.string;
+    auto location = token.location;
+    consume(cc.lexer, token);
+    token = lex(cc); // Type or {
+    auto *underlying = s32_type();
+    if (token.kind == TokenKind::LParen) {
+        consume(cc.lexer, token);
+        underlying = parse_type(cc);
+        consume_expected(cc, TokenKind::RParen, lex(cc));
+        token = lex(cc);
+    }
+    EnumMembers members;
+    consume_expected(cc, TokenKind::LBrace, token);
+    cc.lexer.ignore_newlines = false;
+    consume_newline_or_eof(cc, lex(cc));
+    auto *enum_decl = new AstEnumDecl(name, location);
+    for (;;) {
+        token = lex(cc);
+        if (token.kind == TokenKind::RBrace) {
+            consume(cc.lexer, token);
+            cc.lexer.ignore_newlines = true;
+            enum_decl->members = std::move(members);
+            // `enum_type` is also set by this.
+            current_scope->add_enum(cc, enum_decl, underlying);
+            return enum_decl;
+        }
+        if (is_group(token.kind, TokenKind::GroupNewline)) {
+            consume_newline_or_eof(cc, token);
+            continue;
+        }
+        if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
+            parser_error(token.location, "expected identifier");
+        }
+        auto member_name = token.string;
+        auto member_location = token.location;
+        consume(cc.lexer, token);
+        consume_expected(cc, TokenKind::Equals, lex(cc));
+        token = lex(cc);
+        // TODO: support negative numbers
+        // TODO: support constant expressions
+        if (is_group(token.kind, TokenKind::GroupNumber)) {
+            auto *literal = parse_integer(cc, token);
+            try_add_enum_member(member_name, enum_decl, literal, member_location, members);
+        } else if (is_group(token.kind, TokenKind::GroupString)) {
+            // auto *string = parse_string(cc, token);
+            // try_add_enum_member(member_name, enum_decl, string, member_location, members);
+            // TODO: merge AstString and AstLiteral so we can do this easily
+            TODO();
+        } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
+            if (auto it = members.find(std::string(token.string)); it != members.end()) {
+                try_add_enum_member(member_name, enum_decl, it->second, member_location, members);
+            } else {
+                parser_error(token.location, "enumerator `{}` is not declared", token.string);
+            }
+            consume(cc.lexer, token);
+        } else {
+            parser_error(token.location, "expected integer, string or enumerator");
+        }
+        token = lex(cc);
+        if (token.kind == TokenKind::Comma) {
+            consume(cc.lexer, token);
+            consume_newline_or_eof(cc, lex(cc));
+        } else {
+            consume_newline_or_eof(cc, token);
+        }
+    }
+
+    std::unreachable();
+}
+
 bool has_side_effects(Ast *ast)
 {
     if (!ast) {
@@ -916,6 +1031,10 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         }
         if (token.kind == TokenKind::Else) {
             parser_error(token.location, "`else` not associated with an if-statement");
+        }
+        if (token.kind == TokenKind::Enum) {
+            consume(cc.lexer, token);
+            return parse_enum(cc);
         }
         // `true`, `false`, `null` are handled by parse_expr
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
@@ -1046,6 +1165,20 @@ void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLo
     types[alias] = new Type{
         .name = std::string(alias), .flags = TypeFlags::ALIAS, .real = type, .location = location
     };
+}
+
+void Scope::add_enum(Compiler &cc, AstEnumDecl *enum_decl, Type *underlying)
+{
+    diagnose_redeclaration_or_shadowing(
+        cc, this, enum_decl->name, "type", enum_decl->location, ErrorOnShadowing::No);
+    enum_decl->enum_type = new Type{ .name = enum_decl->name,
+        // size and type kind are not set at this point
+        // because underlying can be unresolved!
+        .flags = TypeFlags::ENUM,
+        .real = underlying,
+        .decl = enum_decl,
+        .location = enum_decl->location };
+    types[enum_decl->name] = enum_decl->enum_type;
 }
 
 void free_ast([[maybe_unused]] std::vector<Ast *> &ast_vec)

@@ -137,68 +137,74 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
             kind = DoubleLAngle;
             return "<<";
         }
-    }
-    switch (c) {
-        case '+':
-            kind = Plus;
-            return "+";
-        case '-':
-            kind = Minus;
-            return "-";
-        case '*':
-            kind = Star;
-            return "*";
-        case '/':
-            kind = Slash;
-            return "/";
-        case '%':
-            kind = Percent;
-            return "%";
-        case '(':
-            kind = LParen;
-            return "(";
-        case ')':
-            kind = RParen;
-            return ")";
-        case '{':
-            kind = LBrace;
-            return "{";
-        case '}':
-            kind = RBrace;
-            return "}";
-        case '<':
-            kind = LAngle;
-            return "<";
-        case '>':
-            kind = RAngle;
-            return ">";
-        case ',':
-            kind = Comma;
-            return ",";
-        case '=':
-            kind = Equals;
-            return "=";
-        case '!':
-            kind = Excl;
-            return "!";
-        case ':':
-            kind = Colon;
-            return ":";
-        case '#':
-            kind = Hash;
-            return "#";
-        case '&':
-            kind = Ampersand;
-            return "&";
-        case '|':
-            kind = Bar;
-            return "|";
-        case '^':
-            kind = Caret;
-            return "^";
-        case '~':
-            kind = Tilde;
-            return "~";
+    } else if (c2 == ':') {
+        if (c == ':') {
+            kind = DoubleColon;
+            return "::";
+        }
+    } else {
+        switch (c) {
+            case '+':
+                kind = Plus;
+                return "+";
+            case '-':
+                kind = Minus;
+                return "-";
+            case '*':
+                kind = Star;
+                return "*";
+            case '/':
+                kind = Slash;
+                return "/";
+            case '%':
+                kind = Percent;
+                return "%";
+            case '(':
+                kind = LParen;
+                return "(";
+            case ')':
+                kind = RParen;
+                return ")";
+            case '{':
+                kind = LBrace;
+                return "{";
+            case '}':
+                kind = RBrace;
+                return "}";
+            case '<':
+                kind = LAngle;
+                return "<";
+            case '>':
+                kind = RAngle;
+                return ">";
+            case ',':
+                kind = Comma;
+                return ",";
+            case '=':
+                kind = Equals;
+                return "=";
+            case '!':
+                kind = Excl;
+                return "!";
+            case ':':
+                kind = Colon;
+                return ":";
+            case '#':
+                kind = Hash;
+                return "#";
+            case '&':
+                kind = Ampersand;
+                return "&";
+            case '|':
+                kind = Bar;
+                return "|";
+            case '^':
+                kind = Caret;
+                return "^";
+            case '~':
+                kind = Tilde;
+                return "~";
+        }
     }
     assert(!"lex_operator unhandled operator");
     return "";
@@ -229,6 +235,7 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
         { "break", Break },
         { "null", Null },
         { "as", As },
+        { "enum", Enum },
     };
     if (auto it = keyword_map.find(str); it != keyword_map.end()) {
         return it->second;
