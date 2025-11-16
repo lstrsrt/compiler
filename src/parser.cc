@@ -229,6 +229,31 @@ Ast *parse_unary(Compiler &cc, Token &token, AllowVarDecl allow_var_decl)
     parser_error(token.location, "unexpected operator");
 }
 
+AstLiteral *parse_integer(Compiler &cc, const Token &token)
+{
+    uint64_t number;
+    try_convert_string_to_u64(cc, token.location, token.string, number);
+    consume(cc.lexer, token);
+    if (number > std::numeric_limits<int64_t>::max()) {
+        return new AstLiteral(u64_type(), number, token.location);
+    }
+    if (number > std::numeric_limits<uint32_t>::max()) {
+        return new AstLiteral(s64_type(), number, token.location);
+    }
+    if (number > std::numeric_limits<int32_t>::max()) {
+        return new AstLiteral(u32_type(), number, token.location);
+    }
+    // Default to s32. If the user wants a smaller type,
+    // it can be specified explicitly.
+    return new AstLiteral(s32_type(), number, token.location);
+}
+
+Ast *parse_string(Compiler &cc, const Token &token)
+{
+    consume_string(cc.lexer, token);
+    return new AstString(*token.real_string, token.location);
+}
+
 // This also handles unary operations.
 Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 {
@@ -246,26 +271,11 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     }
 
     if (is_group(token.kind, TokenKind::GroupNumber)) {
-        uint64_t number;
-        try_convert_string_to_u64(cc, token.location, token.string, number);
-        consume(cc.lexer, token);
-        if (number > std::numeric_limits<int64_t>::max()) {
-            return new AstLiteral(u64_type(), number, token.location);
-        }
-        if (number > std::numeric_limits<uint32_t>::max()) {
-            return new AstLiteral(s64_type(), number, token.location);
-        }
-        if (number > std::numeric_limits<int32_t>::max()) {
-            return new AstLiteral(u32_type(), number, token.location);
-        }
-        // Default to s32. If the user wants a smaller type,
-        // it can be specified explicitly.
-        return new AstLiteral(s32_type(), number, token.location);
+        return parse_integer(cc, token);
     }
 
     if (is_group(token.kind, TokenKind::GroupString)) {
-        consume_string(cc.lexer, token);
-        return new AstString(*token.real_string, token.location);
+        return parse_string(cc, token);
     }
 
     if (is_group(token.kind, TokenKind::GroupIdentifier)) {
@@ -284,6 +294,8 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
         }
+        // If !var_decl and we're here, we are parsing a function argument, which
+        // may be unresolved forever (if it's a named function parameter or simply invalid).
         return new AstIdentifier(
             token.string, var_decl ? &var_decl->var : unresolved_var(token.string), token.location);
     }
@@ -311,6 +323,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 Ast *parse_cast_expr(Compiler &cc, AllowVarDecl allow_var_decl)
 {
     void insert_cast(Ast *&, Type *);
+    Type *parse_type(Compiler &);
 
     auto *expr = parse_atom(cc, allow_var_decl);
     auto token = lex(cc);
@@ -319,13 +332,7 @@ Ast *parse_cast_expr(Compiler &cc, AllowVarDecl allow_var_decl)
             parser_error(token.location, "expected expression");
         }
         consume(cc.lexer, token);
-        token = lex(cc);
-        auto *type = find_type(current_scope, std::string(token.string));
-        if (!type) {
-            parser_error(token.location, "type `{}` is not declared in this scope", token.string);
-        }
-        consume(cc.lexer, token);
-        insert_cast(expr, type);
+        insert_cast(expr, parse_type(cc));
         token = lex(cc);
     }
     return expr;
@@ -466,6 +473,17 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
     return root;
 }
 
+Token parse_identifier(Compiler &cc)
+{
+    auto token = lex(cc);
+    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
+        parser_error(
+            token.location, "expected an identifier, got `{}`", diag::make_printable(token.string));
+    }
+    consume(cc.lexer, token);
+    return token;
+}
+
 Type *parse_type(Compiler &cc)
 {
     auto token = lex(cc);
@@ -475,11 +493,7 @@ Type *parse_type(Compiler &cc)
         consume(cc.lexer, token);
         token = lex(cc);
     }
-    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-        parser_error(
-            token.location, "expected a type name, got `{}`", diag::make_printable(token.string));
-    }
-    consume(cc.lexer, token);
+    token = parse_identifier(cc);
     auto *type = find_type(current_scope, token.string);
     if (type) {
         // FIXME: this is not quite right
@@ -499,17 +513,6 @@ Type *parse_type(Compiler &cc)
     return new Type{ .name = std::string(token.string),
         .flags = TypeFlags::UNRESOLVED,
         .location = token.location };
-}
-
-Token parse_identifier(Compiler &cc)
-{
-    auto token = lex(cc);
-    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-        parser_error(
-            token.location, "expected an identifier, got `{}`", diag::make_printable(token.string));
-    }
-    consume(cc.lexer, token);
-    return token;
 }
 
 AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
@@ -868,7 +871,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             consume(cc.lexer, token);
             cc.lexer.ignore_newlines = false;
             auto *function = parse_function(cc);
-            // Note we have to set it again because parse_function
+            // NOTE: we have to set `ignore_newlines` again because parse_function()
             // may recurse into here and some paths can reset it
             cc.lexer.ignore_newlines = false;
             consume_newline_or_eof(cc, lex(cc));
