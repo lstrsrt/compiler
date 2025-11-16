@@ -189,7 +189,8 @@ enum_flags(TypeFlags, int){
     //
     // Type kind
     //
-    Void = 1,
+    Unknown,
+    Void,
     Integer,
     Boolean,
     String,
@@ -428,15 +429,17 @@ struct Variable {
     std::string name;
     // If this is a function parameter...
     int param_index = -1;
+    bool is_unresolved;
 
     bool is_parameter() const
     {
         return param_index > -1;
     }
 
-    explicit Variable(Type *_type, std::string_view _name)
+    explicit Variable(Type *_type, std::string_view _name, bool _is_unresolved)
         : type(_type)
         , name(_name)
+        , is_unresolved(_is_unresolved)
     {
     }
 };
@@ -450,7 +453,7 @@ struct AstVariableDecl : Ast {
     explicit AstVariableDecl(
         Type *_type, std::string_view _name, Ast *_init_expr, SourceLocation _location)
         : Ast(AstType::Statement, Operation::VariableDecl, _location)
-        , var(_type, _name)
+        , var(_type, _name, false)
         , init_expr(_init_expr)
     {
     }

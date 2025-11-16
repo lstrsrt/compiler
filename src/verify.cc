@@ -102,7 +102,6 @@ Type *string_type()
 
 Type *null_type()
 {
-
     static Type s_null{ .name = "null",
         .flags = TypeFlags::Integer | TypeFlags::BUILTIN,
         .size = 64,
@@ -129,21 +128,26 @@ Type *get_unaliased_type(Type *type)
 
 Variable *unresolved_var(std::string_view name)
 {
-    return new Variable(unresolved_type(), name);
+    return new Variable(unresolved_type(), name, true);
 }
 
 AstFunction *print_builtin()
 {
+    static AstFunction *print_fn = nullptr;
+    static bool once = false;
+    if (!once) {
 #ifdef AST_USE_ARENA
-    StmtVec stmts(ast_vec_allocator());
-    VariableDecls params(ast_vec_allocator());
+        StmtVec stmts(ast_vec_allocator());
+        VariableDecls params(ast_vec_allocator());
 #else
-    StmtVec stmts;
-    VariableDecls params;
+        StmtVec stmts;
+        VariableDecls params;
 #endif
-    params.push_back(new AstVariableDecl(string_type(), "__fmt", nullptr, {}));
-    static auto *print_fn = new AstFunction("print", void_type(), params, new AstBlock(stmts), {});
-    print_fn->attributes |= FunctionAttributes::BUILTIN_PRINT;
+        params.push_back(new AstVariableDecl(string_type(), "__fmt", nullptr, {}));
+        print_fn = new AstFunction("print", void_type(), params, new AstBlock(stmts), {});
+        print_fn->attributes |= FunctionAttributes::BUILTIN_PRINT;
+        once = true;
+    }
     return print_fn;
 }
 
@@ -179,14 +183,8 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     assert(err != TypeError::None);
     switch (err) {
         case TypeError::SizeMismatch: {
-            const char *lhs_str = lhs_type->is_unsigned() ? "unsigned" : "signed";
-            const char *rhs_str = rhs_type->is_unsigned() ? "unsigned" : "signed";
-            const char *lhs_plural = lhs_type->byte_size() > 1 ? "s" : "";
-            const char *rhs_plural = rhs_type->byte_size() > 1 ? "s" : "";
-            verification_type_error(ast->location,
-                "incompatible sizes for types `{}` ({} {} byte{}) and `{}` ({} {} byte{})",
-                rhs_type->get_name(), rhs_str, rhs_type->byte_size(), rhs_plural,
-                lhs_type->get_name(), lhs_str, lhs_type->byte_size(), lhs_plural);
+            verification_type_error(ast->location, "incompatible sizes for types {} and {}",
+                to_string(lhs_type), to_string(rhs_type));
             break;
         }
         case TypeError::SignednessMismatch: {
@@ -601,6 +599,18 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     return TypeError::None;
 }
 
+void verify_arg(Compiler &cc, Ast *ast, Type *expected)
+{
+    if (ast->type == AstType::Identifier) {
+        auto *ident = static_cast<AstIdentifier *>(ast);
+        if (ident->var->is_unresolved) {
+            verification_error(
+                ident, "variable `{}` is not declared in this scope", ident->var->name);
+        }
+    }
+    verify_expr(cc, ast, WarnDiscardedReturn::No, expected);
+}
+
 void verify_print(Compiler &cc, Ast *ast)
 {
     auto *print = static_cast<AstCall *>(ast);
@@ -635,7 +645,7 @@ void verify_print(Compiler &cc, Ast *ast)
         ExprConstness constness;
         auto *type = get_unaliased_type(
             get_expression_type(cc, print->args[i], &constness, TypeOverridable::Yes));
-        verify_expr(cc, print->args[i], WarnDiscardedReturn::No, type);
+        verify_arg(cc, print->args[i], type);
         if (type->is_int()) {
             std::string fmt_s = [&]() {
                 switch (type->size) {
@@ -678,6 +688,7 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
     auto is_named_param = [](Ast *ast) {
         return ast->operation == Operation::Assign;
     };
+
     bool named_call = !call->args.empty() && is_named_param(call->args[0]);
     for (size_t arg_idx = 0; arg_idx < call->args.size(); ++arg_idx) {
         auto *&arg = call->args[arg_idx];
@@ -717,10 +728,10 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
                 --arg_idx;
             }
             auto *expected = fn->params[param_idx]->var.type;
-            verify_expr(cc, named_param->right, WarnDiscardedReturn::No, expected);
+            verify_arg(cc, named_param->right, expected);
         } else {
             auto *wanted_type = fn->params[arg_idx]->var.type;
-            verify_expr(cc, arg, WarnDiscardedReturn::No, wanted_type);
+            verify_arg(cc, arg, wanted_type);
         }
     }
     if (named_call) {

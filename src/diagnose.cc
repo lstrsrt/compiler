@@ -129,3 +129,21 @@ std::string to_string(TokenKind kind)
             TODO();
     }
 }
+
+std::string to_string(Type *type)
+{
+    auto *real = get_unaliased_type(type);
+    auto size = real->byte_size();
+    std::string signed_str;
+    std::string plural = size == 1 ? "" : "s";
+
+    if (real->is_int()) {
+        signed_str = real->is_signed() ? "signed " : "unsigned ";
+    }
+    if (real == type) {
+        return std::format("`{}` ({}{} byte{})", real->get_name(), signed_str, size, plural);
+    }
+
+    return std::format("`{}` (alias of `{}`, {}{} byte{})", type->get_name(), real->get_name(),
+        signed_str, size, plural);
+}

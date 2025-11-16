@@ -30,12 +30,14 @@ std::string to_string(Operation operation)
 std::string type_kind_to_string(TypeFlags flags)
 {
     switch (flags & TypeFlags::kind_mask) {
+        case TypeFlags::Unknown:
+            return "<unknown>";
+        case TypeFlags::Void:
+            return "Void";
         case TypeFlags::Integer:
             return "Integer";
         case TypeFlags::Boolean:
             return "Boolean";
-        case TypeFlags::Void:
-            return "Void";
         case TypeFlags::String:
             return "String";
         default:

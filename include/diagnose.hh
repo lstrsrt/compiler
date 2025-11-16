@@ -11,6 +11,7 @@
 //
 
 std::string to_string(TokenKind);
+std::string to_string(Type *);
 
 namespace diag {
 // This does not get reset because we don't support continuing after an error.
