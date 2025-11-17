@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <print>
 #include <string>
 #include <utility>
@@ -24,6 +25,21 @@ constexpr std::string Green = "\033[32;1m";
 constexpr std::string Yellow = "\033[33;1m";
 constexpr std::string Blue = "\033[38;5;39m";
 } // namespace colors
+
+static constexpr auto S8Min = std::numeric_limits<int8_t>::min();
+static constexpr auto S16Min = std::numeric_limits<int16_t>::min();
+static constexpr auto S32Min = std::numeric_limits<int32_t>::min();
+static constexpr auto S64Min = std::numeric_limits<int64_t>::min();
+
+static constexpr auto S8Max = std::numeric_limits<int8_t>::max();
+static constexpr auto S16Max = std::numeric_limits<int16_t>::max();
+static constexpr auto S32Max = std::numeric_limits<int32_t>::max();
+static constexpr auto S64Max = std::numeric_limits<int64_t>::max();
+
+static constexpr auto U8Max = std::numeric_limits<uint8_t>::max();
+static constexpr auto U16Max = std::numeric_limits<uint16_t>::max();
+static constexpr auto U32Max = std::numeric_limits<uint32_t>::max();
+static constexpr auto U64Max = std::numeric_limits<uint64_t>::max();
 
 template<typename Fn>
 struct Defer {
