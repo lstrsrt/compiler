@@ -191,21 +191,21 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
             const char *lhs_str = lhs_type->is_unsigned() ? "unsigned" : "signed";
             const char *rhs_str = rhs_type->is_unsigned() ? "unsigned" : "signed";
             verification_type_error(ast->location,
-                "incompatible {} expression applied to left-hand {} variable of type `{}`", rhs_str,
-                lhs_str, lhs_type->get_name());
+                "incompatible {} expression applied to left-hand {} variable of type {}", rhs_str,
+                lhs_str, to_string(lhs_type));
             break;
         }
         case TypeError::PointerMismatch: {
             const char *lhs_str = lhs_type->is_pointer() ? "pointer" : "non-pointer";
             const char *rhs_str = rhs_type->is_pointer() ? "pointer" : "non-pointer";
             verification_type_error(ast->location,
-                "incompatible expression applied to left-hand {} type and right-hand {} type",
-                lhs_str, rhs_str);
+                "incompatible expression applied to left-hand {} type {} and right-hand {} type {}",
+                lhs_str, to_string(lhs_type), rhs_str, to_string(rhs_type));
             break;
         }
         default:
-            verification_type_error(ast->location, "incompatible types `{}` and `{}`",
-                rhs_type->get_name(), lhs_type->get_name());
+            verification_type_error(ast->location, "incompatible types {} and {}",
+                to_string(rhs_type), to_string(lhs_type));
             break;
     }
 }
@@ -413,7 +413,7 @@ Type *get_expression_type(
 
                     if (!type->is_pointer()) {
                         verification_error(static_cast<AstUnary *>(ast)->operand,
-                            "cannot dereference non-pointer of type `{}`", type->get_name());
+                            "cannot dereference non-pointer of type {}", to_string(type));
                     }
 
                     return type->real;
@@ -781,7 +781,7 @@ void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn war
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness);
     if (!type->is_pointer()) {
-        verification_error(unary, "cannot dereference non-pointer of type `{}`", type->get_name());
+        verification_error(unary, "cannot dereference non-pointer of type {}", to_string(type));
     }
 
     verify_expr(cc, unary->operand, warn_discarded);
@@ -793,9 +793,9 @@ void verify_negate(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn 
 
     auto negation_error = [&]() {
         verification_type_error(unary->location,
-            "negation of unsupported type `{}`.\n"
+            "negation of unsupported type {}.\n"
             "only signed integers may be negated",
-            expected->get_name());
+            to_string(expected));
     };
 
     if (!expected->is_int() || expected->is_unsigned() || expected->is_pointer()) {
@@ -938,7 +938,7 @@ void verify_logical_chain(Compiler &cc, AstBinary *cmp)
         return;
     }
 
-    if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::No)) {
+    if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::No /* already checked */)) {
         diag::ast_warning(cc, cmp, "redundant logical chain");
         return;
     }
@@ -1114,16 +1114,12 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             if (!type_is_const_int(lhs_type, lhs_constness)) {
                 if (get_int_literal(binary->right) >= expected->size) {
                     const char *shift_type = op == Operation::LeftShift ? "left" : "right";
-                    diag::ast_warning(cc, binary, "{} shift overflows expected type `{}`",
-                        shift_type, expected->get_name());
+                    diag::ast_warning(cc, binary, "{} shift overflows expected type {}", shift_type,
+                        to_string(expected));
                 }
             }
             return;
         }
-    }
-
-    if (binary->operation == Operation::LogicalAnd || binary->operation == Operation::LogicalOr) {
-        verify_logical_chain(cc, binary);
     }
 }
 
@@ -1292,7 +1288,11 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr)
 void match_type_or_cast(
     Compiler &cc, Ast *&ast, ExprConstness constness, Type *type, Type *expected)
 {
+    auto *t = type;
+    auto *e = expected;
+
     expected = get_unaliased_type(expected);
+    type = get_unaliased_type(type);
 
     auto err = types_match(type, expected);
     if (err == TypeError::None) {
