@@ -4,6 +4,7 @@
 #include "file.hh"
 #include "frontend.hh"
 #include "ir.hh"
+#include "parser.hh"
 #include "verify.hh"
 
 #include <utility>
@@ -239,8 +240,9 @@ void emit_asm_cast(const IRFunction &ir_fn, IR *ir)
     // clang-format on
 
     auto *cast = dynamic_cast<IRCast *>(ir);
-    auto *to_type = cast->cast_type;
-    auto *from_type = ir->right.u.type;
+    // TODO: de-alias all types during IR gen
+    auto *to_type = get_unaliased_type(cast->cast_type);
+    auto *from_type = get_unaliased_type(ir->right.u.type);
 
     emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
 
@@ -289,7 +291,13 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::AddressOf:
-            emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
+            // HACK: when taking the addr of a string, it's already a pointer
+            // so just a mov is needed. otherwise we will take the address of the pointer
+            if (ir->left.u.variable->type->is_string()) {
+                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            } else {
+                emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
+            }
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Load:
@@ -315,6 +323,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::Call:
             if (has_flag(ir->left.u.function->attributes, FunctionAttributes::BUILTIN_PRINT)) {
+                emit("mov al, 0");
                 emit("call printf wrt ..plt");
             } else {
                 emit("call {}", ir->left.u.function->name);
