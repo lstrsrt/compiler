@@ -130,9 +130,9 @@ inline bool is_group(TokenKind kind, TokenKind cmp)
 }
 
 struct Token {
-    static constexpr Token make_empty()
+    static constexpr Token make_empty(SourceLocation _location)
     {
-        return Token{ .kind = TokenKind::GroupEmpty };
+        return Token{ .kind = TokenKind::GroupEmpty, .location = _location };
     }
 
     static constexpr Token make_newline(SourceLocation _location)

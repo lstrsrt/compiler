@@ -309,6 +309,7 @@ Token lex_string(Compiler &cc)
                     break;
                 default:
                     // TODO - show warning
+                    break;
             }
             ++i;
         } else if (c == '"') {
@@ -456,27 +457,17 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
 
 std::string_view get_line(std::string_view source, uint32_t position_in_source)
 {
-    int32_t x = -1;
-    int32_t start;
-    int32_t end;
-    // This is just get() but with `position_in_source` as the base.
-    auto get_at = [source, position_in_source](uint32_t offset) {
-        auto off = position_in_source + offset;
-        if (off >= source.length()) {
-            return '\0';
-        }
-        return source[position_in_source + offset];
-    };
-    while (get_at(x) != '\n' && get_at(x) != '\0') {
-        --x;
+    assert(position_in_source < source.size());
+    if (source[position_in_source] == '\n') {
+        // If this char is a newline, we don't want to skip to the next line.
+        --position_in_source;
     }
-    start = static_cast<int32_t>(position_in_source) + x;
-    x = 0;
-    while (get_at(x) != '\n' && get_at(x) != '\0') {
-        ++x;
+    auto pos = source.rfind('\n', position_in_source);
+    if (pos != std::string_view::npos) {
+        source = source.substr(pos + 1);
     }
-    end = static_cast<int32_t>(position_in_source) + x;
-    return source.substr(start + 1, end - start - 1);
+    auto end = source.find_first_of('\n');
+    return source.substr(0, end);
 }
 
 std::string get_highlighted_line(std::string_view source, uint32_t position_in_source,
@@ -485,7 +476,9 @@ std::string get_highlighted_line(std::string_view source, uint32_t position_in_s
     auto str = std::string(get_line(source, position_in_source));
 
     assert(highlight_start < highlight_end);
-    assert(highlight_start < str.size());
+    // The highlight might be on a newline which get_line() cuts off,
+    // so add 1 to compensate for that.
+    assert(highlight_start < str.size() + 1);
 
     // Insert at `highlight_end` first so `highlight_start` doesn't have to be fixed
     if (highlight_end > str.size()) {
@@ -504,7 +497,16 @@ Token lex(Compiler &cc)
     skip_comments(cc);
 
     if (lexer.out_of_bounds()) {
-        return Token::make_empty();
+        auto position = lexer.string.size() - 1;
+        auto last_line = get_line(lexer.string, position);
+        auto end = last_line.size() + 1;
+        auto column = last_line.size();
+        return Token::make_empty({
+            .line = lexer.line,
+            .column = static_cast<uint32_t>(column),
+            .end = static_cast<uint32_t>(end),
+            .position = static_cast<uint32_t>(position),
+        });
     }
 
     const auto c = lexer.get();
