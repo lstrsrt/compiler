@@ -279,6 +279,7 @@ Type *get_fitting_int_type(uint64_t x)
 
 uint64_t truncate(Type *type, uint64_t v)
 {
+    type = get_unaliased_type(type);
     bool is_unsigned = type->is_unsigned();
     switch (type->size) {
         case 1:
@@ -305,7 +306,7 @@ void handle_overflow(
         expected = get_fitting_int_type(result);
     } else {
         result.value = truncate(expected, result.value);
-        diag::ast_warning(cc, binary, "constant expression overflows type `{}`", expected->name);
+        diag::ast_warning(cc, binary, "constant expression overflows type {}", to_string(expected));
     }
 }
 
@@ -391,7 +392,7 @@ void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, Integer left_const
     bool is_signed = expected->is_signed();
     const char *shift_type = binary->operation == Operation::LeftShift ? "left" : "right";
     auto overflow = [&, func = __func__]() {
-        switch (expected->size) {
+        switch (get_unaliased_type(expected)->size) {
             case 8:
                 return check_shift_overflow(
                     static_cast<int8_t>(left_const), static_cast<int>(right_const));
@@ -409,11 +410,16 @@ void diagnose_shift_overflow(Compiler &cc, AstBinary *binary, Integer left_const
         }
     }();
     if (is_signed && overflow == Overflow::SignBitOnly) {
-        // NOTE: This is special cased because "x := 1 << 31" should == INT32_MIN instead of
-        // casting to u32.
-        diag::ast_warning(cc, binary,
-            "{} shift on signed type `{}` changes its sign bit to negative", shift_type,
-            expected->get_name());
+        // HACK: This condition exists so we don't warn twice (getting the expr type and then during
+        // actual folding). If we were calling handle_overflow() it would override the type and the
+        // warning wouldn't fire again.
+        if (overridable == TypeOverridable::No) {
+            // NOTE: This is special cased because "x := 1 << 31" should == INT32_MIN instead of
+            // casting to u32.
+            diag::ast_warning(cc, binary,
+                "{} shift on signed type {} changes its sign bit to negative", shift_type,
+                to_string(expected));
+        }
         return;
     }
 
