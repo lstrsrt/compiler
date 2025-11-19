@@ -539,6 +539,22 @@ Type *parse_type(Compiler &cc)
         .location = token.location };
 }
 
+// A missing closing brace is a common syntax error, so this is a special diagnostic.
+// TODO: also do this for other delimiters
+void expect_rbrace(Compiler &cc, SourceLocation last_lbrace)
+{
+    auto token = lex(cc);
+
+    if (token.kind != TokenKind::RBrace) {
+        diag::prepare_error(
+            cc, token.location, "missing a closing brace to match the opening brace here:");
+        diag::print_line(cc.lexer.string, last_lbrace);
+        parser_error(token.location, "parsed until here:");
+    }
+
+    consume(cc.lexer, token);
+}
+
 AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
 {
     // TODO: keep track of the last token so we don't have to call lex again
@@ -567,7 +583,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
             }
         }
     }
-    consume_expected(cc, TokenKind::RBrace, lex(cc));
+    expect_rbrace(cc, cc.lexer.last_lbrace);
     return new AstBlock(stmts);
 }
 
@@ -636,7 +652,7 @@ AstFunction *parse_function(Compiler &cc)
         }
         consume(cc.lexer, token);
         function->attributes = parse_fn_attributes(cc);
-        consume_expected(cc, TokenKind::RBrace, lex(cc));
+        expect_rbrace(cc, cc.lexer.last_lbrace);
     }
 
     current_scope->parent->add_function(cc, function, name);
@@ -834,7 +850,7 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
         default:
             parser_error(token.location, "invalid attribute `{}`", token.string);
     }
-    consume_expected(cc, TokenKind::RBrace, lex(cc));
+    expect_rbrace(cc, cc.lexer.last_lbrace);
 }
 
 Ast *parse_enum(Compiler &cc)

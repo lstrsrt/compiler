@@ -221,6 +221,7 @@ struct Lexer {
     uint32_t position = 0;
     uint32_t line = 1;
     uint32_t column = 0;
+    SourceLocation last_lbrace;
     bool ignore_newlines = true;
 };
 

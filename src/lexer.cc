@@ -214,7 +214,11 @@ Token lex_operator(Lexer &lexer)
 {
     TokenKind kind;
     std::string_view str = lex_operator_impl(lexer, kind);
-    return Token::make_operator(str, kind, SourceLocation::with_lexer(lexer, str.size()));
+    auto location = SourceLocation::with_lexer(lexer, str.size());
+    if (kind == TokenKind::LBrace) {
+        lexer.last_lbrace = location;
+    }
+    return Token::make_operator(str, kind, location);
 }
 
 TokenKind get_keyword_or_identifier_kind(std::string_view str)
