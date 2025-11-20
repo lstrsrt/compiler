@@ -130,50 +130,64 @@ inline bool is_group(TokenKind kind, TokenKind cmp)
 }
 
 struct Token {
+    explicit constexpr Token(TokenKind _kind, SourceLocation _location)
+        : kind(_kind)
+        , location(_location)
+    {
+    }
+
+    explicit constexpr Token(TokenKind _kind, std::string_view _string, SourceLocation _location)
+        : string(_string)
+        , kind(_kind)
+        , location(_location)
+    {
+    }
+
+    explicit constexpr Token(
+        std::unique_ptr<std::string> _string, size_t _length, SourceLocation _location)
+        : kind(TokenKind::GroupString)
+        , location(_location)
+        , real_string(std::move(_string))
+        , real_length(_length)
+    {
+    }
+
     static constexpr Token make_empty(SourceLocation _location)
     {
-        return Token{ .kind = TokenKind::GroupEmpty, .location = _location };
+        return Token(TokenKind::GroupEmpty, _location);
     }
 
     static constexpr Token make_newline(SourceLocation _location)
     {
-        return Token{ .string = "\n",
-
-            .kind = TokenKind::GroupNewline,
-            .location = _location };
+        return Token(TokenKind::GroupNewline, "\n", _location);
     }
 
     static constexpr Token make_number(std::string_view _string, SourceLocation _location)
     {
-        return Token{ .string = _string, .kind = TokenKind::GroupNumber, .location = _location };
+        return Token(TokenKind::GroupNumber, _string, _location);
     }
 
     static constexpr Token make_string(
-        std::unique_ptr<std::string> &&_string, size_t length, SourceLocation _location)
+        std::unique_ptr<std::string> _string, size_t length, SourceLocation _location)
     {
-        return Token{ .kind = TokenKind::GroupString,
-            .location = _location,
-            .real_string = std::move(_string),
-            .real_length = length };
+        return Token(std::move(_string), length, _location);
     }
 
     static constexpr Token make_operator(
         std::string_view _string, TokenKind _kind, SourceLocation _location)
     {
-        return Token{ .string = _string, .kind = _kind, .location = _location };
-    }
-
-    static constexpr Token make_identifier(std::string_view _string, SourceLocation _location)
-    {
-        return Token{
-            .string = _string, .kind = TokenKind::GroupIdentifier, .location = _location
-        };
+        return Token(_kind, _string, _location);
     }
 
     static constexpr Token make_keyword(
         std::string_view _string, TokenKind _kind, SourceLocation _location)
     {
-        return Token{ .string = _string, .kind = _kind, .location = _location };
+        return Token(_kind, _string, _location);
+    }
+
+    static constexpr Token make_identifier(std::string_view _string, SourceLocation _location)
+    {
+        return Token(TokenKind::GroupIdentifier, _string, _location);
     }
 
     std::string_view string; // use for AstIdentifier?
