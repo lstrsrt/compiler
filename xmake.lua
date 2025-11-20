@@ -14,6 +14,9 @@ target("compiler")
         add_defines("_DEBUG")
         -- set_policy("build.sanitizer.leak", true)
         set_targetdir("build/debug")
+        if is_plat("windows") then
+            set_runtimes("MDd")
+        end
     else -- release
         add_defines("NDEBUG")
         set_optimize("faster")

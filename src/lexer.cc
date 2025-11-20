@@ -3,6 +3,7 @@
 #include "testing.hh"
 
 #include <algorithm>
+#include <array>
 
 constexpr bool is_start_of_identifier(char c)
 {
@@ -334,7 +335,7 @@ void skip_whitespace(Lexer &lexer)
 void skip_single_line_comment(Lexer &lexer)
 {
     advance_column(lexer, 2);
-    while (lexer.get() != '\n') {
+    while (lexer.get() != '\n' && lexer.get() != '\0') {
         advance_column(lexer);
     }
     if (!lexer.ignore_newlines) {

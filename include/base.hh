@@ -14,15 +14,21 @@ namespace fs = std::filesystem;
 namespace ch = std::chrono;
 using namespace std::string_view_literals;
 
+#ifndef __linux__
+// ssize_t is POSIX.
+using ssize_t = std::make_signed<size_t>::type;
+using std::size, std::ssize;
+#endif
+
 namespace colors {
-constexpr std::string Bold = "\033[1m";
-constexpr std::string Cyan = "\033[36;1m";
-constexpr std::string Default = "\033[0m";
-constexpr std::string DefaultBold = Default + Bold;
-constexpr std::string Red = "\033[31;1m";
-constexpr std::string Green = "\033[32;1m";
-constexpr std::string Yellow = "\033[33;1m";
-constexpr std::string Blue = "\033[38;5;39m";
+static const std::string Bold = "\033[1m";
+static const std::string Cyan = "\033[36;1m";
+static const std::string Default = "\033[0m";
+static const std::string DefaultBold = Default + Bold;
+static const std::string Red = "\033[31;1m";
+static const std::string Green = "\033[32;1m";
+static const std::string Yellow = "\033[33;1m";
+static const std::string Blue = "\033[38;5;39m";
 } // namespace colors
 
 template<typename Fn>
@@ -95,10 +101,9 @@ constexpr size_t align_up(size_t value, size_t alignment)
 {
     std::println("\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
-    __builtin_trap();
-#else
-    exit(EXIT_FAILURE);
+    __builtin_debugtrap();
 #endif
+    exit(EXIT_FAILURE);
 }
 
 #define TODO() todo(__func__, __FILE__, __LINE__)
@@ -196,7 +201,7 @@ constexpr hash_t hash(std::string_view s)
 }
 
 int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::string> &_cmdline);
-void compile_to_exe(const std::string &asm_file, const std::string &output_name);
+void create_executable(const std::string &asm_file, const std::string &output_name);
 
 //
 // Forward some types

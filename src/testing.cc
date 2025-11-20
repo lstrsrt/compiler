@@ -5,10 +5,20 @@
 #include "parser.hh"
 
 #include <algorithm>
+#include <numeric>
+#include <ranges>
 
+#ifdef __linux__
 #include <linux/limits.h>
 #include <spawn.h>
 #include <sys/wait.h>
+#else
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <Windows.h>
+#include <stdio.h>
+#include <process.h>
+#endif
 
 struct TestData {
     size_t current_test = 0;
@@ -31,9 +41,11 @@ void switch_back(TestData &td)
 
 int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::string> &_cmdline)
 {
+#ifdef __linux__
     std::vector<char *> cmdline;
     // Put the path first
-    cmdline.push_back(const_cast<char *>(exe_path.string().data()));
+    auto path = exe_path.string();
+    cmdline.push_back(path.data());
     for (const auto &arg : _cmdline) {
         cmdline.push_back(const_cast<char *>(arg.c_str()));
     }
@@ -41,8 +53,8 @@ int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::stri
     cmdline.push_back(nullptr);
 
     pid_t pid;
-    if (posix_spawn(&pid, exe_path.string().data(), nullptr, nullptr, cmdline.data(), environ)) {
-        std::println("error spawning {}", exe_path.string());
+    if (posix_spawn(&pid, path.data(), nullptr, nullptr, cmdline.data(), environ)) {
+        std::println("error spawning {}", path);
         perror("posix_spawn");
         return -1;
     }
@@ -59,6 +71,32 @@ int spawn_blocking_process(const fs::path &exe_path, const std::vector<std::stri
 
     } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     return -1;
+#else
+    std::string cmd = exe_path.string() + " ";
+    cmd += std::ranges::to<std::string>(_cmdline | std::views::join_with(' '));
+    STARTUPINFOA si{};
+    PROCESS_INFORMATION pi{};
+
+    si.cb = sizeof(si);
+
+    if (!CreateProcessA(
+            nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        perror("CreateProcess");
+        return -1;
+    }
+
+    CloseHandle(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exit_code;
+    if (!GetExitCodeProcess(pi.hProcess, &exit_code)) {
+        perror("GetExitCodeProcess");
+        CloseHandle(pi.hProcess);
+        return -1;
+    }
+
+    CloseHandle(pi.hProcess);
+    return static_cast<int>(exit_code);
+#endif
 }
 
 bool files_are_equal(const std::string &path1, const std::string &path2)
@@ -119,7 +157,7 @@ bool run_compare_test(Compiler &cc)
         std::println("{}test warning{}: extensions for files '{}' and '{}' don't match",
             colors::Yellow, colors::Default, cmp_file.string(), ref_file.string());
     }
-    if (files_are_equal(cmp_file, ref_file)) {
+    if (files_are_equal(cmp_file.string(), ref_file.string())) {
         fs::remove(cmp_file);
         return true;
     }
@@ -149,7 +187,7 @@ void run_test(TestData &td, const fs::path &file)
 
     Compiler cc;
     bool compiled = false;
-    cc.lexer.set_input(file);
+    cc.lexer.set_input(file.string());
 
 #ifdef AST_USE_ARENA
     arena::ArenaAllocator<void> allocator(ast_arena());
@@ -194,7 +232,7 @@ void run_test(TestData &td, const fs::path &file)
         std::println("{}testing error{}: should have failed compilation", Red, Default);
     } else if (cc.test_mode.test_type == TestType::ReturnsValue) {
         bool ok = run_compare_test(cc);
-        compile_to_exe(opts.output_name, opts.output_exe_name);
+        create_executable(opts.output_name, opts.output_exe_name);
         int status = spawn_blocking_process(fs::current_path() / opts.output_exe_name, {});
         if (status == static_cast<int>(cc.test_mode.return_value)) {
             if (ok) {

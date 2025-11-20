@@ -4,7 +4,9 @@
 #include "frontend.hh"
 #include "verify.hh"
 
+#ifdef __linux__
 #include <unistd.h>
+#endif
 
 void compiler_main(Compiler &cc, AstFunction *main)
 {
@@ -79,7 +81,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
     [[maybe_unused]] auto backend = timer.elapsed();
 
     if (opts.full_compile) {
-        compile_to_exe(opts.output_name, opts.output_exe_name);
+        create_executable(opts.output_name, opts.output_exe_name);
     }
 
     if (!testing) {
@@ -96,9 +98,21 @@ void Compiler::initialize()
     add_default_types();
 }
 
+#ifndef __linux__
+#define WIN32_LEAN_AND_MEAN
+#define VC_EXTRALEAN
+#include <Windows.h>
+#endif
+
 File &stdout_file()
 {
-    static auto s_stdout_file = File::from_fd(STDOUT_FILENO);
+#ifdef __linux__
+    static auto s_stdout_file = File::from_handle(STDOUT_FILENO, OpenFlags::WRITE,
+        File::Owning::No);
+#else
+    static auto s_stdout_file = File::from_handle(GetStdHandle(STD_OUTPUT_HANDLE),
+        OpenFlags::WRITE, File::Owning::No);
+#endif
     return s_stdout_file;
 }
 
