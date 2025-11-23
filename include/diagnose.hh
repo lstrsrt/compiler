@@ -38,7 +38,8 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
 [[noreturn]] void error_at(
     Compiler &cc, SourceLocation location, ErrorType type, std::string_view fmt, auto &&...args)
 {
-    const auto msg = std::vformat(fmt, std::make_format_args(args...));
+    const auto msg
+        = std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...));
     if (!opts.testing) {
         if (!diag::did_prepare_error) {
             print_error_header(cc, location);
@@ -58,12 +59,13 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
 [[noreturn]] void lexer_error(
     Compiler &cc, SourceLocation loc, std::string_view fmt, auto &&...args)
 {
-    error_at(cc, loc, ErrorType::Lexer, fmt, args...);
+    error_at(cc, loc, ErrorType::Lexer, fmt, std::forward<decltype((args))>(args)...);
 }
 
 [[noreturn]] void lexer_error(Compiler &cc, std::string_view fmt, auto &&...args)
 {
-    error_at(cc, cc.lexer.location(), ErrorType::Lexer, fmt, args...);
+    error_at(
+        cc, cc.lexer.location(), ErrorType::Lexer, fmt, std::forward<decltype((args))>(args)...);
 }
 
 void warning_at(Compiler &cc, SourceLocation location, std::string_view fmt, auto &&...args)
@@ -78,7 +80,8 @@ void warning_at(Compiler &cc, SourceLocation location, std::string_view fmt, aut
     } else {
         did_prepare_last_warning = false;
     }
-    const auto msg = std::vformat(fmt, std::make_format_args(args...));
+    const auto msg
+        = std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...));
     std::println("{}", msg);
     print_line(cc.lexer.string, location);
 }
@@ -93,7 +96,8 @@ void prepare_error(Compiler &cc, SourceLocation location, std::string_view fmt, 
     diag::did_prepare_error = true;
     if (!opts.testing) {
         print_error_header(cc, location);
-        std::println("{}", std::vformat(fmt, std::make_format_args(args...)));
+        std::println("{}",
+            std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...)));
     }
 }
 
@@ -102,7 +106,8 @@ void prepare_warning(Compiler &cc, SourceLocation location, std::string_view fmt
     diag::did_prepare_last_warning = true;
     if (!opts.testing) {
         print_warning_header(cc, location);
-        std::println("{}", std::vformat(fmt, std::make_format_args(args...)));
+        std::println("{}",
+            std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...)));
     }
 }
 } // namespace diag
