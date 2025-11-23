@@ -291,13 +291,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::AddressOf:
-            // HACK: when taking the addr of a string, it's already a pointer
-            // so just a mov is needed. otherwise we will take the address of the pointer
-            if (ir->left.u.variable->type->is_string()) {
-                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            } else {
-                emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
-            }
+            emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Load:
@@ -311,7 +305,14 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::PushArg:
             if (ir->target < ssize(param_regs)) {
-                emit("mov {}, {}", param_regs[ir->target], extract_ir_arg(ir_fn, ir->left));
+                // If this is a static address, use relative LEA.
+                // TODO: currently just strings; update this when `static` gets added...
+                if (ir->left.arg_type == IRArgType::String) {
+                    emit("lea {}, [rel {}]", param_regs[ir->target],
+                        extract_ir_arg(ir_fn, ir->left));
+                } else {
+                    emit("mov {}, {}", param_regs[ir->target], extract_ir_arg(ir_fn, ir->left));
+                }
             } else {
                 if (ir->left.arg_type == IRArgType::Constant) {
                     emit("push {}", extract_integer_constant(ir->left.u.constant));
@@ -391,12 +392,21 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
 {
     switch (ir->operation) {
         case Operation::Assign:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
+            if (ir->right.arg_type == IRArgType::String) {
+                emit("lea rax, [rel {}]", extract_ir_arg(ir_fn, ir->right));
+            } else {
+                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
+            }
             emit("mov {}, rax", extract_ir_arg(ir_fn, ir->left));
             break;
         case Operation::Store:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("mov qword [rax], {}", extract_ir_arg(ir_fn, ir->right));
+            if (ir->right.arg_type == IRArgType::String) {
+                emit("lea r10, [rel {}]", extract_ir_arg(ir_fn, ir->right));
+                emit("mov qword [rax], r10");
+            } else {
+                emit("mov qword [rax], {}", extract_ir_arg(ir_fn, ir->right));
+            }
             break;
         case Operation::Add:
             emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
