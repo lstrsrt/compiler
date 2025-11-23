@@ -113,7 +113,7 @@ Type *null_type()
 
 Type *unresolved_type()
 {
-    static Type s_type{ .flags = TypeFlags::UNRESOLVED };
+    static Type s_type{ .name = {}, .flags = TypeFlags::UNRESOLVED };
     return &s_type;
 }
 
@@ -314,6 +314,7 @@ Type *get_binary_expression_type(
     for (auto *ast : operands) {
         ExprConstness expr_constness{};
         current = get_expression_type(cc, ast, &expr_constness, overridable);
+        constness |= expr_constness;
         if (!ret) {
             // First time, just set it to whatever we got.
             ret = current;
@@ -325,11 +326,14 @@ Type *get_binary_expression_type(
         } else if (type_is_const_int(current, expr_constness)) {
             ret = get_common_integer_type(current, ret);
         } else if (types_match(ret, current) != TypeError::None) {
+            if (current == s64_type() && ret->is_pointer()) {
+                // Pointer arithmetic.
+                continue;
+            }
             verification_type_error(ast->location,
-                "incompatible types `{}` and `{}` in binary operation", ret->get_name(),
-                current->get_name());
+                "incompatible types {} and {} in binary operation", to_string(ret),
+                to_string(current));
         }
-        constness |= expr_constness;
     }
 
     if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
@@ -363,6 +367,8 @@ Type *make_unsigned(Type *type)
     }
     TODO();
 }
+
+Type *make_pointer(Compiler &, Type *real);
 
 Type *get_expression_type(
     Compiler &cc, Ast *ast, ExprConstness *constness, TypeOverridable overridable)
@@ -400,12 +406,7 @@ Type *get_expression_type(
                     *constness |= ExprConstness::SAW_NON_CONSTANT;
                     auto *operand = static_cast<AstAddressOf *>(ast)->operand;
                     auto *type = get_expression_type(cc, operand, constness, overridable);
-                    auto *ptr = new Type;
-                    *ptr = *type;
-                    ptr->size = 64;
-                    ptr->pointer = type->pointer + 1;
-                    ptr->real = type;
-                    return ptr;
+                    return make_pointer(cc, type);
                 }
                 if (ast->operation == Operation::Dereference || ast->operation == Operation::Load) {
                     auto *type = get_expression_type(
@@ -440,7 +441,9 @@ Type *get_expression_type(
                     return make_unsigned(type);
                 }
                 if (ast->operation == Operation::Cast) {
-                    *constness |= ExprConstness::SAW_NON_CONSTANT;
+                    // Call only to get the constness.
+                    (void)get_expression_type(
+                        cc, static_cast<AstCast *>(ast)->operand, constness, overridable);
                     return static_cast<AstCast *>(ast)->cast_type;
                 }
                 [[fallthrough]];
@@ -514,7 +517,7 @@ void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullp
 
 uint64_t max_for_type(Type *t)
 {
-    assert(t->is_int());
+    assert(t->is_integral() || t->is_pointer());
     switch (t->size) {
         case 1:
             return 1;
@@ -536,7 +539,7 @@ uint64_t max_for_type(Type *t)
 
 Integer min_for_type(Type *t)
 {
-    assert(t->is_int());
+    assert(t->is_integral() || t->is_pointer());
     if (t->is_unsigned()) {
         return Integer(0, false);
     }
@@ -554,8 +557,20 @@ Integer min_for_type(Type *t)
     }
 }
 
+bool expr_is_const_integral(Ast *ast, IgnoreCasts ignore)
+{
+    if (ast->operation == Operation::Cast && ignore == IgnoreCasts::Yes) {
+        return expr_is_const_integral(static_cast<AstCast *>(ast)->operand, ignore);
+    }
+    return ast->type == AstType::Integer || ast->type == AstType::Boolean;
+}
+
 uint64_t get_int_literal(Ast *ast)
 {
+    if (ast->operation == Operation::Cast) {
+        return get_int_literal(static_cast<AstCast *>(ast)->operand);
+    }
+    assert(expr_is_const_integral(ast, IgnoreCasts::No));
     return static_cast<AstLiteral *>(ast)->u.u64;
 }
 
@@ -573,37 +588,38 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (type->pointer != wanted->pointer) {
         return TypeError::PointerMismatch;
     }
-
-    bool needs_cast = false;
-    if (type->size != wanted->size) {
-        if (!expr_is_fully_constant(constness)) {
-            // Needs an explicit cast.
-            return TypeError::SizeMismatch;
-        }
-        // This is a literal that can be casted without precision loss.
-        if (get_int_literal(expr) <= max_for_type(wanted)) {
-            needs_cast = true;
-        }
-    }
-    if (type->is_unsigned() ^ wanted->is_unsigned()) {
-        // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
-        // where y is a s64.
-        if (expr_has_no_constants(constness)) {
-            return TypeError::SignednessMismatch;
-        }
-        needs_cast = true;
-    }
-    // TODO: duplicate logic
     if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
         return TypeError::SizeMismatch;
     }
+
+    bool needs_cast = false;
+    if (type->is_unsigned() != wanted->is_unsigned()) {
+        // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
+        // where y is a s64.
+        if (!expr_is_fully_constant(constness)) {
+            if (wanted->is_unsigned() || wanted->size <= type->size) {
+                return TypeError::SignednessMismatch;
+            }
+        }
+        needs_cast = true;
+    } else if (type->size != wanted->size) {
+        if (!expr_is_fully_constant(constness)) {
+            if (wanted->size <= type->size) {
+                // Needs an explicit cast.
+                return TypeError::SizeMismatch;
+            }
+        }
+        // This is a literal that can be casted without precision loss.
+        needs_cast = true;
+    }
+
     if (needs_cast) {
         insert_cast(expr, wanted);
     }
     return TypeError::None;
 }
 
-void verify_arg(Compiler &cc, Ast *ast, Type *expected)
+void verify_arg(Compiler &cc, Ast *&ast, Type *expected)
 {
     if (ast->type == AstType::Identifier) {
         auto *ident = static_cast<AstIdentifier *>(ast);
@@ -635,6 +651,9 @@ void verify_print(Compiler &cc, Ast *ast)
             }
             to_replace.push_back(i);
             ++i;
+        } else if (c == '%') {
+            str.insert(i, "%");
+            ++i;
         }
     }
 
@@ -650,7 +669,9 @@ void verify_print(Compiler &cc, Ast *ast)
         auto *type = get_unaliased_type(
             get_expression_type(cc, print->args[i], &constness, TypeOverridable::Yes));
         verify_arg(cc, print->args[i], type);
-        if (type->is_int()) {
+        if (type->is_pointer()) {
+            str.replace(to_replace[i - 1], __builtin_strlen("{}"), "%p");
+        } else if (type->is_int()) {
             std::string fmt_s = [&]() {
                 switch (type->size) {
                     case 64:
@@ -927,13 +948,322 @@ bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
     }
 }
 
-bool expr_is_integral(Ast *ast)
+struct Range {
+    Integer lo{};
+    Integer hi{};
+    bool lo_inc = false;
+    bool hi_inc = false;
+};
+
+using Ranges = std::vector<Range>;
+
+struct Comparison {
+    AstBinary *comparison;
+    AstLiteral *constant;
+};
+
+struct LogicalRange {
+    std::vector<Comparison> comp;
+    Type *type;
+};
+
+bool union_mergeable(const Range &A, const Range &B)
 {
-    return ast->type == AstType::Integer || ast->type == AstType::Boolean;
+    if (A.hi < B.lo) {
+        return false;
+    }
+    if (A.hi == B.lo && !(A.hi_inc || B.lo_inc)) {
+        // The ranges would touch if they were inclusive
+        return false;
+    }
+    return true;
 }
 
-void verify_logical_chain(Compiler &cc, AstBinary *cmp)
+bool range_contains(const Range &r, Integer i)
 {
+    if (i < r.lo || i > r.hi) {
+        return false;
+    }
+    if ((i == r.lo && !r.lo_inc) || (i == r.hi && !r.hi_inc)) {
+        return false;
+    }
+    return true;
+}
+
+bool non_empty_intersection(const Range &a, const Range &b)
+{
+    auto lo = Integer::max(a.lo, b.lo);
+    auto hi = Integer::min(a.hi, b.hi);
+
+    if (lo > hi) {
+        return false;
+    }
+    if (lo < hi) {
+        return true;
+    }
+    return range_contains(a, lo) && range_contains(b, lo);
+}
+
+// non_empty_intersection() must return true for this to make sense
+Range intersect_ranges(const Range &a, const Range &b)
+{
+    Range r{};
+
+    // Lower bound
+    if (a.lo > b.lo) {
+        r.lo = a.lo;
+        r.lo_inc = a.lo_inc;
+    } else if (b.lo > a.lo) {
+        r.lo = b.lo;
+        r.lo_inc = b.lo_inc;
+    } else {
+        // A.lo == B.lo
+        r.lo = a.lo;
+        r.lo_inc = (a.lo_inc && b.lo_inc);
+    }
+
+    // Upper bound
+    if (a.hi < b.hi) {
+        r.hi = a.hi;
+        r.hi_inc = a.hi_inc;
+    } else if (b.hi < a.hi) {
+        r.hi = b.hi;
+        r.hi_inc = b.hi_inc;
+    } else {
+        // A.hi == B.hi
+        r.hi = a.hi;
+        r.hi_inc = (a.hi_inc && b.hi_inc);
+    }
+    return r;
+}
+
+// Does this range have any integer points?
+bool range_is_valid(const Range &r)
+{
+    if (r.lo > r.hi) {
+        return false;
+    }
+
+    Integer eff_lo{};
+    if (r.lo_inc) {
+        eff_lo = r.lo;
+    } else {
+        if (r.lo.value == U64Max) {
+            return false;
+        }
+        eff_lo = r.lo + 1;
+    }
+
+    // compute effective_hi safely
+    Integer eff_hi{};
+    if (r.hi_inc) {
+        eff_hi = r.hi;
+    } else {
+        if (r.hi.as_signed() == S64Min) {
+            return false;
+        }
+        eff_hi = r.hi - 1;
+    }
+    return eff_lo <= eff_hi;
+}
+
+Ranges intersect_ranges(const Ranges &a, const Ranges &b)
+{
+    Ranges ret;
+    size_t a_idx = 0;
+    size_t b_idx = 0;
+
+    while (a_idx < size(a) && b_idx < size(b)) {
+        const auto &cur_a = a[a_idx];
+        const auto &cur_b = b[b_idx];
+
+        if (cur_a.hi < cur_b.lo) {
+            ++a_idx;
+            continue;
+        }
+        if (cur_b.hi < cur_a.lo) {
+            ++b_idx;
+            continue;
+        }
+
+        if (non_empty_intersection(cur_a, cur_b)) {
+            Range r = intersect_ranges(cur_a, cur_b);
+            if (range_is_valid(r)) {
+                ret.push_back(r);
+            }
+        }
+
+        if (cur_a.hi < cur_b.hi) {
+            ++a_idx;
+        } else if (cur_b.hi < cur_a.hi) {
+            ++b_idx;
+        } else {
+            ++a_idx;
+            ++b_idx;
+        }
+    }
+    return ret;
+}
+
+Ranges merge_overlapping_ranges(const Ranges &in)
+{
+    Ranges ret;
+    if (in.empty()) {
+        return ret;
+    }
+
+    ret.push_back(in[0]);
+
+    for (size_t i = 1; i < size(in); ++i) {
+        const auto &r = in[i];
+        auto &last = ret.back();
+
+        if (union_mergeable(last, r)) {
+            if (r.hi > last.hi) {
+                last.hi = r.hi;
+                last.hi_inc = r.hi_inc;
+            } else if (r.hi == last.hi) {
+                last.hi_inc = last.hi_inc || r.hi_inc;
+            }
+
+            // New lower bound
+            // TODO: not normally needed? last.lo <= r.lo
+            if (r.lo < last.lo) {
+                last.lo = r.lo;
+                last.lo_inc = r.lo_inc;
+            } else if (r.lo == last.lo) {
+                last.lo_inc = last.lo_inc || r.lo_inc;
+            }
+        } else {
+            // disjoint
+            ret.push_back(r);
+        }
+    }
+    return ret;
+}
+
+Ranges union_(const Ranges &A, const Ranges &B)
+{
+    Ranges combined;
+    size_t i = 0;
+    size_t j = 0;
+
+    while (i < size(A) && j < size(B)) {
+        if (A[i].lo < B[j].lo || (A[i].lo == B[j].lo && A[i].lo_inc && !B[j].lo_inc)) {
+            combined.push_back(A[i++]);
+        } else {
+            combined.push_back(B[j++]);
+        }
+    }
+
+    while (i < size(A)) {
+        combined.push_back(A[i++]);
+    }
+    while (j < size(B)) {
+        combined.push_back(B[j++]);
+    }
+    return merge_overlapping_ranges(combined);
+}
+
+Ranges create_ranges(Operation op, Integer val, Integer min, Integer max)
+{
+    Ranges rs;
+    if (op == Operation::Less) {
+        rs.emplace_back(min, val, true, false);
+    } else if (op == Operation::LessEquals) {
+        rs.emplace_back(min, val, true, true);
+    } else if (op == Operation::Greater) {
+        rs.emplace_back(val, max, false, true);
+    } else if (op == Operation::GreaterEquals) {
+        rs.emplace_back(val, max, true, true);
+    } else if (op == Operation::Equals) {
+        rs.emplace_back(val, val, true, true);
+    } else if (op == Operation::NotEquals) {
+        rs.emplace_back(min, val, true, false);
+        rs.emplace_back(val, max, false, true);
+    }
+    return rs;
+}
+
+Ranges feasible_ranges_or(const LogicalRange &ranges, Integer min, Integer max)
+{
+    Ranges feasible{};
+
+    for (const auto &range : ranges.comp) {
+        Integer val{};
+        val.value = range.constant->u.u64;
+        val.is_signed = ranges.type->is_signed();
+        Ranges constraint = create_ranges(range.comparison->operation, val, min, max);
+        feasible = union_(feasible, constraint);
+    }
+    return merge_overlapping_ranges(feasible);
+}
+
+Ranges feasible_ranges_and(const LogicalRange &ranges, Integer min, Integer max)
+{
+    Ranges feasible = { { min, max, true, true } };
+
+    for (const auto &range : ranges.comp) {
+        Integer val{};
+        val.value = range.constant->u.u64;
+        val.is_signed = ranges.type->is_signed();
+        Ranges rs = create_ranges(range.comparison->operation, val, min, max);
+        feasible = intersect_ranges(feasible, rs);
+        if (feasible.empty()) {
+            return {};
+        }
+    }
+
+    return feasible;
+}
+
+void diagnose_tautological_comparisons(
+    Compiler &cc, Ast *&cmp, Variable *var, const LogicalRange &ranges)
+{
+    auto min = min_for_type(ranges.type);
+    // HACK: make max_for_type() return Integer as well
+    Integer max{};
+    max.is_signed = ranges.type->is_signed();
+    max.value = max_for_type(ranges.type);
+
+    Ranges feasible;
+    if (cmp->operation == Operation::LogicalAnd) {
+        feasible = feasible_ranges_and(ranges, min, max);
+    } else {
+        assert(cmp->operation == Operation::LogicalOr);
+        feasible = feasible_ranges_or(ranges, min, max);
+    }
+    bool result;
+    if (feasible.empty()) {
+        result = false;
+    } else if (feasible.size() == 1) {
+        if (feasible.back().lo == min && feasible.back().hi == max) {
+            result = true;
+        } else {
+            return;
+        }
+    } else {
+        return;
+    }
+    diag::ast_warning(cc, ranges.comp.back().comparison,
+        "comparison range for `{}` covers {} possible values, so the expression will always be {}",
+        var->name, result ? "all" : "no", result ? "true" : "false");
+    // TODO: if optimizations are on:
+    // cmp = new AstLiteral(s32_type(), result ? 1 : 0, cmp->location);
+}
+
+Ast *uncasted_expr(Ast *ast)
+{
+    if (ast->operation == Operation::Cast) {
+        return uncasted_expr(static_cast<AstCast *>(ast)->operand);
+    }
+    return ast;
+}
+
+void verify_logical_chain(Compiler &cc, Ast *&_cmp)
+{
+    auto *cmp = static_cast<AstBinary *>(_cmp);
+
     if (has_side_effects(cmp->left) || has_side_effects(cmp->right)) {
         return;
     }
@@ -943,138 +1273,126 @@ void verify_logical_chain(Compiler &cc, AstBinary *cmp)
         return;
     }
 
-    if (cmp->operation == Operation::LogicalOr) {
-        return;
-    }
-
     auto get_parts = [](AstBinary *ast) -> std::pair<AstIdentifier *, AstLiteral *> {
         if (ast->left->type == AstType::Identifier) {
-            if (expr_is_integral(ast->right)) {
+            if (expr_is_const_integral(ast->right, IgnoreCasts::Yes)) {
                 return { static_cast<AstIdentifier *>(ast->left),
-                    static_cast<AstLiteral *>(ast->right) };
+                    static_cast<AstLiteral *>(uncasted_expr(ast->right)) };
             }
         } else if (ast->right->type == AstType::Identifier) {
-            if (expr_is_integral(ast->left)) {
+            if (expr_is_const_integral(ast->left, IgnoreCasts::Yes)) {
                 return { static_cast<AstIdentifier *>(ast->right),
-                    static_cast<AstLiteral *>(ast->left) };
+                    static_cast<AstLiteral *>(uncasted_expr(ast->left)) };
             }
         }
         return { nullptr, nullptr };
     };
 
-    enum class LogicalType {
-        Equals,
-        NotEquals,
-        Range
-    };
-
-    struct LogicalRange {
-        Integer first{};
-        Integer last{};
-        Ast *ast = nullptr;
-        LogicalType logical_type{};
-
-        explicit LogicalRange(Ast *operand, AstLiteral *constant, Type *type)
-            : ast(operand)
-            , logical_type(LogicalType::Range)
-        {
-            const auto literal = get_int_literal(constant);
-            first.is_signed = last.is_signed = type->is_signed();
-            // TODO: canonicalize L/LE into G/GE earlier?
-            switch (operand->operation) {
-                case Operation::Equals:
-                    first.value = literal;
-                    logical_type = LogicalType::Equals;
-                    break;
-                case Operation::GreaterEquals:
-                    first.value = literal;
-                    last.value = max_for_type(type);
-                    break;
-                case Operation::Greater:
-                    first.value = literal + 1; // TODO: account for overflow
-                    last.value = max_for_type(type);
-                    break;
-                case Operation::Less:
-                    first = min_for_type(type);
-                    last.value = literal - 1; // TODO: account for overflow
-                    break;
-                case Operation::LessEquals:
-                    first = min_for_type(type);
-                    last.value = literal;
-                    break;
-                case Operation::NotEquals:
-                    first.value = get_int_literal(constant);
-                    logical_type = LogicalType::NotEquals;
-                    break;
-                default:
-                    break;
-            }
-        }
-    };
-
     std::vector<Ast *> flattened;
     flatten_binary(cmp, cmp->operation, flattened);
-    std::map<Variable *, std::vector<LogicalRange>> ranges_map;
+    std::map<Variable *, LogicalRange> ranges_map;
 
     for (auto *ast : flattened) {
-        assert(ast->type == AstType::Binary);
+        // If this is not a binary, we may be dealing with something like
+        // "x and 0" which results in always false but is not folded since 0 is the last part of the
+        // expr. So just skip it.
+        if (ast->type != AstType::Binary) {
+            continue;
+        }
+        if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
+            verify_logical_chain(cc, ast);
+            continue;
+        }
         auto *operand = static_cast<AstBinary *>(ast);
         auto [ident, constant] = get_parts(operand);
         if (!ident || !constant) {
             continue;
         }
-        ranges_map[ident->var].emplace_back(ast, constant, ident->var->type);
+        ranges_map[ident->var].type = ident->var->type;
+        ranges_map[ident->var].comp.emplace_back(operand, constant);
     }
-
-    auto overlap_warning = [&](Ast *first, Ast *second, bool result) {
-        diag::prepare_warning(cc, first->location, "this comparison:");
-        diag::print_line(cc.lexer.string, first->location);
-        diag::ast_warning(cc, second, "{} with this comparison, so the result will always be {}:",
-            result ? "fully overlaps" : "does not overlap", result ? "true" : "false");
-    };
 
     for (auto &[var, ranges] : ranges_map) {
-        auto is_signed = var->type->is_signed();
-        std::ranges::sort(ranges, [is_signed](const LogicalRange &a, const LogicalRange &b) {
-            if (is_signed) {
-                // TODO: add sle/ule helpers
-                return a.first.as_signed() < b.first.as_signed();
-            }
-            return a.first < b.first;
-        });
-
-        for (size_t i = 0; i < size(ranges) - 1; ++i) {
-            auto &range = ranges[i];
-            auto &next = ranges[i + 1];
-
-            if (range.logical_type == LogicalType::Equals
-                && next.logical_type == LogicalType::Equals) {
-                overlap_warning(range.ast, next.ast, range.first == next.first);
-                continue;
-            }
-            if (range.logical_type == LogicalType::Range
-                || next.logical_type == LogicalType::Range) {
-                if (range.last < next.first) {
-                    overlap_warning(range.ast, next.ast, false);
-                }
-            }
-        }
+        diagnose_tautological_comparisons(cc, _cmp, var, ranges);
     }
+}
+
+bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
+    ExprConstness lhs_constness, Type *rhs_type, ExprConstness rhs_constness)
+{
+    auto create_offset = [&cc, binary](Ast *&offset, Type *ptr_type, Type *offset_type,
+                             ExprConstness offset_constness) {
+        assert(ptr_type->is_pointer());
+        if (binary->operation != Operation::Add && binary->operation != Operation::Subtract) {
+            verification_error(binary, "pointers only support addition and subtraction");
+        }
+        auto size = ptr_type->real->byte_size();
+        bool is_literal = expr_is_const_integral(offset, IgnoreCasts::No);
+        if (is_literal) {
+            static_cast<AstLiteral *>(offset)->u.u64 *= size;
+        } else {
+            offset = new AstBinary(Operation::Multiply, offset,
+                new AstLiteral(s64_type(), size, offset->location), binary->location);
+            static_cast<AstBinary *>(offset)->left->flags |= AstFlags::PTR_ARITH;
+            static_cast<AstBinary *>(offset)->right->flags |= AstFlags::PTR_ARITH;
+        }
+
+        // Cast to s64. Removed again later if possible.
+        if (auto err = maybe_cast_int(s64_type(), offset_type, offset, offset_constness);
+            err != TypeError::None) {
+            type_error(cc, binary, ptr_type, offset_type, err);
+        }
+    };
+
+    if (lhs_type->is_pointer()) {
+        if (rhs_type->is_pointer()) {
+            verification_type_error(binary->location, "cannot add two pointers");
+        }
+        if (!rhs_type->is_int()) {
+            return false;
+        }
+        create_offset(binary->right, lhs_type, rhs_type, rhs_constness);
+    } else if (rhs_type->is_pointer()) {
+        if (!lhs_type->is_int()) {
+            return false;
+        }
+        create_offset(binary->left, rhs_type, lhs_type, lhs_constness);
+    } else {
+        return false;
+    }
+
+    return true;
 }
 
 void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 {
     ExprConstness lhs_constness{};
     ExprConstness rhs_constness{};
-    auto *lhs_type = get_unaliased_type(get_expression_type(cc, binary->left, &lhs_constness));
-    auto *rhs_type = get_unaliased_type(get_expression_type(cc, binary->right, &rhs_constness));
+    auto *lhs_type = get_expression_type(cc, binary->left, &lhs_constness);
+    auto *rhs_type = get_expression_type(cc, binary->right, &rhs_constness);
+
+    // TODO: figure out a diag api that does not need this stuff
+    auto *lt = lhs_type;
+    auto *rt = rhs_type;
+    lhs_type = get_unaliased_type(lhs_type);
+    rhs_type = get_unaliased_type(rhs_type);
+
     auto op = binary->operation;
 
     if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
-        if (is_arithmetic_operation(op) && (!lhs_type->is_int() || !rhs_type->is_int())) {
-            verification_type_error(binary->location,
-                "invalid operator applied to types `{}` and `{}`", lhs_type->get_name(),
-                rhs_type->get_name());
+        if (is_arithmetic_operation(op)) {
+            if (check_pointer_arithmetic(
+                    cc, binary, lhs_type, lhs_constness, rhs_type, rhs_constness)) {
+                binary->flags |= AstFlags::PTR_ARITH;
+                binary->left->flags |= AstFlags::PTR_ARITH;
+                binary->right->flags |= AstFlags::PTR_ARITH;
+                return;
+            }
+            if (!lhs_type->is_int() || !rhs_type->is_int()) {
+                verification_type_error(binary->location,
+                    "invalid operator applied to types {} and {}", to_string(lt), to_string(rt));
+            }
+            return;
         }
 
         if (op == Operation::LeftRotate || op == Operation::RightRotate) {
@@ -1142,30 +1460,35 @@ TypeError types_match(Type *t1, Type *t2)
     }
 
     if (t1_u->pointer != t2_u->pointer) {
-        return TypeError::PointerMismatch;
+        if (t1_u != null_type() || !t2_u->is_pointer()) {
+            return TypeError::PointerMismatch;
+        }
+    } else if (t1_u->is_pointer()) {
+        // Both are pointers with equal depth.
+        if (t1_u == null_type() || t2_u == null_type()) {
+            // Any pointer can be set to null.
+            return TypeError::None;
+        }
+        return types_match(t1_u->real, t2_u->real);
     }
 
     if (t1_u->is_int()) {
         if (!t2_u->is_int()) {
             return TypeError::Default;
         }
-        if (t1_u->size != t2_u->size) {
-            return TypeError::SizeMismatch;
-        }
         if (t1_u->is_unsigned() ^ t2_u->is_unsigned()) {
             return TypeError::SignednessMismatch;
         }
-        return TypeError::None;
-    }
-
-    if (t1_u->is_bool()) {
+        if (t1_u->size != t2_u->size) {
+            return TypeError::SizeMismatch;
+        }
+    } else if (t1_u->is_bool()) {
         if (!t2_u->is_bool()) {
             return TypeError::Default;
         }
-        return TypeError::None;
     }
 
-    return TypeError::Default;
+    return TypeError::None;
 }
 
 enum class ComparisonLogicError {
@@ -1183,18 +1506,19 @@ ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer 
             && constant.as_signed() >= static_cast<int64_t>(max_for_type(type))) {
             return ComparisonLogicError::AlwaysFalse;
         }
-        if (!constant.is_signed && constant > max_for_type(type)) {
+        if (!constant.is_signed && constant.value >= max_for_type(type)) {
             return ComparisonLogicError::AlwaysFalse;
         }
+    } else if (cmp == Operation::GreaterEquals) {
+        if (constant.value == min_for_type(type).value) {
+            return ComparisonLogicError::AlwaysTrue;
+        }
     } else if (cmp == Operation::LessEquals) {
-        if (constant == max_for_type(type)) {
+        if (constant.value == max_for_type(type)) {
             return ComparisonLogicError::AlwaysTrue;
         }
     } else if (type->is_unsigned() || type->is_bool()) {
-        if (constant == 0) {
-            if (cmp == Operation::GreaterEquals) {
-                return ComparisonLogicError::AlwaysTrue;
-            }
+        if (constant.value == 0) {
             if (cmp == Operation::Less) {
                 return ComparisonLogicError::AlwaysFalse;
             }
@@ -1204,25 +1528,39 @@ ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer 
     return ComparisonLogicError::None;
 }
 
+struct ComparisonTypes {
+    Type *lhs_type = nullptr;
+    Type *rhs_type = nullptr;
+    Type *type = nullptr;
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
+};
+
+void get_comparison_types(Compiler &cc, AstBinary *&cmp, ComparisonTypes &c)
+{
+    c.lhs_type = get_expression_type(cc, cmp->left, &c.lhs_constness, TypeOverridable::Yes);
+    c.rhs_type = get_expression_type(cc, cmp->right, &c.rhs_constness, TypeOverridable::Yes);
+    c.type = expr_is_fully_constant(c.lhs_constness) ? c.rhs_type : c.lhs_type;
+    cmp->expr_type = c.type;
+}
+
 void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
 {
     auto *cmp = static_cast<AstBinary *>(ast);
-    ExprConstness lhs_constness{};
-    ExprConstness rhs_constness{};
-    auto *lhs_type = get_expression_type(cc, cmp->left, &lhs_constness, TypeOverridable::Yes);
-    auto *rhs_type = get_expression_type(cc, cmp->right, &rhs_constness, TypeOverridable::Yes);
+    ComparisonTypes c;
+    get_comparison_types(cc, cmp, c);
 
-    bool is_left_const = expr_is_fully_constant(lhs_constness);
-    bool is_right_const = expr_is_fully_constant(rhs_constness);
-    cmp->expr_type = is_left_const ? rhs_type : lhs_type;
-
-    auto kind = cmp->expr_type->get_kind();
-    if (kind != TypeFlags::Integer && kind != TypeFlags::Boolean) {
+    if (!cmp->expr_type->is_integral()) {
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
 
     verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
     verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
+
+    // verify_expr can insert casts etc so get type again
+    get_comparison_types(cc, cmp, c);
+    bool is_left_const = expr_is_fully_constant(c.lhs_constness);
+    bool is_right_const = expr_is_fully_constant(c.rhs_constness);
 
     if (is_left_const || is_right_const) {
         auto constant
@@ -1234,7 +1572,7 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
             diag::ast_warning(cc, cmp, "comparison is always {}", s);
         } else if (is_left_const && is_right_const) {
             ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::Yes);
-            if (expr_is_integral(cmp)) {
+            if (expr_is_const_integral(cmp, IgnoreCasts::Yes)) {
                 diag::ast_warning(
                     cc, cmp, "comparison is always {}", get_int_literal(cmp) ? "true" : "false");
             }
@@ -1310,23 +1648,13 @@ void match_type_or_cast(
         }
     }
 
-    type_error(cc, ast, expected, type, err);
-}
-
-void verify_int(Compiler &cc, Ast *&ast, Type *expected)
-{
-    if (!expected) {
-        return;
+    if (has_flag(ast->flags, AstFlags::PTR_ARITH)) {
+        if (expected->is_pointer() && type == s64_type()) {
+            return;
+        }
     }
 
-    if (get_unaliased_type(expected) == bool_type()) {
-        static_cast<AstLiteral *>(ast)->u.u64 = std::clamp<uint64_t>(get_int_literal(ast), 0, 1);
-        return;
-    }
-
-    ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness));
-    match_type_or_cast(cc, ast, constness, type, expected);
+    type_error(cc, ast, e, t, err);
 }
 
 void remove_cast(Ast *&ast)
@@ -1352,24 +1680,28 @@ void verify_explicit_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_disc
     auto *type = get_unaliased_type(get_expression_type(cc, cast->operand, &constness));
 
     if (cast_type->is_bool() && !type->is_bool()) {
-        verification_type_error(ast->location, "cannot cast `{}` to `bool`", type->get_name());
+        verification_type_error(ast->location, "cannot cast {} to `bool`", to_string(type));
     }
 
     if (cast_type->pointer != type->pointer) {
-        verification_type_error(ast->location,
-            "cannot cast `{}` to `{}` due to different indirection levels", type->get_name(),
-            cast_type->get_name());
+        if (!cast_type->pointer && cast_type->size < 64) {
+            verification_type_error(ast->location, "cannot cast {} to {} due to precision loss",
+                to_string(type), to_string(cast_type));
+        }
     }
 
     if (types_match(cast_type, type) == TypeError::None) {
         // TODO: there are more instances where a cast can be deleted
         remove_cast(ast);
-        verify_expr(cc, ast /* this is the operand now */, warn_discarded);
+        verify_expr(cc, ast /* this is the operand now */, warn_discarded, type);
     } else {
         // We don't pass anything for `expected` because verify_expr uses get_expression_type
         // so passing `type` would always succeed, and passing the type we're casting to would
         // always fail.
-        verify_expr(cc, cast->operand, warn_discarded);
+        // ^ ^ ^ ^ ^
+        // This is false now that pointer arithmetic checking inserts a cast to s64.
+        // Pass `type` so we don't crash in constant folding.
+        verify_expr(cc, cast->operand, warn_discarded, type);
     }
 }
 
@@ -1412,7 +1744,6 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
     Type *type;
     switch (ast->type) {
         case AstType::Integer:
-            return verify_int(cc, ast, expected);
         case AstType::Boolean:
         case AstType::Identifier:
             [[fallthrough]];
@@ -1467,10 +1798,21 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
         // deleted before reassigning.
         ExprConstness constness{};
         var.type = get_expression_type(cc, var_decl->init_expr, &constness, TypeOverridable::Yes);
+        if (var_decl->init_expr->operation == Operation::LogicalOr
+            || var_decl->init_expr->operation == Operation::LogicalAnd) {
+            verify_logical_chain(cc, var_decl->init_expr);
+        }
         verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
     } else if (var_decl->init_expr) {
         // x: T = y
         resolve_type(cc, var_decl->scope, var.type);
+        if (get_unaliased_type(var.type) == bool_type()) {
+            convert_expr_to_boolean(cc, var_decl->init_expr);
+        }
+        if (var_decl->init_expr->operation == Operation::LogicalOr
+            || var_decl->init_expr->operation == Operation::LogicalAnd) {
+            verify_logical_chain(cc, var_decl->init_expr);
+        }
         verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
     } else {
         // x: T
@@ -1532,8 +1874,13 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
     } else {
         // If verify_expr was called immediately, "x + 123" would be converted to "(x != 0) + 123".
         // The conversion has to happen on the uppermost level instead: "(x + 123) != 0".
-        convert_expr_to_boolean(cc, if_stmt->expr);
-        verify_expr(cc, if_stmt->expr, WarnDiscardedReturn::No, bool_type());
+        auto *&ast = if_stmt->expr;
+        convert_expr_to_boolean(cc, ast);
+        verify_expr(cc, ast, WarnDiscardedReturn::No, bool_type());
+        // FIXME: we can also have logical chains in assigns/decls...
+        if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
+            verify_logical_chain(cc, ast);
+        }
     }
     verify_ast(cc, if_stmt->body, current_function);
     if (if_stmt->else_body) {
@@ -1546,6 +1893,10 @@ void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
     auto *while_stmt = static_cast<AstWhile *>(ast);
     // See verify_if for explanation
     convert_expr_to_boolean(cc, while_stmt->expr);
+    if (while_stmt->expr->operation == Operation::LogicalOr
+        || while_stmt->expr->operation == Operation::LogicalAnd) {
+        verify_logical_chain(cc, while_stmt->expr);
+    }
     verify_expr(cc, while_stmt->expr, WarnDiscardedReturn::No, bool_type());
     verify_ast(cc, while_stmt->body, current_function);
 }
@@ -1561,9 +1912,16 @@ void verify_assign(Compiler &cc, Ast *ast)
         binary->operation = Operation::Store;
         binary->left->operation = Operation::Load;
     }
-    verify_expr(cc, binary->left, WarnDiscardedReturn::No);
     ExprConstness constness{};
     auto *expected = get_expression_type(cc, binary->left, &constness);
+    if (get_unaliased_type(expected) == bool_type()) {
+        convert_expr_to_boolean(cc, binary->right);
+    }
+    if (binary->right->operation == Operation::LogicalOr
+        || binary->right->operation == Operation::LogicalAnd) {
+        verify_logical_chain(cc, ast);
+    }
+    verify_expr(cc, binary->left, WarnDiscardedReturn::No);
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
 }
 
@@ -1593,6 +1951,7 @@ TypeError const_int_compatible_with_underlying(Type *type, Type *underlying, Ast
     }
     // FIXME: enum(s64) with member 0xffff_ffff?
     if (type->is_unsigned() ^ underlying->is_unsigned()) {
+        // TODO: add new implicit cast rules from maybe_cast_int
         return TypeError::SignednessMismatch;
     }
     // FIXME: incorrect when type is signed and folded into negative?
@@ -1608,13 +1967,6 @@ void verify_enum_member(Compiler &cc, AstEnumMember *&ast)
     auto *enum_decl = ast->enum_decl;
     auto *underlying = enum_decl->enum_type->real;
     auto *real = get_unaliased_type(underlying);
-
-    if (!real->is_int() && !real->is_string()) {
-        verification_type_error(underlying->location,
-            "cannot declare type `{}` as the underlying enum type.\n"
-            "the underlying type must be an integer or string type.",
-            underlying->get_name());
-    }
 
     ExprConstness constness{};
     auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness));
@@ -1634,8 +1986,19 @@ void verify_enum_member(Compiler &cc, AstEnumMember *&ast)
 void verify_enum_decl(Compiler &cc, Ast *ast)
 {
     auto *enum_decl = static_cast<AstEnumDecl *>(ast);
+
     // `enum_type` is guaranteed to exist.
-    resolve_type(cc, enum_decl->scope, enum_decl->enum_type->real);
+    auto *&underlying = enum_decl->enum_type->real;
+    resolve_type(cc, enum_decl->scope, underlying);
+
+    auto *real = get_unaliased_type(underlying);
+    if (!real->is_int() && !real->is_string()) {
+        verification_type_error(underlying->location,
+            "cannot declare type `{}` as the underlying enum type.\n"
+            "the underlying type must be an integer or string type.",
+            underlying->get_name());
+    }
+
     for (auto &[name, member] : enum_decl->members) {
         verify_enum_member(cc, member);
     }

@@ -1,0 +1,34 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [VariableDecl px: *null Integer size 8]
+            0 (*null)
+        [VariableDecl px2: *null Integer size 8]
+            [Add]
+                px (*null)
+                [Cast s64]
+                    8 (s32)
+        [VariableDecl px3: *null Integer size 8]
+            [Add]
+                px (*null)
+                [Cast s64]
+                    32 (s32)
+        [VariableDecl px4: *null Integer size 8]
+            [Add]
+                [Add]
+                    px (*null)
+                    [Cast s64]
+                        40 (s32)
+                [Cast s64]
+                    24 (s32)
+        [VariableDecl tmp: s64 Integer size 8]
+            [Cast s64]
+                1 (s32)
+        [VariableDecl px5: *null Integer size 8]
+            [Add]
+                [Add]
+                    px (*null)
+                    [Multiply]
+                        tmp (s64)
+                        8 (s64)
+                [Cast s64]
+                    16 (s32)

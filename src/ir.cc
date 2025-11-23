@@ -403,10 +403,24 @@ void generate_ir_condition(Compiler &cc, Ast *expr, BasicBlock *true_block, Basi
     }
 }
 
+bool expr_is_const_integral(Ast *ast, IgnoreCasts ignore);
+
 void generate_ir_if(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *if_stmt = static_cast<AstIf *>(ast);
+
+    if (expr_is_const_integral(if_stmt->expr, IgnoreCasts::Yes)) {
+        if (get_int_literal(if_stmt->expr)) {
+            generate_ir_impl(cc, if_stmt->body);
+            auto *after_block = add_block(ir_fn);
+            generate_ir_branch(cc, after_block);
+            ir_fn->current_block = after_block;
+        } else if (if_stmt->else_body) {
+            generate_ir_impl(cc, if_stmt->else_body);
+        }
+        return;
+    }
 
     auto *true_block = new_block();
     auto *else_block = if_stmt->else_body ? new_block() : nullptr;

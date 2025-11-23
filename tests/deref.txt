@@ -1,5 +1,5 @@
 #{returns(84)}
 x := 42
 y: *s32 = &x
-z: **s32 = &y
+z := &y
 return *y + *y

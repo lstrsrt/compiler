@@ -508,6 +508,21 @@ Token parse_identifier(Compiler &cc)
     return token;
 }
 
+Type *make_pointer(Compiler &cc, Type *real)
+{
+    if (real->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
+        parser_error(real->location, "exceeded indirection limit");
+    }
+    auto *ptr = new Type;
+    ptr->name = real->name;
+    ptr->location = real->location;
+    ptr->flags = {};
+    ptr->pointer = real->pointer + 1;
+    ptr->size = 64;
+    ptr->real = real;
+    return ptr;
+}
+
 Type *parse_type(Compiler &cc)
 {
     auto token = lex(cc);
@@ -520,18 +535,16 @@ Type *parse_type(Compiler &cc)
     token = parse_identifier(cc);
     auto *type = find_type(current_scope, token.string);
     if (type) {
-        // FIXME: this is not quite right
+        // FIXME: this is not quite right for pointers
         type->location = token.location;
         if (!pointer) {
             return type;
         }
-
-        auto *ptr = new Type;
-        *ptr = *type;
-        ptr->size = 64;
-        ptr->pointer = type->pointer + pointer;
-        ptr->real = type;
-        return ptr;
+        Type *ret;
+        for (int i = 0; i < pointer; ++i) {
+            ret = make_pointer(cc, i == 0 ? type : ret);
+        }
+        return ret;
     }
     // TODO: unnecessary string creation?
     return new Type{ .name = std::string(token.string),

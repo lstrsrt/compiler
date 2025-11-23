@@ -95,7 +95,10 @@ struct Scope;
 inline Scope *current_scope;
 
 enum_flags(AstFlags, uint64_t){
-    FOLDED = 1 << 0, // Prevent verifier trying to constant fold this tree multiple times.
+    // Prevent optimizer from trying to fold this tree multiple times.
+    FOLDED = 1 << 0,
+    // Tell the typechecker that this tree can mix integers and pointers in operations.
+    PTR_ARITH = 1 << 1,
 };
 
 constexpr uint64_t KiB(uint64_t bytes)
@@ -180,9 +183,68 @@ struct Integer {
         return !is_negative();
     }
 
-    operator uint64_t() const
+    auto operator<=>(const Integer &rhs) const
     {
-        return value;
+        // TODO: what if is_signed != rhs.is_signed?
+        // can we remove this entirely and just compare the raw values??
+        // maybe not because of type sizes?
+        if (is_signed) {
+            return as_signed() <=> rhs.as_signed();
+        }
+        return value <=> rhs.value;
+    }
+
+    bool operator==(const Integer &rhs) const
+    {
+        // TODO: what if is_signed != rhs.is_signed?
+        if (is_signed) {
+            return as_signed() == rhs.as_signed();
+        }
+        return value == rhs.value;
+    }
+
+    auto operator-(uint64_t rhs) const
+    {
+        Integer ret = *this;
+        ret.value -= rhs;
+        return ret;
+    }
+
+    auto operator+(uint64_t rhs) const
+    {
+        Integer ret = *this;
+        ret.value += rhs;
+        return ret;
+    }
+
+    static auto min(const Integer &lhs, const Integer &rhs)
+    {
+        if (lhs.is_signed) {
+            if (lhs.as_signed() < rhs.as_signed()) {
+                return lhs;
+            }
+            return rhs;
+        }
+
+        if (lhs.value < rhs.value) {
+            return lhs;
+        }
+        return rhs;
+    }
+
+    static auto max(const Integer &lhs, const Integer &rhs)
+    {
+        if (lhs.is_signed) {
+            if (lhs.as_signed() > rhs.as_signed()) {
+                return lhs;
+            }
+            return rhs;
+        }
+
+        if (lhs.value > rhs.value) {
+            return lhs;
+        }
+        return rhs;
     }
 };
 
