@@ -434,7 +434,7 @@ BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
 {
     auto *bb = add_block(ir_fn);
     auto *ir = new IR;
-    ir->operation = Operation::Fallthrough;
+    ir->operation = Operation::Branch;
     ir->type = AstType::Unary;
     ir->left = IRArg::make_block(bb);
     add_ir(ir, to);
@@ -665,8 +665,7 @@ void build_successor_lists(Compiler &cc)
             if (auto *br = dynamic_cast<IRCondBranch *>(code)) {
                 bb->successors.push_back(br->true_block);
                 bb->successors.push_back(br->false_block);
-            } else if (code->operation == Operation::Branch
-                || code->operation == Operation::Fallthrough) {
+            } else if (code->operation == Operation::Branch) {
                 bb->successors.push_back(code->left.u.basic_block);
             }
         }

@@ -342,8 +342,6 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
         case Operation::Branch:
             emit_jump(ir, ir->left.u.basic_block);
             break;
-        case Operation::Fallthrough:
-            break;
         default:
             TODO();
     }
