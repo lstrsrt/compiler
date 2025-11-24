@@ -84,6 +84,7 @@ static char *map_file(File::Handle handle, [[maybe_unused]] size_t size, OpenFla
     if (map == MAP_FAILED) {
         return nullptr;
     }
+    return map;
 #else
     DWORD prot = PAGE_NOACCESS;
     DWORD desired_access = FILE_MAP_READ;
@@ -142,10 +143,10 @@ static bool write_file(File::Handle handle, std::string_view str)
 #endif
 }
 
-bool seek_in_file(File::Handle handle, size_t position, int whence)
+bool seek_in_file(File::Handle handle, long position, int whence)
 {
 #ifdef __linux__
-    return lseek(file_handle, position, whence) >= 0;
+    return lseek(handle, position, whence) >= 0;
 #else
     return SetFilePointer(handle, position, nullptr, whence) != INVALID_SET_FILE_POINTER;
 #endif
@@ -156,14 +157,14 @@ enum class Seek {
     Yes,
 };
 
-bool truncate_file(File::Handle handle, size_t length, Seek seek)
+bool truncate_file(File::Handle handle, long length, Seek seek)
 {
 #ifdef __linux__
-    if (ftruncate(file_handle, length) == -1) {
+    if (ftruncate(handle, length) == -1) {
         return false;
     }
     if (seek == Seek::Yes) {
-        return seek_in_file(position, SEEK_SET);
+        return seek_in_file(handle, length, SEEK_SET);
     }
 #else
     LONG low;
@@ -252,7 +253,7 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
     }
     ret.file_handle = handle;
     ret.file_size = get_file_size(handle);
-    ret.map = map_file(handle, stat.st_size, ret.flags);
+    ret.map = map_file(handle, ret.file_size, ret.flags);
 #else
     ret.file_handle = handle;
 

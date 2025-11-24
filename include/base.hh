@@ -17,8 +17,8 @@ using namespace std::string_view_literals;
 #ifndef __linux__
 // ssize_t is POSIX.
 using ssize_t = std::make_signed<size_t>::type;
-using std::size, std::ssize;
 #endif
+using std::size, std::ssize;
 
 namespace colors {
 static const std::string Bold = "\033[1m";
