@@ -21,12 +21,29 @@ enum_flags(OpenFlags, int){
 };
 
 struct File {
-    enum class Commit {
+#ifdef __linux__
+    using Handle = int;
+#else
+    // HANDLE but without having to pull in Windows headers here.
+    using Handle = void *;
+#endif
+    enum class Commit : uint8_t {
+        No,
+        Yes,
+    };
+    enum class Owning : uint8_t {
+        No,
+        Yes,
+    };
+    enum class Buffered : uint8_t {
         No,
         Yes,
     };
 
-    static File from_fd(int fd);
+    // If 0 is passed for `access`, fcntl(F_GETFL) is used on Linux and READ is assumed on Windows.
+    // If `owning` is Owning::Yes, `handle` is closed when the file is closed.
+    static File from_handle(Handle handle, OpenFlags access, Owning);
+
     static File make_temporary(const std::string &extension, OpenFlags);
 
     ~File();
@@ -70,11 +87,17 @@ struct File {
     // Passing No loses uncommited changes.
     bool close(Commit = Commit::Yes);
 
+#ifdef __linux__
+    static constexpr Handle InvalidHandle = -1;
+#else
+    static constexpr Handle InvalidHandle = nullptr;
+#endif
     std::string filename;
-    int file_handle = -1;
-    off_t file_size = 0;
+    Handle file_handle = InvalidHandle;
+    size_t file_size = 0;
     char *map = nullptr;
     std::string write_buffer;
     OpenFlags flags{};
-    bool buffered = true;
+    Buffered buffered = Buffered::Yes;
+    Owning owning = Owning::Yes;
 };

@@ -175,7 +175,7 @@ struct Integer {
 
     bool is_negative() const
     {
-        return is_signed && (as_signed() & (1UL << 63));
+        return is_signed && (as_signed() & (uint64_t(1) << 63));
     }
 
     bool is_nonnegative() const

@@ -95,6 +95,7 @@ bool is_on_stack(IRArgType src_type)
 
 int allocate_stack(IRFunction &ir_fn)
 {
+    // TODO: use redzone on linux
     auto &stack_offsets = ir_fn.stack_offsets;
     int stack_size = 0;
     for (auto *arg : ir_fn.ast->params) {
@@ -130,7 +131,12 @@ std::string stack_addr(const IRFunction &ir_fn, uint64_t lookup)
     return ret;
 }
 
-constexpr std::string param_regs[] = { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
+constexpr const char *param_regs[] =
+#ifdef __linux__
+    { "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
+#else
+    { "rcx", "rdx", "r8", "r9" };
+#endif
 
 std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 {
@@ -324,8 +330,12 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             break;
         case Operation::Call:
             if (has_flag(ir->left.u.function->attributes, FunctionAttributes::BUILTIN_PRINT)) {
+#ifdef __linux__
                 emit("mov al, 0");
                 emit("call printf wrt ..plt");
+#else
+                emit("call printf");
+#endif
             } else {
                 emit("call {}", ir->left.u.function->name);
             }
@@ -572,7 +582,11 @@ void emit_asm(Compiler &cc, const IRFunction &ir_fn, IR *ir)
 
 std::string param_offset(size_t index)
 {
+#ifdef __linux__
     return std::format("[rbp+{}]", (index - ssize(param_regs) + 2) * 8);
+#else
+    return std::format("[rbp-{}]", (index - ssize(param_regs)) * 8);
+#endif
 }
 
 void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
@@ -655,7 +669,7 @@ void emit_asm(Compiler &cc)
     std::string output = opts.output_name;
 
     File output_file;
-    output_file.buffered = false;
+    output_file.buffered = File::Buffered::No;
     if (!output_file.open(output, OpenFlags::OpenOrCreate | OpenFlags::TRUNCATE)) {
         die("{}: unable to open or create output file '{}'", cc.lexer.input.filename, output);
     }
@@ -682,13 +696,27 @@ void emit_asm(Compiler &cc)
     write_buffer.clear();
 }
 
-void compile_to_exe(const std::string &asm_file, const std::string &output_name)
+void create_executable(const std::string &asm_file, const std::string &output_name)
 {
+#ifdef __linux__
     if (spawn_blocking_process(
-            "/usr/bin/nasm", { "-f elf64", "-o", output_name + ".o", asm_file })) {
-        die("nasm failure", colors::Red, colors::Default);
-    } else if (spawn_blocking_process(
-                   "/usr/bin/gcc", { "-no-pie", output_name + ".o", "-o", output_name })) {
-        die("gcc failure", colors::Red, colors::Default);
+            "/usr/bin/nasm", { "-felf64", "-o", output_name + ".o", asm_file })) {
+        die("nasm failure");
     }
+    if (spawn_blocking_process(
+            "/usr/bin/gcc", { "-no-pie", output_name + ".o", "-o", output_name })) {
+        die("gcc failure");
+    }
+#else
+    if (spawn_blocking_process("\"C:\\Program Files\\NASM\\nasm.exe\"",
+            { "-fwin64", "-o", output_name + ".obj", asm_file })) {
+        die("nasm failure");
+    }
+    if (spawn_blocking_process("\"C:\\Program Files\\Microsoft Visual "
+                               "Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\lld-link.exe\"",
+            { "/machine:x64", "/subsystem:console", "/out:output.exe", "output.obj", "kernel32.lib",
+                "legacy_stdio_definitions.lib", "msvcrt.lib" })) {
+        die("lld-link failure");
+    }
+#endif
 }

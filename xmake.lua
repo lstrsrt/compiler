@@ -22,6 +22,9 @@ target("compiler")
     if is_mode("debug") then
         add_defines("_DEBUG")
         set_targetdir("build/debug")
+        if is_plat("windows") then
+            set_runtimes("MDd")
+        end
     else -- release
         add_defines("NDEBUG")
         set_optimize("faster")

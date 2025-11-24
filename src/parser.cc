@@ -177,7 +177,10 @@ static void enforce_single_operator(Compiler &cc, Token &token, Ast *arg, uint32
         parser_error(token.location, "missing operand");
     }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wparentheses-equality"
     if (((arg->operation == ops) || ...)) {
+#pragma clang diagnostic pop
         cc.lexer.column = column;
         parser_ast_error(arg, "unexpected unary operator");
     }
@@ -678,15 +681,14 @@ AstFunction *parse_function(Compiler &cc)
 
 AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
 {
-    auto loc = cc.lexer.location();
     auto name = parse_identifier(cc);
     auto token = lex(cc);
     if (allow_init_expr == AllowInitExpr::Yes && token.kind == TokenKind::ColonEquals) {
         consume(cc.lexer, token);
         if (auto *init_expr = parse_expr(cc)) {
-            return new AstVariableDecl(unresolved_type(), name.string, init_expr, loc);
+            return new AstVariableDecl(unresolved_type(), name.string, init_expr, name.location);
         }
-        parser_error(loc, "auto inferred variable must have an initializer expression");
+        parser_error(name.location, "auto inferred variable must have an initializer expression");
     } else if (token.kind == TokenKind::Colon) {
         consume(cc.lexer, token);
         auto *type = parse_type(cc);
@@ -699,7 +701,7 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
                 parser_error(token.location, "missing initializer expression");
             }
         }
-        return new AstVariableDecl(type, name.string, maybe_expr, loc);
+        return new AstVariableDecl(type, name.string, maybe_expr, name.location);
     }
     return nullptr;
 }
@@ -1151,22 +1153,38 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
             : existing_fn             ? existing_fn->location
                                       : existing_var->location;
 
+        // TODO: add a unified is_builtin()/handling in diag (print_existing()?)
+        bool is_builtin = (existing_type && existing_type->has_flag(TypeFlags::BUILTIN))
+            || (existing_fn
+                && has_flag(existing_fn->attributes, FunctionAttributes::BUILTIN_PRINT));
+
         if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
             const char *scope_str
                 = result_scope == scope ? " in the same scope" : " in an inner scope";
-            diag::prepare_error(cc, new_location,
-                "{} `{}` cannot be redeclared as a {}{}.\n"
-                "here is the existing declaration: ",
-                existing_str, name, type, scope_str);
-            diag::print_line(cc.lexer.string, location);
-            parser_error(new_location, "and this is the new declaration: ");
+            if (is_builtin) {
+                parser_error(new_location, "builtin {} `{}` cannot be redeclared as a {}{}",
+                    existing_str, name, type, scope_str);
+            } else {
+                diag::prepare_error(cc, new_location,
+                    "{} `{}` cannot be redeclared as a {}{}.\n"
+                    "here is the existing declaration: ",
+                    existing_str, name, type, scope_str);
+                diag::print_line(cc.lexer.string, location);
+                parser_error(new_location, "and this is the new declaration: ");
+            }
         } else {
-            diag::prepare_warning(cc, new_location,
-                "{} `{}` is shadowing a {} in an outer scope.\n"
-                "here is the existing declaration: ",
-                type, name, existing_str);
-            diag::print_line(cc.lexer.string, location);
-            diag::warning_at(cc, new_location, "and this is the new declaration: ");
+            if (is_builtin) {
+                diag::warning_at(cc, new_location,
+                    "{} `{}` is shadowing a builtin {} in an outer scope", type, name,
+                    existing_str);
+            } else {
+                diag::prepare_warning(cc, new_location,
+                    "{} `{}` is shadowing a {} in an outer scope.\n"
+                    "here is the existing declaration: ",
+                    type, name, existing_str);
+                diag::print_line(cc.lexer.string, location);
+                diag::warning_at(cc, new_location, "and this is the new declaration: ");
+            }
         }
     }
 }
