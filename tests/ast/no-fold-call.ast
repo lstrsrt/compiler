@@ -1,0 +1,12 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [FunctionDecl f -> s32]
+            [Block]
+                [Call print (1 args)]
+                    "abc" (string)
+                [Return]
+                    2 (s32)
+        [VariableDecl x: s32 Integer size 4]
+            [Multiply]
+                0 (s32)
+                [Call f (0 args)]

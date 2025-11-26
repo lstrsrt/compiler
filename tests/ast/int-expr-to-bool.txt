@@ -1,0 +1,3 @@
+#{compare(ast, "int-expr-to-bool.ast")}
+x := 0
+b: bool = (x + 1) * 2

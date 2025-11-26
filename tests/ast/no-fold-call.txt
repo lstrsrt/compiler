@@ -1,0 +1,6 @@
+#{compare(ast, "no-fold-call.ast")}
+fn f() -> s32 {
+    print("abc")
+    return 2
+}
+x := 0 * f() // should not be folded due to being impure (IO)
