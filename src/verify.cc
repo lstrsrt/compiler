@@ -107,7 +107,7 @@ Type *null_type()
         .flags = TypeFlags::Integer | TypeFlags::BUILTIN,
         .size = 64,
         .pointer = 1,
-        .real = s64_type(),
+        .real = u8_type(),
         .location = {} };
     return &s_null;
 }
@@ -135,20 +135,16 @@ Variable *unresolved_var(std::string_view name)
 AstFunction *print_builtin()
 {
     static AstFunction *print_fn = nullptr;
-    static bool once = false;
-    if (!once) {
 #ifdef AST_USE_ARENA
-        StmtVec stmts(ast_vec_allocator());
-        VariableDecls params(ast_vec_allocator());
+    StmtVec stmts(ast_vec_allocator());
+    VariableDecls params(ast_vec_allocator());
 #else
-        StmtVec stmts;
-        VariableDecls params;
+    StmtVec stmts;
+    VariableDecls params;
 #endif
-        params.push_back(new AstVariableDecl(string_type(), "__fmt", nullptr, {}));
-        print_fn = new AstFunction("print", void_type(), params, new AstBlock(stmts), {});
-        print_fn->attributes |= FunctionAttributes::BUILTIN_PRINT;
-        once = true;
-    }
+    params.push_back(new AstVariableDecl(string_type(), "__fmt", nullptr, {}));
+    print_fn = new AstFunction("print", void_type(), params, new AstBlock(stmts), {});
+    print_fn->attributes |= FunctionAttributes::BUILTIN_PRINT;
     return print_fn;
 }
 
@@ -248,7 +244,7 @@ Type *get_common_integer_type(Type *t1, Type *t2)
     if (t1->size != t2->size) {
         return (t1->size > t2->size) ? t1 : t2;
     }
-    if (t1->is_unsigned() ^ t2->is_unsigned()) {
+    if (t1->is_unsigned() != t2->is_unsigned()) {
         auto *signed_type = t1->is_unsigned() ? t2 : t1;
         switch (signed_type->size) {
             case 8:
@@ -343,8 +339,10 @@ Type *get_binary_expression_type(
         // overflowing add.
         //
         // The AST is not actually overwritten because we want to verify the individual operands
-        // later.
-        traverse_postorder(ast, [&](Ast *ast) { try_constant_fold(cc, ast, ret, overridable); });
+        // later. `overridable` needs to always be Yes so the optimizer can properly determine
+        // `ret`.
+        traverse_postorder(
+            ast, [&](Ast *ast) { try_constant_fold(cc, ast, ret, TypeOverridable::Yes); });
     }
 
     return ret;
@@ -467,7 +465,6 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
     // If a type is unresolved, it's a) invalid, b) auto inferred, or c) declared later
     // (possibly as an alias). b) only applies to variable declarations, so it is dealt with in
     // verify_var_decl().
-    // This function also handles underlying enum types.
 
     if (type->has_flag(TypeFlags::UNRESOLVED)) {
         auto *resolved = find_type(scope, type->get_name());
@@ -691,7 +688,7 @@ void verify_print(Compiler &cc, Ast *ast)
         } else if (type->get_kind() == TypeFlags::String) {
             str.replace(to_replace[i - 1], __builtin_strlen("{}"), "%s");
         } else {
-            TODO();
+            verification_error(print->args[i], "don't know how to print type {}", to_string(type));
         }
     }
 }
@@ -719,7 +716,7 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
     for (size_t arg_idx = 0; arg_idx < call->args.size(); ++arg_idx) {
         auto *&arg = call->args[arg_idx];
         bool named_param = is_named_param(arg);
-        if (named_param ^ named_call) {
+        if (named_param != named_call) {
             auto *p = named_param ? static_cast<AstBinary *>(arg)->left : arg;
             verification_error(p, "either no or all parameters must be named");
         }
@@ -841,6 +838,7 @@ bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
 void verify_not(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded)
 {
     auto *unary = static_cast<AstNot *>(ast);
+    expected = get_unaliased_type(expected);
     if (!expected->is_int()) {
         verification_type_error(
             unary->location, "bitwise not can only be applied to unsigned integers");
@@ -1061,6 +1059,8 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
         auto size = ptr_type->real->byte_size();
         bool is_literal = expr_is_const_integral(offset, IgnoreCasts::No);
         if (is_literal) {
+            // Multiply immediately instead of letting the optimizer do it.
+            // We don't want warnings here.
             static_cast<AstLiteral *>(offset)->u.u64 *= size;
         } else {
             offset = new AstBinary(Operation::Multiply, offset,
@@ -1191,16 +1191,19 @@ TypeError types_match(Type *t1, Type *t2)
         return TypeError::None;
     }
 
+    if (t1_u->is_pointer() && t2_u->is_pointer()) {
+        if (t1_u == null_type() || t2_u == null_type()) {
+            // Any pointer can be set to null.
+            return TypeError::None;
+        }
+    }
+
     if (t1_u->pointer != t2_u->pointer) {
         if (t1_u != null_type() || !t2_u->is_pointer()) {
             return TypeError::PointerMismatch;
         }
     } else if (t1_u->is_pointer()) {
         // Both are pointers with equal depth.
-        if (t1_u == null_type() || t2_u == null_type()) {
-            // Any pointer can be set to null.
-            return TypeError::None;
-        }
         return types_match(t1_u->real, t2_u->real);
     }
 
@@ -1208,7 +1211,7 @@ TypeError types_match(Type *t1, Type *t2)
         if (!t2_u->is_int()) {
             return TypeError::Default;
         }
-        if (t1_u->is_unsigned() ^ t2_u->is_unsigned()) {
+        if (t1_u->is_unsigned() != t2_u->is_unsigned()) {
             return TypeError::SignednessMismatch;
         }
         if (t1_u->size != t2_u->size) {
@@ -1682,7 +1685,7 @@ TypeError const_int_compatible_with_underlying(Type *type, Type *underlying, Ast
         return TypeError::PointerMismatch;
     }
     // FIXME: enum(s64) with member 0xffff_ffff?
-    if (type->is_unsigned() ^ underlying->is_unsigned()) {
+    if (type->is_unsigned() != underlying->is_unsigned()) {
         // TODO: add new implicit cast rules from maybe_cast_int
         return TypeError::SignednessMismatch;
     }
