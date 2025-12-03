@@ -574,8 +574,8 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Int
     }
 
     auto loc = binary->location;
-    // TODO: fix double free (only happens when identity folding + constant folding)
-    free_ast(binary);
+    // can't free anything here because get_binary_expression_type() shouldn't change the ast.
+    // free_ast(binary);
     return new AstLiteral(expected, result.value, loc);
 }
 
