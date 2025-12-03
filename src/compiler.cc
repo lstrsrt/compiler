@@ -43,14 +43,6 @@ void compiler_main(Compiler &cc, AstFunction *main)
 #endif
     }
 
-    if (opts.check_only) {
-        std::println("{}program passed checks!{}", Green, Default);
-        return;
-    }
-
-    [[maybe_unused]] auto frontend = timer.elapsed();
-    timer.reset();
-
     generate_ir(cc, main);
 
     if (!testing) {
@@ -73,16 +65,27 @@ void compiler_main(Compiler &cc, AstFunction *main)
 #endif
     }
 
+    // We have to go through IR passes even in check-only mode because it detects missing return
+    // statements.
+    if (opts.check_only) {
+        std::println("{}program passed checks!{}", Green, Default);
+        return;
+    }
+
+    auto frontend = timer.elapsed();
+    timer.reset();
+
     if (!testing) {
         dbgln("{}assembly:{}", Cyan, Default);
     }
 
     emit_asm(cc);
-    [[maybe_unused]] auto backend = timer.elapsed();
 
     if (opts.full_compile) {
         create_executable(opts.output_name, opts.output_exe_name);
     }
+
+    auto backend = timer.elapsed();
 
     if (!testing) {
         std::println("{}elapsed time:{}", Cyan, Default);
@@ -107,11 +110,11 @@ void Compiler::initialize()
 File &stdout_file()
 {
 #ifdef __linux__
-    static auto s_stdout_file = File::from_handle(STDOUT_FILENO, OpenFlags::WRITE,
-        File::Owning::No);
+    static auto s_stdout_file
+        = File::from_handle(STDOUT_FILENO, OpenFlags::WRITE, File::Owning::No);
 #else
-    static auto s_stdout_file = File::from_handle(GetStdHandle(STD_OUTPUT_HANDLE),
-        OpenFlags::WRITE, File::Owning::No);
+    static auto s_stdout_file
+        = File::from_handle(GetStdHandle(STD_OUTPUT_HANDLE), OpenFlags::WRITE, File::Owning::No);
 #endif
     return s_stdout_file;
 }
@@ -131,6 +134,7 @@ void Compiler::add_default_types()
     global_scope->types["s64"] = s64_type();
     global_scope->types["bool"] = bool_type();
     global_scope->types["string"] = string_type();
+
     global_scope->functions["print"] = print_builtin();
 }
 
