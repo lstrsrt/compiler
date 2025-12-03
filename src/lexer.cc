@@ -32,6 +32,8 @@ SourceLocation SourceLocation::with_lexer(Lexer &lexer, uint32_t end_offset)
     return { lexer.line, lexer.column, lexer.column + end_offset, lexer.position };
 }
 
+std::stack<Token> token_cache{};
+
 enum class Radix {
     Bin,
     Dec,
@@ -217,7 +219,7 @@ Token lex_operator(Lexer &lexer)
     std::string_view str = lex_operator_impl(lexer, kind);
     auto location = SourceLocation::with_lexer(lexer, str.size());
     if (kind == TokenKind::LBrace) {
-        lexer.last_lbrace = location;
+        lexer.last_lbrace.push(location);
     }
     return Token::make_operator(str, kind, location);
 }
@@ -458,6 +460,8 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
             "only one statement per line is allowed.",
             diag::make_printable(tk.string));
     }
+    assert(!token_cache.empty());
+    token_cache.pop();
 }
 
 std::string_view get_line(std::string_view source, uint32_t position_in_source)
@@ -494,7 +498,7 @@ std::string get_highlighted_line(std::string_view source, uint32_t position_in_s
     return str.insert(highlight_start, colors::Red);
 }
 
-Token lex(Compiler &cc)
+Token lex_impl(Compiler &cc)
 {
     auto &lexer = cc.lexer;
 
@@ -534,6 +538,53 @@ Token lex(Compiler &cc)
     diag::lexer_error(cc, "unknown character `{}`", diag::make_printable(c));
 }
 
+Token lex(Compiler &cc)
+{
+    if (token_cache.empty()) {
+        token_cache.push(lex_impl(cc));
+    }
+    return token_cache.top();
+}
+
+void consume(Lexer &lexer, const Token &tk)
+{
+    assert(
+        !is_group(tk.kind, TokenKind::GroupNewline) && !is_group(tk.kind, TokenKind::GroupString));
+    advance_column(lexer, tk.string.length());
+    assert(!token_cache.empty());
+    token_cache.pop();
+    if (tk.kind == TokenKind::RBrace) {
+        assert(!lexer.last_lbrace.empty());
+        lexer.last_lbrace.pop();
+    }
+}
+
+void consume_string(Lexer &lexer, const Token &tk)
+{
+    assert(is_group(tk.kind, TokenKind::GroupString));
+    advance_column(lexer, tk.real_length);
+    assert(!token_cache.empty());
+    token_cache.pop();
+}
+
+Lexer::UndoState make_undo_point(Lexer &lexer)
+{
+    return Lexer::UndoState{ ._private{
+        .cache_size = token_cache.size(),
+        .position = lexer.position,
+        .column = lexer.column,
+    } };
+}
+
+void undo_lex(Lexer &lexer, Lexer::UndoState undo_state)
+{
+    lexer.position = undo_state._private.position;
+    lexer.column = undo_state._private.column;
+    while (!token_cache.empty() && token_cache.size() <= undo_state._private.cache_size) {
+        token_cache.pop();
+    }
+}
+
 void Lexer::set_input(const std::string &filename)
 {
     if (!input.open(filename, OpenFlags::Open | OpenFlags::READ)) {
@@ -544,5 +595,6 @@ void Lexer::set_input(const std::string &filename)
 
 void Lexer::free_input()
 {
+    token_cache = {};
     input.close();
 }

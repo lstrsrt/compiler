@@ -1,5 +1,6 @@
 #include "diagnose.hh"
 #include "base.hh"
+#include "lexer.hh"
 
 namespace diag {
 void print_line(std::string_view source, SourceLocation location)
@@ -125,6 +126,10 @@ std::string to_string(TokenKind kind)
             return "break";
         case TokenKind::Null:
             return "null";
+        case TokenKind::As:
+            return "as";
+        case TokenKind::Enum:
+            return "enum";
         default:
             TODO();
     }

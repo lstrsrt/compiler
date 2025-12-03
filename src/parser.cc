@@ -282,7 +282,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
     }
 
     if (is_group(token.kind, TokenKind::GroupIdentifier)) {
-        auto prev_col = cc.lexer.column;
+        auto undo = make_undo_point(cc.lexer);
         consume(cc.lexer, token);
         auto next_token = lex(cc);
         if (next_token.kind == TokenKind::LParen) {
@@ -317,7 +317,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         }
         auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (!var_decl && !cc.parse_state.in_call) {
-            cc.lexer.column = prev_col;
+            undo_lex(cc.lexer, undo);
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
         }
@@ -461,8 +461,7 @@ AstVariableDecl *parse_var_decl(Compiler &, AllowInitExpr = AllowInitExpr::Yes);
 Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_precedence)
 {
     // HACK - we need this only for parse_var_decl
-    auto prev_col = cc.lexer.column;
-    auto prev_pos = cc.lexer.position;
+    auto undo = make_undo_point(cc.lexer);
 
     auto *root = parse_cast_expr(cc, allow_var_decl);
 
@@ -478,8 +477,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
 
         if (token.kind == TokenKind::ColonEquals) {
             if (allow_var_decl == AllowVarDecl::Yes) {
-                cc.lexer.column = prev_col;
-                cc.lexer.position = prev_pos;
+                undo_lex(cc.lexer, undo);
                 return parse_var_decl(cc);
             }
             break;
@@ -557,14 +555,14 @@ Type *parse_type(Compiler &cc)
 
 // A missing closing brace is a common syntax error, so this is a special diagnostic.
 // TODO: also do this for other delimiters
-void expect_rbrace(Compiler &cc, SourceLocation last_lbrace)
+void expect_rbrace(Compiler &cc)
 {
     auto token = lex(cc);
 
     if (token.kind != TokenKind::RBrace) {
         diag::prepare_error(
             cc, token.location, "missing a closing brace to match the opening brace here:");
-        diag::print_line(cc.lexer.string, last_lbrace);
+        diag::print_line(cc.lexer.string, cc.lexer.last_lbrace.top());
         parser_error(token.location, "parsed until here:");
     }
 
@@ -599,7 +597,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
             }
         }
     }
-    expect_rbrace(cc, cc.lexer.last_lbrace);
+    expect_rbrace(cc);
     return new AstBlock(stmts);
 }
 
@@ -667,8 +665,7 @@ AstFunction *parse_function(Compiler &cc)
             parser_error(token.location, "unknown function attribute");
         }
         consume(cc.lexer, token);
-        function->attributes = parse_fn_attributes(cc);
-        expect_rbrace(cc, cc.lexer.last_lbrace);
+        expect_rbrace(cc);
     }
 
     current_scope->parent->add_function(cc, function, name);
@@ -865,7 +862,7 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
         default:
             parser_error(token.location, "invalid attribute `{}`", token.string);
     }
-    expect_rbrace(cc, cc.lexer.last_lbrace);
+    expect_rbrace(cc);
 }
 
 Ast *parse_enum(Compiler &cc)
@@ -1069,14 +1066,12 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         }
         // `true`, `false`, `null` are handled by parse_expr
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
-        const auto prev_pos = cc.lexer.position;
-        const auto prev_col = cc.lexer.column;
+        auto undo = make_undo_point(cc.lexer);
         cc.lexer.ignore_newlines = false;
         auto *var_decl = parse_var_decl(cc);
         if (!var_decl) {
             // It's not a var decl, go back
-            cc.lexer.position = prev_pos;
-            cc.lexer.column = prev_col;
+            undo_lex(cc.lexer, undo);
             cc.lexer.ignore_newlines = true;
         } else {
             current_scope->add_variable(cc, var_decl);
@@ -1089,9 +1084,16 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         auto *block = parse_block(cc, current_function);
         leave_scope();
         return block;
-    } else if (is_group(token.kind, TokenKind::GroupEmpty)) {
+    }
+
+    if (is_group(token.kind, TokenKind::GroupEmpty)) {
         return nullptr;
     }
+    if (is_group(token.kind, TokenKind::GroupNewline)) {
+        consume_newline_or_eof(cc, token);
+        return nullptr;
+    }
+
     cc.lexer.ignore_newlines = false;
     auto *maybe_expr = parse_expr(cc);
     cc.lexer.ignore_newlines = true;

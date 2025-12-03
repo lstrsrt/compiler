@@ -2,6 +2,8 @@
 
 #include "file.hh"
 
+#include <stack>
+
 //
 // Lexer
 //
@@ -195,7 +197,7 @@ struct Token {
     SourceLocation location{};
 
     // For strings
-    std::unique_ptr<std::string> real_string;
+    std::shared_ptr<std::string> real_string;
     size_t real_length{};
 };
 
@@ -227,6 +229,14 @@ struct Lexer {
         return { line, column, column + 1, position };
     }
 
+    struct UndoState {
+        struct {
+            size_t cache_size = 0;
+            uint32_t position = 0;
+            uint32_t column = 0;
+        } _private;
+    };
+
     void set_input(const std::string &filename);
     void free_input();
 
@@ -235,7 +245,7 @@ struct Lexer {
     uint32_t position = 0;
     uint32_t line = 1;
     uint32_t column = 0;
-    SourceLocation last_lbrace;
+    std::stack<SourceLocation> last_lbrace;
     bool ignore_newlines = true;
 };
 
@@ -263,18 +273,11 @@ inline void advance_line(Lexer &lexer, size_t count = 1)
     lexer.column = 0;
 }
 
-inline void consume(Lexer &lexer, const Token &tk)
-{
-    assert(
-        !is_group(tk.kind, TokenKind::GroupNewline) && !is_group(tk.kind, TokenKind::GroupString));
-    advance_column(lexer, tk.string.length());
-}
+Lexer::UndoState make_undo_point(Lexer &);
+void undo_lex(Lexer &, Lexer::UndoState);
 
-inline void consume_string(Lexer &lexer, const Token &tk)
-{
-    assert(is_group(tk.kind, TokenKind::GroupString));
-    advance_column(lexer, tk.real_length);
-}
+void consume(Lexer &, const Token &);
+void consume_string(Lexer &, const Token &);
 
 void consume_expected(Compiler &, const std::string &exp, const Token &);
 void consume_expected(Compiler &, TokenKind, const Token &);
