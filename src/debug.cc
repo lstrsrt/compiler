@@ -330,6 +330,10 @@ std::string get_ir_arg_value(const IRArg &src)
     switch (src.arg_type) {
         case IRArgType::Empty:
             return "";
+        case IRArgType::Undef:
+            return "undef";
+        case IRArgType::SSA:
+            return "%" + src.u.ssa->source->name + std::to_string(src.u.ssa->index);
         case IRArgType::Constant:
             return extract_integer_constant(src.u.constant);
         case IRArgType::String:
@@ -364,6 +368,19 @@ void print_ir(File &file, IR *ir)
 {
     std::string target = ir->has_vreg_target() ? std::format("v{} = ", ir->target) : "";
     file.fwrite("    {}{} ", target, to_string(ir->operation));
+    if (auto *phi = dynamic_cast<IRPhi *>(ir)) {
+        for (size_t i = 0; i < size(phi->phi_operands); ++i) {
+            const auto &op = phi->phi_operands[i];
+            file.fwrite("[ {} <{}>, {} ]", get_ir_arg_value(op.value), to_string(op.value.arg_type),
+                op.block->index);
+            if (i < size(phi->phi_operands) - 1) {
+                file.write(", ");
+            }
+        }
+        file.write("\n");
+        file.commit();
+        return;
+    }
     if (auto *br = dynamic_cast<IRCondBranch *>(ir)) {
         file.fwrite("{} <BasicBlock>, ", std::to_string(br->true_block->index));
         if (br->false_block) {
@@ -371,6 +388,7 @@ void print_ir(File &file, IR *ir)
         }
         file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
         file.fwriteln(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
+        file.commit();
         return;
     }
     file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
@@ -391,9 +409,19 @@ void print_ir(File &file, const IRFunction &ir_fn)
         auto *bb = ir_fn.basic_blocks[i];
         const char *s = bb->reachable ? "live" : "dead";
         const char *s2 = bb->terminal ? "terminal" : "non-terminal";
-        file.fwriteln("{} ({}, {}):", i, s, s2);
+        file.fwrite("{} ({}, {}) {}", i, s, s2, size(bb->predecessors) ? "preds: " : "");
+        if (size(bb->predecessors)) {
+            for (size_t j = 0; j < size(bb->predecessors); ++j) {
+                file.fwrite("{}", bb->predecessors[j]->index);
+                if (j < size(bb->predecessors) - 1) {
+                    file.write(", ");
+                }
+            }
+        }
+        file.write("\n");
         print_ir(file, bb);
+        file.write("\n");
     }
-    file.fwrite("\n");
+    file.write("\n");
     file.commit();
 }

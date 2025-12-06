@@ -2,13 +2,17 @@
 
 #include "parser.hh"
 
+#include <list>
+
 //
 // IR
 //
 
 #define ENUMERATE_IR_ARG_TYPES()        \
     __ENUMERATE_IR_ARG_TYPE(Empty)      \
+    __ENUMERATE_IR_ARG_TYPE(Undef)      \
     __ENUMERATE_IR_ARG_TYPE(Vreg)       \
+    __ENUMERATE_IR_ARG_TYPE(SSA)        \
     __ENUMERATE_IR_ARG_TYPE(Constant)   \
     __ENUMERATE_IR_ARG_TYPE(String)     \
     __ENUMERATE_IR_ARG_TYPE(Variable)   \
@@ -25,14 +29,27 @@ enum class IRArgType {
 
 struct BasicBlock;
 
+struct SSA {
+    Variable *source;
+    size_t index;
+
+    explicit SSA(Variable *_source, size_t _index)
+        : source(_source)
+        , index(_index)
+    {
+    }
+};
+
 union IRStorage {
     Variable *variable = nullptr;
     AstLiteral *constant;
     AstString *string;
     AstFunction *function;
     ssize_t vreg;
+    SSA *ssa;
     BasicBlock *basic_block;
     Type *type;
+    uintptr_t any;
 };
 
 struct IRArg {
@@ -88,12 +105,28 @@ struct IRArg {
         return arg;
     }
 
+    static IRArg make_ssa(Variable *src_var, size_t index)
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::SSA;
+        arg.u.ssa = new SSA(src_var, index);
+        return arg;
+    }
+
     static IRArg make_string(size_t index, AstString *string)
     {
         IRArg arg;
         arg.arg_type = IRArgType::String;
         arg.string_index = index;
         arg.u.string = string;
+        return arg;
+    }
+
+    static IRArg make_undef()
+    {
+        IRArg arg;
+        arg.arg_type = IRArgType::Undef;
+        arg.u.any = 0;
         return arg;
     }
 };
@@ -113,6 +146,12 @@ struct IR {
         : ast(_ast)
         , type(_ast->type)
         , operation(_ast->operation)
+    {
+    }
+
+    explicit IR(AstType _type, Operation _operation)
+        : type(_type)
+        , operation(_operation)
     {
     }
 
@@ -143,13 +182,33 @@ struct IRCast : IR {
     ~IRCast() override = default;
 };
 
+struct Phi {
+    IRArg value;
+    BasicBlock *block = nullptr;
+};
+
+struct IRPhi : IR {
+    std::vector<Phi> phi_operands;
+
+    // FIXME: not really a binary
+    explicit IRPhi()
+        : IR(AstType::Binary, Operation::Phi)
+    {
+    }
+
+    ~IRPhi() override = default;
+};
+
 struct BasicBlock {
-    std::vector<IR *> code{};
+    std::unordered_map<uintptr_t, IRArg> current_def;
+    std::list<IR *> code;
     size_t index = 0; // Index in IRFunction
-    std::string label_name{};
-    std::vector<BasicBlock *> successors{};
+    std::string label_name;
+    std::vector<BasicBlock *> successors;
+    std::vector<BasicBlock *> predecessors;
     bool reachable = false;
     bool terminal = false;
+    bool sealed = true;
 };
 
 struct IRFunction {

@@ -288,12 +288,12 @@ void generate_ir_cond_branch(
     };
     if (ast->type == AstType::Binary) {
         auto *bin = static_cast<AstBinary *>(ast);
-        auto *b
+        auto *br
             = new_cond_branch(bin->left, get_branch_type(bin->operation), true_block, false_block);
-        b->left = generate_ir_impl(cc, bin->left);
-        b->right = generate_ir_impl(cc, bin->right);
+        br->left = generate_ir_impl(cc, bin->left);
+        br->right = generate_ir_impl(cc, bin->right);
         update_bb_state();
-        add_ir(b, ir_fn->current_block);
+        add_ir(br, ir_fn->current_block);
     } else if (ast->type == AstType::Identifier) {
         auto *bin = static_cast<AstBinary *>(ast);
         auto *br
@@ -472,12 +472,228 @@ void generate_ir_continue(Compiler &cc, Ast *)
     ir_fn->current_block = add_block(ir_fn);
 }
 
+namespace ssa {
+
+std::unordered_map<BasicBlock *, std::map<uintptr_t, IRPhi *>> incomplete_phis;
+
+IRPhi *add_phi(IRFunction &ir_fn, BasicBlock *block)
+{
+    auto *ir = new IRPhi;
+    ir->basic_block_index = block->index;
+    ir->target = ++ir_fn.temp_regs;
+    block->code.push_front(ir);
+    return ir;
+}
+
+bool args_identical(const IRArg &a, const IRArg &b)
+{
+    if (a.arg_type != b.arg_type) {
+        return false;
+    }
+    switch (a.arg_type) {
+        case IRArgType::BasicBlock:
+            return a.u.basic_block == b.u.basic_block;
+        case IRArgType::Vreg:
+            return a.u.vreg == b.u.vreg;
+        case IRArgType::Constant:
+            return a.u.constant->expr_type == b.u.constant->expr_type
+                && get_int_literal(a.u.constant) == get_int_literal(b.u.constant);
+        case IRArgType::Function:
+            return a.u.function->name == b.u.function->name;
+        case IRArgType::Variable:
+            [[fallthrough]];
+        case IRArgType::Parameter:
+            return a.u.variable->name == b.u.variable->name;
+        case IRArgType::SSA:
+            return a.u.ssa == b.u.ssa;
+        case IRArgType::String:
+            return a.u.string->string == b.u.string->string;
+        case IRArgType::Empty:
+            [[fallthrough]];
+        case IRArgType::Undef:
+            return true;
+        default:
+            TODO();
+    }
+    return false;
+}
+
+std::optional<IRArg> try_remove_trivial_phi(BasicBlock *bb, IRPhi *phi)
+{
+    std::optional<IRArg> same;
+    for (const auto &op : phi->phi_operands) {
+        if (op.value.arg_type == IRArgType::Vreg && op.value.u.vreg == phi->target) {
+            continue;
+        }
+        // TODO: is same.has_value() correct?
+        if (same.has_value() && args_identical(op.value, *same)) {
+            continue;
+        }
+        if (same) {
+            dbgln("***** not trivial");
+            return {};
+        }
+        same = op.value;
+    }
+    dbgln("***** trivial");
+    if (!same) {
+        same = IRArg::make_undef();
+    }
+    // The phi was inserted at the beginning, so it should be ok to just delete the first insn?
+    bb->code.erase(bb->code.begin());
+    delete phi;
+    // We don't do the recursion from the original algorithm here because there are no use lists to
+    // look at.
+    return same;
+}
+
+IRArg read_variable(IRFunction &, uintptr_t, BasicBlock *);
+
+IRArg complete_phi(IRFunction &ir_fn, BasicBlock *bb, uintptr_t var,
+    const std::vector<BasicBlock *> &preds, IRPhi *phi)
+{
+    for (auto *pred : preds) {
+        phi->phi_operands.emplace_back(read_variable(ir_fn, var, pred), pred);
+    }
+    auto res = try_remove_trivial_phi(bb, phi);
+    return res ? *res : IRArg::make_vreg(phi->target);
+}
+
+void write_variable(uintptr_t var, BasicBlock *block, IRArg value)
+{
+    block->current_def[var] = value;
+}
+
+std::vector<BasicBlock *> get_reachable_preds(BasicBlock *block)
+{
+    std::vector<BasicBlock *> reachable_preds;
+    for (auto *pred : block->predecessors) {
+        if (pred->reachable) {
+            reachable_preds.push_back(pred);
+        }
+    }
+    return reachable_preds;
+}
+
+IRArg read_variable_recursive(IRFunction &ir_fn, uintptr_t var, BasicBlock *block)
+{
+    auto reachable_preds = get_reachable_preds(block);
+    IRArg val;
+    if (!block->sealed) {
+        auto *phi = add_phi(ir_fn, block);
+        incomplete_phis[block][var] = phi;
+        // Operands will be filled in later during block sealing.
+        val = IRArg::make_vreg(phi->target);
+    } else if (reachable_preds.size() == 1) {
+        // "If the block has a single predecessor, just query it recursively for a definition."
+        val = read_variable(ir_fn, var, reachable_preds.back());
+        dbgln("read_variable found globally @ bb{}", reachable_preds.back()->index);
+    } else if (reachable_preds.size() > 1) {
+        // "Otherwise, we collect the definitions from all predecessors and construct a phi
+        // function, which joins them into a single new value."
+        auto *phi = add_phi(ir_fn, block);
+        write_variable(var, block, IRArg::make_vreg(phi->target));
+        val = complete_phi(ir_fn, block, var, reachable_preds, phi);
+        dbgln("read_variable inserting phi @ bb{}", block->index);
+    } else {
+        dbgln("reachable_preds empty for sealed blk {}", block->index);
+        val = IRArg::make_undef();
+    }
+
+    write_variable(var, block, val);
+    return val;
+}
+
+IRArg read_variable(IRFunction &ir_fn, uintptr_t var, BasicBlock *block)
+{
+    if (auto it = block->current_def.find(var); it != block->current_def.end()) {
+        // Local Value Numbering
+        dbgln("read_variable found locally @ bb{}", block->index);
+        return it->second;
+    }
+    // Global Value Numbering
+    return read_variable_recursive(ir_fn, var, block);
+}
+
+void seal_block(IRFunction &ir_fn, BasicBlock *block)
+{
+    auto reachable_preds = get_reachable_preds(block);
+    for (auto &[var, phi] : incomplete_phis[block]) {
+        // TODO: skip trivial check here?
+        complete_phi(ir_fn, block, var, reachable_preds, phi);
+    }
+    block->sealed = true;
+}
+
+size_t new_ssa_id(Variable *var)
+{
+    static std::unordered_map<Variable *, size_t> counter;
+    return ++counter[var];
+}
+
+void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *> &unsealed_blocks)
+{
+    auto try_replace = [&ir_fn, bb](IRArg &arg, [[maybe_unused]] const char *s) {
+        auto tmp = read_variable(ir_fn, arg.u.any, bb);
+        dbgln("{} replace: {} => {}", s, get_ir_arg_value(arg), get_ir_arg_value(tmp));
+        arg = tmp;
+    };
+    for (auto it = bb->code.begin(); it != bb->code.end();) {
+        auto *insn = *it;
+        if (insn->operation != Operation::Assign) {
+            if (insn->left.arg_type == IRArgType::Variable) {
+                try_replace(insn->left, "LVar");
+            }
+            if (insn->right.arg_type == IRArgType::Variable) {
+                try_replace(insn->right, "RVar");
+            }
+        } else if (insn->left.arg_type == IRArgType::Variable) {
+            if (insn->right.arg_type == IRArgType::Constant) {
+                write_variable(insn->left.u.any, bb, insn->right);
+                it = bb->code.erase(it);
+                continue;
+            }
+
+            if (insn->right.arg_type == IRArgType::Variable) {
+                insn->right = read_variable(ir_fn, insn->right.u.any, bb);
+            }
+            auto *var = insn->left.u.variable;
+            auto lhs_ssa = IRArg::make_ssa(var, new_ssa_id(var));
+            write_variable(insn->left.u.any, bb, lhs_ssa);
+            insn->left = lhs_ssa;
+        }
+        ++it;
+    }
+    if (!bb->sealed) {
+        unsealed_blocks.push_back(bb);
+    }
+}
+
+void enter(Compiler &cc)
+{
+    for (auto *ir_fn : cc.ir_builder.functions) {
+        std::vector<BasicBlock *> unsealed_blocks;
+        for (auto *bb : ir_fn->basic_blocks) {
+            if (bb->code.empty() || !bb->reachable) {
+                continue;
+            }
+            transform_block(*ir_fn, bb, unsealed_blocks);
+        }
+        for (auto *bb : unsealed_blocks) {
+            seal_block(*ir_fn, bb);
+        }
+        incomplete_phis.clear();
+    }
+}
+} // namespace ssa
+
 void generate_ir_while(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *while_stmt = static_cast<AstWhile *>(ast);
 
     auto *cmp_block = add_fallthrough_block(ir_fn, get_current_block(ir_fn));
+    cmp_block->sealed = false;
     cc.ir_builder.while_cmp_block = cmp_block;
     auto *true_block = new_block();
     auto *after_block = new_block();
@@ -682,6 +898,9 @@ void build_successor_lists(Compiler &cc)
             } else if (code->operation == Operation::Branch) {
                 bb->successors.push_back(code->left.u.basic_block);
             }
+            for (auto *succ : bb->successors) {
+                succ->predecessors.push_back(bb);
+            }
         }
         std::unordered_set<BasicBlock *> visited;
         visit_successors(cc, fn, fn->basic_blocks[0], visited, i == 0);
@@ -699,6 +918,8 @@ void optimize_ir(Compiler &cc)
         return false;
     });
 
+    // TODO: Remove this.
+    // We can set the indices on construction.
     for (auto *ir_fn : cc.ir_builder.functions) {
         for (size_t i = 0; auto *bb : ir_fn->basic_blocks) {
             if (!bb->reachable) {
@@ -710,12 +931,13 @@ void optimize_ir(Compiler &cc)
                 for (auto *ir : bb->code) {
                     ir->basic_block_index = i;
                 }
-                ++i;
             }
+            ++i;
         }
     }
 
     build_successor_lists(cc);
+    ssa::enter(cc);
 
     if (!opts.testing) {
         for (auto *ir_fn : cc.ir_builder.functions) {

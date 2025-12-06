@@ -83,7 +83,8 @@ enum class AstType {
     __ENUMERATE_OPERATION(BranchSGt)     \
     __ENUMERATE_OPERATION(BranchSGe)     \
     __ENUMERATE_OPERATION(BranchSLt)     \
-    __ENUMERATE_OPERATION(BranchSLe)
+    __ENUMERATE_OPERATION(BranchSLe)     \
+    __ENUMERATE_OPERATION(Phi)
 
 enum class Operation {
 #define __ENUMERATE_OPERATION(operation) operation,
