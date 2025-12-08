@@ -601,7 +601,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
     return new AstBlock(stmts);
 }
 
-FunctionAttributes parse_fn_attributes(Compiler &);
+FunctionAttributes parse_fn_dump_attributes(Compiler &);
 
 AstFunction *parse_function(Compiler &cc)
 {
@@ -661,7 +661,11 @@ AstFunction *parse_function(Compiler &cc)
         consume(cc.lexer, token);
         consume_expected(cc, TokenKind::LBrace, lex(cc));
         token = lex(cc);
-        if (token.string != "dump") {
+        if (token.string == "dump") {
+            function->attributes = parse_fn_dump_attributes(cc);
+        } else if (token.string == "force_use") {
+            function->attributes = FunctionAttributes::FORCE_USE;
+        } else {
             parser_error(token.location, "unknown function attribute");
         }
         consume(cc.lexer, token);
@@ -778,7 +782,7 @@ void parse_error_attribute(Compiler &cc)
     cc.test_mode.test_type = TestType::Error;
 }
 
-FunctionAttributes parse_fn_attributes(Compiler &cc)
+FunctionAttributes parse_fn_dump_attributes(Compiler &cc)
 {
     FunctionAttributes attrs{};
     static const std::unordered_map<std::string_view, FunctionAttributes> dump_attr_map{
@@ -832,7 +836,11 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
             break;
         case hash("dump"):
             consume(cc.lexer, token);
-            current_function->attributes |= parse_fn_attributes(cc);
+            current_function->attributes |= parse_fn_dump_attributes(cc);
+            break;
+        case hash("force_use"):
+            consume(cc.lexer, token);
+            current_function->attributes |= FunctionAttributes::FORCE_USE;
             break;
         case hash("compare"): {
             consume(cc.lexer, token);
@@ -1149,44 +1157,43 @@ void diagnose_redeclaration_or_shadowing(Compiler &cc, Scope *scope, std::string
     if (!result_scope) {
         existing_type = find_type(scope, name, &result_scope);
     }
-    if (result_scope) {
-        const char *existing_str = existing_var ? "variable" : existing_fn ? "function" : "type";
-        auto location = existing_type ? existing_type->location
-            : existing_fn             ? existing_fn->location
-                                      : existing_var->location;
+    if (!result_scope) {
+        return;
+    }
 
-        // TODO: add a unified is_builtin()/handling in diag (print_existing()?)
-        bool is_builtin = (existing_type && existing_type->has_flag(TypeFlags::BUILTIN))
-            || (existing_fn
-                && has_flag(existing_fn->attributes, FunctionAttributes::BUILTIN_PRINT));
+    const char *existing_str = existing_var ? "variable" : existing_fn ? "function" : "type";
+    auto location = existing_type ? existing_type->location
+        : existing_fn             ? existing_fn->location
+                                  : existing_var->location;
 
-        if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
-            const char *scope_str
-                = result_scope == scope ? " in the same scope" : " in an inner scope";
-            if (is_builtin) {
-                parser_error(new_location, "builtin {} `{}` cannot be redeclared as a {}{}",
-                    existing_str, name, type, scope_str);
-            } else {
-                diag::prepare_error(cc, new_location,
-                    "{} `{}` cannot be redeclared as a {}{}.\n"
-                    "here is the existing declaration: ",
-                    existing_str, name, type, scope_str);
-                diag::print_line(cc.lexer.string, location);
-                parser_error(new_location, "and this is the new declaration: ");
-            }
+    // TODO: add a unified is_builtin()/handling in diag (print_existing()?)
+    bool is_builtin = (existing_type && existing_type->has_flag(TypeFlags::BUILTIN))
+        || (existing_fn && has_flag(existing_fn->attributes, FunctionAttributes::BUILTIN_PRINT));
+
+    if (result_scope == scope || error_on_shadowing == ErrorOnShadowing::Yes) {
+        const char *scope_str = result_scope == scope ? " in the same scope" : " in an inner scope";
+        if (is_builtin) {
+            parser_error(new_location, "builtin {} `{}` cannot be redeclared as a {}{}",
+                existing_str, name, type, scope_str);
         } else {
-            if (is_builtin) {
-                diag::warning_at(cc, new_location,
-                    "{} `{}` is shadowing a builtin {} in an outer scope", type, name,
-                    existing_str);
-            } else {
-                diag::prepare_warning(cc, new_location,
-                    "{} `{}` is shadowing a {} in an outer scope.\n"
-                    "here is the existing declaration: ",
-                    type, name, existing_str);
-                diag::print_line(cc.lexer.string, location);
-                diag::warning_at(cc, new_location, "and this is the new declaration: ");
-            }
+            diag::prepare_error(cc, new_location,
+                "{} `{}` cannot be redeclared as a {}{}.\n"
+                "here is the existing declaration: ",
+                existing_str, name, type, scope_str);
+            diag::print_line(cc.lexer.string, location);
+            parser_error(new_location, "and this is the new declaration: ");
+        }
+    } else {
+        if (is_builtin) {
+            diag::warning_at(cc, new_location,
+                "{} `{}` is shadowing a builtin {} in an outer scope", type, name, existing_str);
+        } else {
+            diag::prepare_warning(cc, new_location,
+                "{} `{}` is shadowing a {} in an outer scope.\n"
+                "here is the existing declaration: ",
+                type, name, existing_str);
+            diag::print_line(cc.lexer.string, location);
+            diag::warning_at(cc, new_location, "and this is the new declaration: ");
         }
     }
 }

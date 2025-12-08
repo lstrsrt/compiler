@@ -764,8 +764,15 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
         }
     }
     if (warn_discarded == WarnDiscardedReturn::Yes && !fn->returns_void()) {
-        diag::ast_warning(
-            cc, call, "discarded return value for non-void function call `{}`", fn->name);
+        if (has_flag(fn->attributes, FunctionAttributes::FORCE_USE)) {
+            verification_error(call,
+                "discarded return value for non-void function call `{}` (function marked with "
+                "force_use attribute)",
+                fn->name);
+        } else {
+            diag::ast_warning(
+                cc, call, "discarded return value for non-void function call `{}`", fn->name);
+        }
     }
     // FIXME: not entirely accurate (e.g. recursive calls)
     ++fn->call_count;

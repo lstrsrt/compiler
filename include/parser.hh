@@ -594,7 +594,8 @@ enum_flags(FunctionAttributes, int){
     DUMP_AST = 1 << 0,
     DUMP_IR = 1 << 1,
     DUMP_ASM = 1 << 2,
-    BUILTIN_PRINT = 1 << 3,
+    FORCE_USE = 1 << 3,
+    BUILTIN_PRINT = 1 << 4,
 };
 
 #ifdef AST_USE_ARENA
