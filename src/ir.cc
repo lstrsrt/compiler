@@ -9,6 +9,14 @@
 
 #include <unordered_set>
 
+// #define SSA_DEBUG
+
+#ifdef SSA_DEBUG
+#define ssa_dbgln(x, ...) dbgln(x, __VA_ARGS__)
+#else
+#define ssa_dbgln(x, ...) (void)0
+#endif
+
 IRArg generate_ir_impl(Compiler &, Ast *);
 
 BasicBlock *add_block(IRFunction *ir_fn)
@@ -530,12 +538,12 @@ std::optional<IRArg> try_remove_trivial_phi(BasicBlock *bb, IRPhi *phi)
             continue;
         }
         if (same) {
-            dbgln("***** not trivial");
+            ssa_dbgln("***** not trivial");
             return {};
         }
         same = op.value;
     }
-    dbgln("***** trivial");
+    ssa_dbgln("***** trivial");
     if (!same) {
         same = IRArg::make_undef();
     }
@@ -587,16 +595,16 @@ IRArg read_variable_recursive(IRFunction &ir_fn, uintptr_t var, BasicBlock *bloc
     } else if (reachable_preds.size() == 1) {
         // "If the block has a single predecessor, just query it recursively for a definition."
         val = read_variable(ir_fn, var, reachable_preds.back());
-        dbgln("read_variable found globally @ bb{}", reachable_preds.back()->index);
+        ssa_dbgln("read_variable found globally @ bb{}", reachable_preds.back()->index);
     } else if (reachable_preds.size() > 1) {
         // "Otherwise, we collect the definitions from all predecessors and construct a phi
         // function, which joins them into a single new value."
         auto *phi = add_phi(ir_fn, block);
         write_variable(var, block, IRArg::make_vreg(phi->target));
         val = complete_phi(ir_fn, block, var, reachable_preds, phi);
-        dbgln("read_variable inserting phi @ bb{}", block->index);
+        ssa_dbgln("read_variable inserting phi @ bb{}", block->index);
     } else {
-        dbgln("reachable_preds empty for sealed blk {}", block->index);
+        ssa_dbgln("reachable_preds empty for sealed blk {}", block->index);
         val = IRArg::make_undef();
     }
 
@@ -608,7 +616,7 @@ IRArg read_variable(IRFunction &ir_fn, uintptr_t var, BasicBlock *block)
 {
     if (auto it = block->current_def.find(var); it != block->current_def.end()) {
         // Local Value Numbering
-        dbgln("read_variable found locally @ bb{}", block->index);
+        ssa_dbgln("read_variable found locally @ bb{}", block->index);
         return it->second;
     }
     // Global Value Numbering
@@ -625,9 +633,10 @@ void seal_block(IRFunction &ir_fn, BasicBlock *block)
     block->sealed = true;
 }
 
+std::unordered_map<Variable *, size_t> counter;
+
 size_t new_ssa_id(Variable *var)
 {
-    static std::unordered_map<Variable *, size_t> counter;
     return ++counter[var];
 }
 
@@ -635,7 +644,7 @@ void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *
 {
     auto try_replace = [&ir_fn, bb](IRArg &arg, [[maybe_unused]] const char *s) {
         auto tmp = read_variable(ir_fn, arg.u.any, bb);
-        dbgln("{} replace: {} => {}", s, get_ir_arg_value(arg), get_ir_arg_value(tmp));
+        ssa_dbgln("{} replace: {} => {}", s, get_ir_arg_value(arg), get_ir_arg_value(tmp));
         arg = tmp;
     };
     for (auto it = bb->code.begin(); it != bb->code.end();) {
@@ -650,8 +659,6 @@ void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *
         } else if (insn->left.arg_type == IRArgType::Variable) {
             if (insn->right.arg_type == IRArgType::Constant) {
                 write_variable(insn->left.u.any, bb, insn->right);
-                it = bb->code.erase(it);
-                continue;
             }
 
             if (insn->right.arg_type == IRArgType::Variable) {
@@ -684,6 +691,48 @@ void enter(Compiler &cc)
         }
         incomplete_phis.clear();
     }
+}
+
+IR *make_assign(const IRArg &dst, const IRArg &src)
+{
+    auto *assign = new IR;
+    assign->type = AstType::Binary;
+    assign->operation = Operation::Assign;
+    assign->left = dst;
+    assign->right = src;
+    return assign;
+}
+
+void leave_block(IRFunction *, BasicBlock *bb)
+{
+    for (auto it = bb->code.begin(); it != bb->code.end();) {
+        auto *insn = *it;
+        if (insn->operation == Operation::Phi) {
+            auto *phi = static_cast<IRPhi *>(insn);
+            for (auto &[value, pred] : phi->phi_operands) {
+                ssa_dbgln("insert assign for phi->target {}, value {}", phi->target,
+                    get_ir_arg_value(value));
+                auto term = std::prev(pred->code.end());
+                pred->code.insert(term, make_assign(IRArg::make_vreg(phi->target), value));
+            }
+            it = bb->code.erase(it);
+            continue;
+        }
+        ++it;
+    }
+}
+
+void leave(Compiler &cc)
+{
+    for (auto *ir_fn : cc.ir_builder.functions) {
+        for (auto *bb : ir_fn->basic_blocks) {
+            if (bb->code.empty() || !bb->reachable) {
+                continue;
+            }
+            leave_block(ir_fn, bb);
+        }
+    }
+    counter.clear();
 }
 } // namespace ssa
 
@@ -938,6 +987,14 @@ void optimize_ir(Compiler &cc)
 
     build_successor_lists(cc);
     ssa::enter(cc);
+    ssa_dbgln("********* SSA form:");
+#ifdef DEBUG_SSA
+    for (const auto *fn : cc.ir_builder.functions) {
+        print_ir(stdout_file(), *fn);
+    }
+#endif
+    ssa_dbgln("********* End SSA form");
+    ssa::leave(cc);
 
     if (!opts.testing) {
         for (auto *ir_fn : cc.ir_builder.functions) {

@@ -51,6 +51,9 @@ uint64_t get_key(IRArg src)
     if (src.arg_type == IRArgType::Variable) {
         return reinterpret_cast<uint64_t>(src.u.variable);
     }
+    if (src.arg_type == IRArgType::SSA) {
+        return reinterpret_cast<uint64_t>(src.u.ssa->source) + src.u.ssa->index;
+    }
     if (src.arg_type == IRArgType::Parameter) {
         return reinterpret_cast<uint64_t>(src.u.variable);
     }
@@ -59,11 +62,7 @@ uint64_t get_key(IRArg src)
 
 void debug_stack_location(int location, IRArg src)
 {
-    if (src.arg_type == IRArgType::Vreg) {
-        emit(";; [rbp{:+}]: v{}", location, src.u.vreg);
-    } else {
-        emit(";; [rbp{:+}]: {}", location, src.u.variable->name);
-    }
+    emit(";; [rbp{:+}]: {}", location, get_ir_arg_value(src));
 }
 
 void debug_stack_location(int location, ssize_t target)
@@ -79,6 +78,8 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
 
     if (src.arg_type == IRArgType::Variable) {
         offset += align_up(get_unaliased_type(src.u.variable->type)->byte_size(), 8);
+    } else if (src.arg_type == IRArgType::SSA) {
+        offset += align_up(get_unaliased_type(src.u.ssa->source->type)->byte_size(), 8);
     } else {
         offset += 8;
     }
@@ -90,7 +91,7 @@ void extend_stack(int &offset, IRFunction &ir_fn, const IRArg &src)
 bool is_on_stack(IRArgType src_type)
 {
     return src_type == IRArgType::Variable || src_type == IRArgType::Parameter
-        || src_type == IRArgType::Vreg;
+        || src_type == IRArgType::Vreg || src_type == IRArgType::SSA;
 }
 
 int allocate_stack(IRFunction &ir_fn)
@@ -140,6 +141,9 @@ constexpr const char *param_regs[] =
 
 std::string stack_addr_or_const(const IRFunction &ir_fn, const IRArg &src)
 {
+    if (src.arg_type == IRArgType::Undef) {
+        return "0";
+    }
     if (src.arg_type == IRArgType::Constant) {
         return extract_integer_constant(src.u.constant);
     }
@@ -178,7 +182,7 @@ void emit_jump(IR *ir, BasicBlock *target)
     if (ir->basic_block_index + 1 != target->index) {
         emit("jmp {}", target->label_name);
     } else {
-        emit("; fallthrough");
+        // emit("; fallthrough");
     }
 }
 
@@ -206,10 +210,10 @@ std::string invert_jcc(const std::string &jcc)
 void emit_cond_jump(IR *ir, const std::string &jcc, BasicBlock *false_block, BasicBlock *true_block)
 {
     if (ir->basic_block_index + 1 == true_block->index) {
-        emit("; true block fallthrough");
+        // emit("; true block fallthrough");
         emit("{} {}", jcc, false_block->label_name);
     } else if (ir->basic_block_index + 1 == false_block->index) {
-        emit("; false block fallthrough");
+        // emit("; false block fallthrough");
         emit("{} {}", invert_jcc(jcc), true_block->label_name);
     } else {
         emit("{} {}", jcc, false_block->label_name);
@@ -260,10 +264,10 @@ void emit_asm_cast(const IRFunction &ir_fn, IR *ir)
         U8,
         U16,
         U32,
-        U64
+        U64,
     };
 
-    static auto get_id = [](Type *type) {
+    static auto get_id = [func = __func__](Type *type) {
         switch (type->size) {
             case 64:
                 return type->is_unsigned() ? U64 : I64;
@@ -274,6 +278,7 @@ void emit_asm_cast(const IRFunction &ir_fn, IR *ir)
             case 8:
                 return type->is_unsigned() ? U8 : I8;
         }
+        todo(func, __FILE__, __LINE__);
     };
 
     if (auto const *res = cast_table[get_id(from_type)][get_id(to_type)]) {
