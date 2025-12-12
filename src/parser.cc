@@ -662,13 +662,14 @@ AstFunction *parse_function(Compiler &cc)
         consume_expected(cc, TokenKind::LBrace, lex(cc));
         token = lex(cc);
         if (token.string == "dump") {
+            consume(cc.lexer, token);
             function->attributes = parse_fn_dump_attributes(cc);
         } else if (token.string == "force_use") {
+            consume(cc.lexer, token);
             function->attributes = FunctionAttributes::FORCE_USE;
         } else {
             parser_error(token.location, "unknown function attribute");
         }
-        consume(cc.lexer, token);
         expect_rbrace(cc);
     }
 
