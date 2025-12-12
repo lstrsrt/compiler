@@ -601,7 +601,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
     return new AstBlock(stmts);
 }
 
-FunctionAttributes parse_fn_dump_attributes(Compiler &);
+FunctionAttributes parse_fn_attributes(Compiler &, bool is_main);
 
 AstFunction *parse_function(Compiler &cc)
 {
@@ -659,18 +659,7 @@ AstFunction *parse_function(Compiler &cc)
 
     if (token.kind == TokenKind::Hash) {
         consume(cc.lexer, token);
-        consume_expected(cc, TokenKind::LBrace, lex(cc));
-        token = lex(cc);
-        if (token.string == "dump") {
-            consume(cc.lexer, token);
-            function->attributes = parse_fn_dump_attributes(cc);
-        } else if (token.string == "force_use") {
-            consume(cc.lexer, token);
-            function->attributes = FunctionAttributes::FORCE_USE;
-        } else {
-            parser_error(token.location, "unknown function attribute");
-        }
-        expect_rbrace(cc);
+        function->attributes |= parse_fn_attributes(cc, false);
     }
 
     current_scope->parent->add_function(cc, function, name);
@@ -810,19 +799,14 @@ FunctionAttributes parse_fn_dump_attributes(Compiler &cc)
     return attrs;
 }
 
-void parse_attribute_list(Compiler &cc, AstFunction *current_function)
+// The attributes here affect Compiler settings, not the main function
+bool parse_main_attribute(Compiler &cc, Token &token, hash_t string_hash)
 {
-    auto token = lex(cc);
-    if (token.kind == TokenKind::RBrace) {
-        consume(cc.lexer, token);
-        return;
-    }
-    token = lex(cc);
-    switch (hash(token.string)) {
+    switch (string_hash) {
         case hash("error"):
             consume(cc.lexer, token);
             parse_error_attribute(cc);
-            break;
+            return true;
         case hash("returns"):
             consume(cc.lexer, token);
             consume_expected(cc, TokenKind::LParen, lex(cc));
@@ -834,15 +818,7 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
             consume(cc.lexer, token);
             cc.test_mode.test_type = TestType::ReturnsValue;
             consume_expected(cc, TokenKind::RParen, lex(cc));
-            break;
-        case hash("dump"):
-            consume(cc.lexer, token);
-            current_function->attributes |= parse_fn_dump_attributes(cc);
-            break;
-        case hash("force_use"):
-            consume(cc.lexer, token);
-            current_function->attributes |= FunctionAttributes::FORCE_USE;
-            break;
+            return true;
         case hash("compare"): {
             consume(cc.lexer, token);
             consume_expected(cc, TokenKind::LParen, lex(cc));
@@ -866,12 +842,49 @@ void parse_attribute_list(Compiler &cc, AstFunction *current_function)
             cc.test_mode.reference_file = *token.real_string;
             consume_string(cc.lexer, token);
             consume_expected(cc, TokenKind::RParen, lex(cc));
-            break;
+            return true;
         }
         default:
-            parser_error(token.location, "invalid attribute `{}`", token.string);
+            return false;
+    }
+}
+
+FunctionAttributes parse_fn_attributes(Compiler &cc, bool is_main)
+{
+    FunctionAttributes attrs{};
+    consume_expected(cc, TokenKind::LBrace, lex(cc));
+    for (;;) {
+        auto token = lex(cc);
+        auto old = attrs;
+        auto string_hash = hash(token.string);
+        switch (string_hash) {
+            case hash("dump"):
+                consume(cc.lexer, token);
+                attrs |= parse_fn_dump_attributes(cc);
+                break;
+            case hash("force_use"):
+                if (is_main) {
+                    parser_error(token.location, "force_use is invalid for main function");
+                }
+                consume(cc.lexer, token);
+                attrs |= FunctionAttributes::FORCE_USE;
+                break;
+            default:
+                if (!is_main || !parse_main_attribute(cc, token, string_hash)) {
+                    parser_error(token.location, "unknown function attribute");
+                }
+        }
+        if (std::to_underlying(old) != 0 && (attrs & old) == attrs) {
+            diag::warning_at(cc, token.location, "duplicate function attribute");
+        }
+        token = lex(cc);
+        if (token.kind != TokenKind::Comma) {
+            break;
+        }
+        consume(cc.lexer, token);
     }
     expect_rbrace(cc);
+    return attrs;
 }
 
 Ast *parse_enum(Compiler &cc)
@@ -1000,8 +1013,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
     while (token.kind == TokenKind::Hash) {
         if (at_top_level()) {
             consume(cc.lexer, token);
-            consume_expected(cc, TokenKind::LBrace, lex(cc));
-            parse_attribute_list(cc, current_function);
+            current_function->attributes |= parse_fn_attributes(cc, true);
             token = lex(cc);
         } else {
             parser_error(token.location,
