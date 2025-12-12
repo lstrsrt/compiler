@@ -53,7 +53,7 @@ union IRStorage {
 };
 
 struct IRArg {
-    IRArgType arg_type;
+    IRArgType arg_type = IRArgType::Empty;
     size_t string_index = 0;
     IRStorage u;
 
