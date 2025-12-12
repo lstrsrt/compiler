@@ -1,8 +1,10 @@
 main:
-0 (live, terminal):
+0 (live, terminal)
     Assign x <Variable>, 123 <Constant>
     v1 = Add x <Variable>, 6 <Constant>
     Assign y <Variable>, v1 <Vreg>
     Return y <Variable>
-1 (dead, non-terminal):
+
+1 (dead, non-terminal)
+
 
