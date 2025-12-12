@@ -1,7 +1,6 @@
 #include "file.hh"
 
 #include <random>
-#include <utility>
 
 #ifdef __linux__
 #include <fcntl.h>
@@ -10,6 +9,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #else
+#include <utility>
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <Windows.h>
@@ -197,15 +197,18 @@ bool truncate_file(File::Handle handle, long length, Seek seek)
 bool make_file_mappable(File::Handle handle, size_t size, OpenFlags flags)
 {
     using enum OpenFlags;
-    // If the file is empty, we need to extend it so it becomes mappable.
-    bool need_to_extend = size == 0 && has_flag(flags, WRITE);
+    // If the file is empty, we need to extend it so it becomes mappable for reading.
+    // FIXME: If READ is not set, don't do this so there won't be garbage chars at the end. This
+    // means the file won't be mapped but it will still be writable.
+    bool need_to_extend = size == 0 && has_flags(flags, READ, WRITE);
     if (need_to_extend) {
         if (!truncate_file(handle, 1024, Seek::No)) {
             return false;
         }
     } else if (has_flags(flags, TRUNCATE)) {
-        // TODO: has_flags() is used (not has_flag()) because TRUNCATE consists of two flags.
+        // FIXME: has_flags() is used (not has_flag()) because TRUNCATE consists of two flags.
         // Seems bugprone!!!
+
         // Truncate to 0 first and then extend again so it's mappable.
         if (!truncate_file(handle, 0, Seek::Yes)) {
             return false;
@@ -252,8 +255,7 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
         ret.filename = path;
     }
     ret.file_handle = handle;
-    ret.file_size = get_file_size(handle);
-    ret.map = map_file(handle, ret.file_size, ret.flags);
+    ret.map = map_file(handle, get_file_size(handle), ret.flags);
 #else
     ret.file_handle = handle;
 
@@ -281,6 +283,7 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
     ret.map = map_file(handle, ret.file_size, ret.flags);
 #endif
     ret.owning = owning;
+    ret.valid = true;
     return ret;
 }
 
@@ -306,7 +309,7 @@ File::~File()
     close();
 }
 
-bool File::is_valid() const
+bool File::is_valid_handle() const
 {
 #ifdef __linux__
     return file_handle != InvalidHandle && fcntl(file_handle, F_GETFD) >= 0;
@@ -314,6 +317,11 @@ bool File::is_valid() const
     // DWORD flags;
     return file_handle != InvalidHandle; // && GetHandleInformation(file_handle, &flags);
 #endif
+}
+
+size_t File::file_size() const
+{
+    return get_file_size(file_handle);
 }
 
 bool File::open(const std::string &name, OpenFlags flags)
@@ -344,13 +352,13 @@ bool File::open(const std::string &name, OpenFlags flags)
     file_handle = CreateFileA(name.data(), open_flags_to_native(flags), FILE_SHARE_READ, nullptr,
         disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
 #endif
-    if (!is_valid()) {
+    if (!is_valid_handle()) {
         return false;
     }
 
     Defer fail_defer{ [&] { close(); } };
 
-    file_size = get_file_size(file_handle);
+    auto file_size = this->file_size();
 
     if (!make_file_mappable(file_handle, file_size, flags)) {
         return false;
@@ -368,6 +376,7 @@ bool File::open(const std::string &name, OpenFlags flags)
         write_buffer.reserve(4096);
     }
     this->flags = flags;
+    valid = true;
     return true;
 }
 
@@ -402,19 +411,19 @@ bool File::close(Commit commit)
     if (commit == Commit::Yes) {
         ret = this->commit();
     }
-    if (is_valid()) {
-        unmap_file(map, file_size);
+    if (map) {
+        unmap_file(map, file_size());
     }
-    if (owning == Owning::Yes) {
+    if (owning == Owning::Yes && is_valid_handle()) {
         close_file(file_handle);
     }
     // Even if we don't own this file, reset the handle.
     file_handle = InvalidHandle;
 
     map = nullptr;
-    file_size = 0;
     write_buffer = {};
-    flags = static_cast<OpenFlags>(0);
+    flags = {};
+    valid = false;
 
     // Keep the filename on purpose
 

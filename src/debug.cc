@@ -162,7 +162,7 @@ static void print_var_decl(File &file, AstVariableDecl *var_decl)
             file.fwrite("size {}", type->byte_size());
         }
     }
-    file.fwrite("]\n");
+    file.write("]\n");
     file.commit();
 }
 
@@ -189,7 +189,7 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
         } else {
             file.fwrite("[{}]", to_string(ast->type));
         }
-        file.fwrite("\n");
+        file.write("\n");
         return;
     }
 
@@ -205,20 +205,20 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
             print_var_decl(file, p);
         }
     } else if (ast->operation == Operation::VariableDecl) {
-        file.fwrite(" ");
+        file.write(" ");
         print_var_decl(file, static_cast<AstVariableDecl *>(ast));
     } else if (ast->operation == Operation::EnumDecl) {
-        file.fwrite(" ");
+        file.write(" ");
         print_enum_decl(file, static_cast<AstEnumDecl *>(ast));
     } else if (ast->operation == Operation::Cast) {
         file.fwriteln(" {}]", static_cast<AstCast *>(ast)->cast_type->get_name());
     } else {
-        file.fwriteln("]");
+        file.write("]\n");
     }
     file.commit();
 }
 
-void print_ast(File &file, const StmtVec &ast_vec, std::string indent)
+void print_ast(File &file, const StmtVec &ast_vec, const std::string &indent)
 {
     for (auto *ast : ast_vec) {
         print_ast(file, ast, indent);
@@ -298,6 +298,7 @@ void print_ast(File &file, Ast *ast, std::string indent)
         case AstType::Block: {
             indent += "    ";
             print_ast(file, static_cast<AstBlock *>(ast)->stmts, indent);
+            file.write("\n");
             break;
         }
         // Leaf nodes are fully handled in print_node
@@ -333,7 +334,7 @@ std::string get_ir_arg_value(const IRArg &src)
         case IRArgType::Undef:
             return "undef";
         case IRArgType::SSA:
-            return "%" + src.u.ssa->source->name + std::to_string(src.u.ssa->index);
+            return '%' + src.u.ssa->source->name + '_' + std::to_string(src.u.ssa->index);
         case IRArgType::Constant:
             return extract_integer_constant(src.u.constant);
         case IRArgType::String:
@@ -398,7 +399,7 @@ void print_ir(File &file, IR *ir)
         auto *cast = dynamic_cast<IRCast *>(ir);
         file.fwrite(", {} <Type>", cast->cast_type->get_name());
     }
-    file.fwrite("\n");
+    file.write("\n");
     file.commit();
 }
 
@@ -409,7 +410,7 @@ void print_ir(File &file, const IRFunction &ir_fn)
         auto *bb = ir_fn.basic_blocks[i];
         const char *s = bb->reachable ? "live" : "dead";
         const char *s2 = bb->terminal ? "terminal" : "non-terminal";
-        file.fwrite("{} ({}, {}) {}", i, s, s2, size(bb->predecessors) ? "preds: " : "");
+        file.fwrite("{} ({}, {}){}", i, s, s2, size(bb->predecessors) ? " preds: " : "");
         if (size(bb->predecessors)) {
             for (size_t j = 0; j < size(bb->predecessors); ++j) {
                 file.fwrite("{}", bb->predecessors[j]->index);

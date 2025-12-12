@@ -49,7 +49,14 @@ struct File {
     ~File();
 
     // Did a factory function/open() call succeed?
-    bool is_valid() const;
+    bool is_valid() const
+    {
+        return valid && is_valid_handle();
+    }
+
+    bool is_valid_handle() const;
+
+    size_t file_size() const;
 
     bool open(const std::string &name, OpenFlags);
 
@@ -59,25 +66,25 @@ struct File {
     bool write(std::string_view);
 
     template<class... Args>
-    void fwrite(std::string_view fmt, Args... args)
+    bool fwrite(std::string_view fmt, Args... args)
     {
         if constexpr (sizeof...(args)) {
             auto s = std::vformat(fmt, std::make_format_args(args...));
-            write(s);
+            return write(s);
         } else {
-            write(std::format("{}", fmt));
+            return write(std::format("{}", fmt));
         }
     }
 
     template<class... Args>
-    void fwriteln(std::string_view fmt, Args... args)
+    bool fwriteln(std::string_view fmt, Args... args)
     {
         if constexpr (sizeof...(args)) {
             auto s = std::vformat(fmt, std::make_format_args(args...));
             s += '\n';
-            write(s);
+            return write(s);
         } else {
-            write(std::format("{}\n", fmt));
+            return write(std::format("{}\n", fmt));
         }
     }
 
@@ -94,10 +101,10 @@ struct File {
 #endif
     std::string filename;
     Handle file_handle = InvalidHandle;
-    size_t file_size = 0;
     char *map = nullptr;
     std::string write_buffer;
     OpenFlags flags{};
     Buffered buffered = Buffered::Yes;
     Owning owning = Owning::Yes;
+    bool valid = false;
 };
