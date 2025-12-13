@@ -117,12 +117,18 @@ constexpr size_t align_up(size_t value, size_t alignment)
 {
     std::println("\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
+    // This produces a SIGILL (ud2), not a SIGTRAP because it's impossible to continue after here.
     __builtin_debugtrap();
 #endif
     exit(EXIT_FAILURE);
 }
 
 #define TODO() todo(__func__, __FILE__, __LINE__)
+
+inline void trap()
+{
+    asm volatile("int $3");
+}
 
 template<typename... Args>
 [[noreturn]] void die(std::string_view msg, Args &&...args)
