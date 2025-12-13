@@ -1026,10 +1026,7 @@ void verify_logical_chain_components(Compiler &cc, Ast *cmp)
 
     for (size_t i = 0; i < size(flattened); ++i) {
         auto *ast = flattened[i];
-        for (size_t j = 0; j < size(flattened); ++j) {
-            if (i <= j) {
-                break;
-            }
+        for (size_t j = 0; j < i; ++j) {
             auto *ast2 = flattened[j];
             if (exprs_identical(ast, ast2, CheckSideEffects::Yes)) {
                 diag::ast_warning(cc, ast, "redundant logical chain");
@@ -1264,13 +1261,9 @@ TypeError types_match(Type *t1, Type *t2)
         if (t1_u->size != t2_u->size) {
             return TypeError::SizeMismatch;
         }
-    } else if (t1_u->is_bool()) {
-        if (!t2_u->is_bool()) {
-            return TypeError::Default;
-        }
     }
 
-    return TypeError::None;
+    return TypeError::Default;
 }
 
 enum class ComparisonLogicError {
@@ -1367,11 +1360,11 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
             err != ComparisonLogicError::None) {
             const char *s = err == ComparisonLogicError::AlwaysFalse ? "false" : "true";
             diag::ast_warning(cc, cmp, "comparison is always {}", s);
-        } else if (is_left_const && is_right_const) {
+        } else {
             ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::Yes);
-            if (expr_is_const_integral(cmp, IgnoreCasts::Yes)) {
+            if (expr_is_const_integral(ast, IgnoreCasts::Yes)) {
                 diag::ast_warning(
-                    cc, cmp, "comparison is always {}", get_int_literal(cmp) ? "true" : "false");
+                    cc, ast, "comparison is always {}", get_int_literal(ast) ? "true" : "false");
             }
         }
     } else if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::Yes)) {

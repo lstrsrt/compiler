@@ -1,0 +1,5 @@
+#{error(type)}
+x := 1
+if 0 and x == "abc" {
+    return x
+}
