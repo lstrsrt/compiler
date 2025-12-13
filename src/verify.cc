@@ -1,4 +1,5 @@
 #include "verify.hh"
+#include "compiler.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
 #include "optimizer.hh"
@@ -607,7 +608,7 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
                 return TypeError::SizeMismatch;
             }
         }
-        // This is a literal that can be casted without precision loss.
+        // This expr can be casted without precision loss.
         needs_cast = true;
     }
 
@@ -913,12 +914,33 @@ bool is_logical_operation(Operation op)
     }
 }
 
-bool has_side_effects(Ast *);
+bool has_side_effects(Ast *ast)
+{
+    if (!ast) {
+        return false;
+    }
 
-enum class CheckSideEffects {
-    No,
-    Yes
-};
+    switch (ast->type) {
+        case AstType::Integer:
+        case AstType::Boolean:
+        case AstType::String:
+            [[fallthrough]];
+        case AstType::Identifier:
+            return false;
+        case AstType::Binary:
+            return has_side_effects(static_cast<AstBinary *>(ast)->left)
+                || has_side_effects(static_cast<AstBinary *>(ast)->right);
+        case AstType::Unary:
+            if (ast->operation == Operation::Call) {
+                return true;
+            }
+            return has_side_effects(static_cast<AstUnary *>(ast)->operand);
+        case AstType::Block:
+            return std::ranges::any_of(static_cast<AstBlock *>(ast)->stmts, has_side_effects);
+        case AstType::Statement:
+            return true;
+    }
+}
 
 bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
 {
@@ -943,12 +965,12 @@ bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
                 == static_cast<AstIdentifier *>(right)->var;
         case AstType::Binary:
             return exprs_identical(static_cast<AstBinary *>(left)->left,
-                       static_cast<AstBinary *>(right)->left, CheckSideEffects::Yes)
+                       static_cast<AstBinary *>(right)->left, check_side_effects)
                 && exprs_identical(static_cast<AstBinary *>(left)->right,
-                    static_cast<AstBinary *>(right)->right, CheckSideEffects::Yes);
+                    static_cast<AstBinary *>(right)->right, check_side_effects);
         case AstType::Unary:
             return exprs_identical(static_cast<AstUnary *>(left)->operand,
-                static_cast<AstUnary *>(right)->operand, CheckSideEffects::Yes);
+                static_cast<AstUnary *>(right)->operand, check_side_effects);
         default:
             TODO();
     }
@@ -970,23 +992,23 @@ void diagnose_tautological_comparisons(
         assert(cmp->operation == Operation::LogicalOr);
         feasible = feasible_ranges_or(ranges, min, max);
     }
-    bool result;
+    std::optional<bool> result;
     if (feasible.empty()) {
         result = false;
-    } else if (feasible.size() == 1) {
-        if (feasible.back().lo == min && feasible.back().hi == max) {
+    } else if (size(feasible) == 1) {
+        const auto &r = feasible.back();
+        if (r.lo == min && r.lo_inc && r.hi == max && r.hi_inc) {
             result = true;
-        } else {
-            return;
         }
-    } else {
+    }
+    if (!result) {
         return;
     }
     diag::ast_warning(cc, ranges.comp.back().comparison,
         "comparison range for `{}` covers {} possible values, so the expression will always be {}",
-        var->name, result ? "all" : "no", result ? "true" : "false");
+        var->name, *result ? "all" : "no", *result ? "true" : "false");
     // TODO: if optimizations are on:
-    // cmp = new AstLiteral(s32_type(), result ? 1 : 0, cmp->location);
+    // cmp = new AstLiteral(s32_type(), *result ? 1 : 0, cmp->location);
 }
 
 Ast *uncasted_expr(Ast *ast)
@@ -997,33 +1019,51 @@ Ast *uncasted_expr(Ast *ast)
     return ast;
 }
 
+void verify_logical_chain_components(Compiler &cc, Ast *cmp)
+{
+    std::vector<Ast *> flattened;
+    flatten_binary(cmp, cmp->operation, flattened, CheckSideEffects::Yes);
+
+    for (size_t i = 0; i < size(flattened); ++i) {
+        auto *ast = flattened[i];
+        for (size_t j = 0; j < size(flattened); ++j) {
+            if (i <= j) {
+                break;
+            }
+            auto *ast2 = flattened[j];
+            if (exprs_identical(ast, ast2, CheckSideEffects::Yes)) {
+                diag::ast_warning(cc, ast, "redundant logical chain");
+            }
+        }
+    }
+}
+
+// TODO: less terrible name
+std::pair<AstIdentifier *, AstLiteral *> split_binary_to_ident_and_const(AstBinary *ast)
+{
+    if (ast->left->type == AstType::Identifier) {
+        if (expr_is_const_integral(ast->right, IgnoreCasts::Yes)) {
+            return { static_cast<AstIdentifier *>(ast->left),
+                static_cast<AstLiteral *>(uncasted_expr(ast->right)) };
+        }
+    } else if (ast->right->type == AstType::Identifier) {
+        if (expr_is_const_integral(ast->left, IgnoreCasts::Yes)) {
+            return { static_cast<AstIdentifier *>(ast->right),
+                static_cast<AstLiteral *>(uncasted_expr(ast->left)) };
+        }
+    }
+    return { nullptr, nullptr };
+}
+
 void verify_logical_chain(Compiler &cc, Ast *&_cmp)
 {
     auto *cmp = static_cast<AstBinary *>(_cmp);
 
+    verify_logical_chain_components(cc, _cmp);
+
     if (has_side_effects(cmp->left) || has_side_effects(cmp->right)) {
         return;
     }
-
-    if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::No /* already checked */)) {
-        diag::ast_warning(cc, cmp, "redundant logical chain");
-        return;
-    }
-
-    auto get_parts = [](AstBinary *ast) -> std::pair<AstIdentifier *, AstLiteral *> {
-        if (ast->left->type == AstType::Identifier) {
-            if (expr_is_const_integral(ast->right, IgnoreCasts::Yes)) {
-                return { static_cast<AstIdentifier *>(ast->left),
-                    static_cast<AstLiteral *>(uncasted_expr(ast->right)) };
-            }
-        } else if (ast->right->type == AstType::Identifier) {
-            if (expr_is_const_integral(ast->left, IgnoreCasts::Yes)) {
-                return { static_cast<AstIdentifier *>(ast->right),
-                    static_cast<AstLiteral *>(uncasted_expr(ast->left)) };
-            }
-        }
-        return { nullptr, nullptr };
-    };
 
     std::vector<Ast *> flattened;
     flatten_binary(cmp, cmp->operation, flattened);
@@ -1031,8 +1071,8 @@ void verify_logical_chain(Compiler &cc, Ast *&_cmp)
 
     for (auto *ast : flattened) {
         // If this is not a binary, we may be dealing with something like
-        // "x and 0" which results in always false but is not folded since 0 is the last part of the
-        // expr. So just skip it.
+        // "x and 0" which always evaluates to false but is not folded since 0 is the last part of
+        // the expr. So just skip it.
         if (ast->type != AstType::Binary) {
             continue;
         }
@@ -1041,7 +1081,7 @@ void verify_logical_chain(Compiler &cc, Ast *&_cmp)
             continue;
         }
         auto *operand = static_cast<AstBinary *>(ast);
-        auto [ident, constant] = get_parts(operand);
+        auto [ident, constant] = split_binary_to_ident_and_const(operand);
         if (!ident || !constant) {
             continue;
         }
@@ -1239,13 +1279,28 @@ enum class ComparisonLogicError {
     AlwaysTrue,
 };
 
+int64_t get_signed(int size, Integer integer)
+{
+    switch (size) {
+        case 64:
+            return integer.as_signed();
+        case 32:
+            return static_cast<int64_t>(static_cast<int32_t>(integer.as_signed()));
+        case 16:
+            return static_cast<int64_t>(static_cast<int16_t>(integer.as_signed()));
+        case 8:
+            return static_cast<int64_t>(static_cast<int8_t>(integer.as_signed()));
+    }
+    TODO();
+}
+
 ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer constant)
 {
     assert(is_logical_operation(cmp));
 
     if (cmp == Operation::Greater) {
         if (constant.is_signed
-            && constant.as_signed() >= static_cast<int64_t>(max_for_type(type))) {
+            && get_signed(type->size, constant) >= static_cast<int64_t>(max_for_type(type))) {
             return ComparisonLogicError::AlwaysFalse;
         }
         if (!constant.is_signed && constant.value >= max_for_type(type)) {
@@ -1301,8 +1356,8 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
 
     // verify_expr can insert casts etc so get type again
     get_comparison_types(cc, cmp, c);
-    bool is_left_const = expr_is_fully_constant(c.lhs_constness);
-    bool is_right_const = expr_is_fully_constant(c.rhs_constness);
+    bool is_left_const = expr_is_const_integral(cmp->left, IgnoreCasts::Yes);
+    bool is_right_const = expr_is_const_integral(cmp->right, IgnoreCasts::Yes);
 
     if (is_left_const || is_right_const) {
         auto constant
@@ -1406,7 +1461,7 @@ void remove_cast(Ast *&ast)
     ast = operand;
 }
 
-void verify_explicit_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+void verify_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
 {
     // Current behavior notes
     //
@@ -1471,7 +1526,7 @@ void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, T
             ast = apply_de_morgan_laws(ast);
             break;
         case Operation::Cast:
-            verify_explicit_cast(cc, ast, warn_discarded);
+            verify_cast(cc, ast, warn_discarded);
             break;
         case Operation::Load:
             // synthetic operation

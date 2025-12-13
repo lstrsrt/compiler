@@ -3,8 +3,6 @@
 #include "diagnose.hh"
 #include "lexer.hh"
 
-#include <algorithm>
-
 #define parser_ast_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
 
@@ -978,33 +976,7 @@ Ast *parse_enum(Compiler &cc)
     std::unreachable();
 }
 
-bool has_side_effects(Ast *ast)
-{
-    if (!ast) {
-        return false;
-    }
-
-    switch (ast->type) {
-        case AstType::Integer:
-        case AstType::Boolean:
-        case AstType::String:
-            [[fallthrough]];
-        case AstType::Identifier:
-            return false;
-        case AstType::Binary:
-            return has_side_effects(static_cast<AstBinary *>(ast)->left)
-                || has_side_effects(static_cast<AstBinary *>(ast)->right);
-        case AstType::Unary:
-            if (ast->operation == Operation::Call) {
-                return true;
-            }
-            return has_side_effects(static_cast<AstUnary *>(ast)->operand);
-        case AstType::Block:
-            return std::ranges::any_of(static_cast<AstBlock *>(ast)->stmts, has_side_effects);
-        case AstType::Statement:
-            return true;
-    }
-}
+bool has_side_effects(Ast *);
 
 Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {

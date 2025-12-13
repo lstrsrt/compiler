@@ -1,11 +1,13 @@
 #include "range.hh"
+#include "parser.hh"
+#include "verify.hh"
 
-bool union_mergeable(const Range &A, const Range &B)
+bool union_mergeable(const Range &a, const Range &b)
 {
-    if (A.hi < B.lo) {
+    if (a.hi < b.lo) {
         return false;
     }
-    if (A.hi == B.lo && !(A.hi_inc || B.lo_inc)) {
+    if (a.hi == b.lo && !(a.hi_inc || b.lo_inc)) {
         // The ranges would touch if they were inclusive
         return false;
     }
@@ -174,7 +176,7 @@ Ranges merge_overlapping_ranges(const Ranges &in)
     return ret;
 }
 
-Ranges union_(const Ranges &A, const Ranges &B)
+Ranges ranges_union(const Ranges &A, const Ranges &B)
 {
     Ranges combined;
     size_t i = 0;
@@ -217,6 +219,8 @@ Ranges create_ranges(Operation op, Integer val, Integer min, Integer max)
     return rs;
 }
 
+int64_t get_signed(int size, Integer);
+
 Ranges feasible_ranges_or(const LogicalRange &ranges, Integer min, Integer max)
 {
     Ranges feasible{};
@@ -225,21 +229,28 @@ Ranges feasible_ranges_or(const LogicalRange &ranges, Integer min, Integer max)
         Integer val{};
         val.value = range.constant->u.u64;
         val.is_signed = ranges.type->is_signed();
-        Ranges constraint = create_ranges(range.comparison->operation, val, min, max);
-        feasible = union_(feasible, constraint);
+        if (val.is_signed) {
+            val.value = static_cast<uint64_t>(get_signed(ranges.type->size, val));
+        }
+        auto rs = create_ranges(range.comparison->operation, val, min, max);
+        feasible = ranges_union(feasible, rs);
     }
-    return merge_overlapping_ranges(feasible);
+
+    return feasible;
 }
 
 Ranges feasible_ranges_and(const LogicalRange &ranges, Integer min, Integer max)
 {
-    Ranges feasible = { { min, max, true, true } };
+    Ranges feasible{ { min, max, true, true } };
 
     for (const auto &range : ranges.comp) {
         Integer val{};
         val.value = range.constant->u.u64;
         val.is_signed = ranges.type->is_signed();
-        Ranges rs = create_ranges(range.comparison->operation, val, min, max);
+        if (val.is_signed) {
+            val.value = static_cast<uint64_t>(get_signed(ranges.type->size, val));
+        }
+        auto rs = create_ranges(range.comparison->operation, val, min, max);
         feasible = intersect_ranges(feasible, rs);
         if (feasible.empty()) {
             return {};

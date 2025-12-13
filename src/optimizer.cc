@@ -5,15 +5,19 @@
 
 #include <algorithm>
 #include <bit>
-#include <limits>
 
-void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened)
+void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened,
+    CheckSideEffects check_side_effects)
 {
     if (ast->type == AstType::Binary && ast->operation == operation) {
-        flatten_binary(static_cast<AstBinary *>(ast)->left, operation, flattened);
-        flatten_binary(static_cast<AstBinary *>(ast)->right, operation, flattened);
+        flatten_binary(
+            static_cast<AstBinary *>(ast)->left, operation, flattened, check_side_effects);
+        flatten_binary(
+            static_cast<AstBinary *>(ast)->right, operation, flattened, check_side_effects);
     } else {
-        flattened.push_back(ast);
+        if (check_side_effects == CheckSideEffects::No || !has_side_effects(ast)) {
+            flattened.push_back(ast);
+        }
     }
 }
 
