@@ -633,6 +633,16 @@ void seal_block(IRFunction &ir_fn, BasicBlock *block)
     block->sealed = true;
 }
 
+IR *make_assign(const IRArg &dst, const IRArg &src)
+{
+    auto *assign = new IR;
+    assign->type = AstType::Binary;
+    assign->operation = Operation::Assign;
+    assign->left = dst;
+    assign->right = src;
+    return assign;
+}
+
 std::unordered_map<Variable *, size_t> counter;
 
 size_t new_ssa_id(Variable *var)
@@ -640,8 +650,22 @@ size_t new_ssa_id(Variable *var)
     return ++counter[var];
 }
 
+void transform_params(BasicBlock *first_block, const VariableDecls &decls)
+{
+    for (auto *decl : decls) {
+        auto *var = &decl->var;
+        auto lhs_ssa = IRArg::make_ssa(var, new_ssa_id(var));
+        auto param = IRArg::make_parameter(var);
+        first_block->code.insert(first_block->code.begin(), make_assign(lhs_ssa, param));
+        write_variable(param.u.any, first_block, lhs_ssa);
+    }
+}
+
 void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *> &unsealed_blocks)
 {
+    auto replacable = [](const IRArg &arg) {
+        return arg.arg_type == IRArgType::Variable || arg.arg_type == IRArgType::Parameter;
+    };
     auto try_replace = [&ir_fn, bb](IRArg &arg, [[maybe_unused]] const char *s) {
         auto tmp = read_variable(ir_fn, arg.u.any, bb);
         ssa_dbgln("{} replace: {} => {}", s, get_ir_arg_value(arg), get_ir_arg_value(tmp));
@@ -650,18 +674,18 @@ void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *
     for (auto it = bb->code.begin(); it != bb->code.end();) {
         auto *insn = *it;
         if (insn->operation != Operation::Assign) {
-            if (insn->left.arg_type == IRArgType::Variable) {
+            if (replacable(insn->left)) {
                 try_replace(insn->left, "LVar");
             }
-            if (insn->right.arg_type == IRArgType::Variable) {
+            if (replacable(insn->right)) {
                 try_replace(insn->right, "RVar");
             }
-        } else if (insn->left.arg_type == IRArgType::Variable) {
+        } else if (replacable(insn->left)) {
             if (insn->right.arg_type == IRArgType::Constant) {
                 write_variable(insn->left.u.any, bb, insn->right);
             }
 
-            if (insn->right.arg_type == IRArgType::Variable) {
+            if (replacable(insn->right)) {
                 insn->right = read_variable(ir_fn, insn->right.u.any, bb);
             }
             auto *var = insn->left.u.variable;
@@ -679,6 +703,7 @@ void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *
 void enter(Compiler &cc)
 {
     for (auto *ir_fn : cc.ir_builder.functions) {
+        transform_params(ir_fn->basic_blocks[0], ir_fn->ast->params);
         std::vector<BasicBlock *> unsealed_blocks;
         for (auto *bb : ir_fn->basic_blocks) {
             if (bb->code.empty() || !bb->reachable) {
@@ -691,16 +716,6 @@ void enter(Compiler &cc)
         }
         incomplete_phis.clear();
     }
-}
-
-IR *make_assign(const IRArg &dst, const IRArg &src)
-{
-    auto *assign = new IR;
-    assign->type = AstType::Binary;
-    assign->operation = Operation::Assign;
-    assign->left = dst;
-    assign->right = src;
-    return assign;
 }
 
 void leave_block(IRFunction *, BasicBlock *bb)
@@ -988,7 +1003,7 @@ void optimize_ir(Compiler &cc)
     build_successor_lists(cc);
     ssa::enter(cc);
     ssa_dbgln("********* SSA form:");
-#ifdef DEBUG_SSA
+#ifdef SSA_DEBUG
     for (const auto *fn : cc.ir_builder.functions) {
         print_ir(stdout_file(), *fn);
     }
@@ -1028,4 +1043,7 @@ void free_ir(IRBuilder &irb)
         free_ir_function(fn);
     }
     irb.functions.clear();
+    irb.current_function = nullptr;
+    irb.while_after_block = nullptr;
+    irb.while_cmp_block = nullptr;
 }
