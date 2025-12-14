@@ -387,14 +387,17 @@ void print_ir(File &file, IR *ir)
         if (br->false_block) {
             file.fwrite("{} <BasicBlock>, ", std::to_string(br->false_block->index));
         }
-        file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
-        file.fwriteln(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
+        file.fwrite(
+            "{} <{}>", get_ir_arg_value(ir->get_left()), to_string(ir->get_left().arg_type));
+        file.fwriteln(
+            ", {} <{}>", get_ir_arg_value(ir->get_right()), to_string(ir->get_right().arg_type));
         file.commit();
         return;
     }
-    file.fwrite("{} <{}>", get_ir_arg_value(ir->left), to_string(ir->left.arg_type));
+    file.fwrite("{} <{}>", get_ir_arg_value(ir->get_left()), to_string(ir->get_left().arg_type));
     if (ir->type == AstType::Binary) {
-        file.fwrite(", {} <{}>", get_ir_arg_value(ir->right), to_string(ir->right.arg_type));
+        file.fwrite(
+            ", {} <{}>", get_ir_arg_value(ir->get_right()), to_string(ir->get_right().arg_type));
     } else if (ir->operation == Operation::Cast) {
         auto *cast = dynamic_cast<IRCast *>(ir);
         file.fwrite(", {} <Type>", cast->cast_type->get_name());

@@ -108,11 +108,11 @@ int allocate_stack(IRFunction &ir_fn)
             continue;
         }
         for (auto *ir : bb->code) {
-            if (is_on_stack(ir->left.arg_type)) {
-                extend_stack(stack_size, ir_fn, ir->left);
+            if (is_on_stack(ir->get_left().arg_type)) {
+                extend_stack(stack_size, ir_fn, ir->get_left());
             }
-            if (ir->type == AstType::Binary && is_on_stack(ir->right.arg_type)) {
-                extend_stack(stack_size, ir_fn, ir->right);
+            if (ir->type == AstType::Binary && is_on_stack(ir->get_right().arg_type)) {
+                extend_stack(stack_size, ir_fn, ir->get_right());
             }
             if (ir->has_vreg_target()) {
                 stack_size += 8;
@@ -165,9 +165,9 @@ std::string extract_ir_arg(const IRFunction &ir_fn, IRArg arg)
 void emit_asm_stmt(Compiler &, const IRFunction &ir_fn, IR *ir)
 {
     if (ir->operation == Operation::Return) {
-        if (ir->left.arg_type != IRArgType::Empty) {
-            if (ir->left.arg_type != IRArgType::Vreg || ir->left.u.vreg != -1) {
-                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+        if (ir->get_left().arg_type != IRArgType::Empty) {
+            if (ir->get_left().arg_type != IRArgType::Vreg || ir->get_left().u.vreg != -1) {
+                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
             }
         }
         emit_epilogue();
@@ -223,7 +223,7 @@ void emit_cond_jump(IR *ir, const std::string &jcc, BasicBlock *false_block, Bas
 
 void emit_asm_cast(const IRFunction &ir_fn, IR *ir)
 {
-    assert(ir->right.arg_type == IRArgType::Type);
+    assert(ir->get_right().arg_type == IRArgType::Type);
     assert(dynamic_cast<IRCast *>(ir) != nullptr);
 
     // Adapted from chibicc
@@ -252,9 +252,9 @@ void emit_asm_cast(const IRFunction &ir_fn, IR *ir)
     auto *cast = dynamic_cast<IRCast *>(ir);
     // TODO: de-alias all types during IR gen
     auto *to_type = get_unaliased_type(cast->cast_type);
-    auto *from_type = get_unaliased_type(ir->right.u.type);
+    auto *from_type = get_unaliased_type(ir->get_right().u.type);
 
-    emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+    emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
 
     enum {
         I8,
@@ -292,25 +292,25 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
     static int stack_balance = 0;
     switch (ir->operation) {
         case Operation::Negate:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
             emit("neg rax");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Not:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
             emit("not rax");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::AddressOf:
-            emit("lea rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("lea rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Load:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Dereference:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
             emit("mov rax, [rax]");
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
@@ -318,23 +318,25 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             if (ir->target < ssize(param_regs)) {
                 // If this is a static address, use relative LEA.
                 // TODO: currently just strings; update this when `static` gets added...
-                if (ir->left.arg_type == IRArgType::String) {
+                if (ir->get_left().arg_type == IRArgType::String) {
                     emit("lea {}, [rel {}]", param_regs[ir->target],
-                        extract_ir_arg(ir_fn, ir->left));
+                        extract_ir_arg(ir_fn, ir->get_left()));
                 } else {
-                    emit("mov {}, {}", param_regs[ir->target], extract_ir_arg(ir_fn, ir->left));
+                    emit("mov {}, {}", param_regs[ir->target],
+                        extract_ir_arg(ir_fn, ir->get_left()));
                 }
             } else {
-                if (ir->left.arg_type == IRArgType::Constant) {
-                    emit("push {}", extract_integer_constant(ir->left.u.constant));
+                if (ir->get_left().arg_type == IRArgType::Constant) {
+                    emit("push {}", extract_integer_constant(ir->get_left().u.constant));
                 } else {
-                    emit("push qword {}", stack_addr(ir_fn, get_key(ir->left)));
+                    emit("push qword {}", stack_addr(ir_fn, get_key(ir->get_left())));
                 }
                 stack_balance += 8;
             }
             break;
         case Operation::Call:
-            if (has_flag(ir->left.u.function->attributes, FunctionAttributes::BUILTIN_PRINT)) {
+            if (has_flag(
+                    ir->get_left().u.function->attributes, FunctionAttributes::BUILTIN_PRINT)) {
 #ifdef __linux__
                 emit("mov al, 0");
                 emit("call printf wrt ..plt");
@@ -342,7 +344,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
                 emit("call printf");
 #endif
             } else {
-                emit("call {}", ir->left.u.function->name);
+                emit("call {}", ir->get_left().u.function->name);
             }
             if (stack_balance > 0) {
                 emit("add rsp, {}", stack_balance);
@@ -356,7 +358,7 @@ void emit_asm_unary(Compiler &, const IRFunction &ir_fn, IR *ir)
             emit_asm_cast(ir_fn, ir);
             break;
         case Operation::Branch:
-            emit_jump(ir, ir->left.u.basic_block);
+            emit_jump(ir, ir->get_left().u.basic_block);
             break;
         default:
             TODO();
@@ -398,8 +400,8 @@ void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
         }
     }();
     emit("mov qword {}, 0", stack_addr(ir_fn, ir->target));
-    emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-    emit_compare(ir_fn, ir->right);
+    emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+    emit_compare(ir_fn, ir->get_right());
     emit("{} {}", op, stack_addr(ir_fn, ir->target));
 }
 
@@ -407,43 +409,43 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
 {
     switch (ir->operation) {
         case Operation::Assign:
-            if (ir->right.arg_type == IRArgType::String) {
-                emit("lea rax, [rel {}]", extract_ir_arg(ir_fn, ir->right));
+            if (ir->get_right().arg_type == IRArgType::String) {
+                emit("lea rax, [rel {}]", extract_ir_arg(ir_fn, ir->get_right()));
             } else {
-                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->right));
+                emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             }
-            emit("mov {}, rax", extract_ir_arg(ir_fn, ir->left));
+            emit("mov {}, rax", extract_ir_arg(ir_fn, ir->get_left()));
             break;
         case Operation::Store:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            if (ir->right.arg_type == IRArgType::String) {
-                emit("lea r10, [rel {}]", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            if (ir->get_right().arg_type == IRArgType::String) {
+                emit("lea r10, [rel {}]", extract_ir_arg(ir_fn, ir->get_right()));
                 emit("mov qword [rax], r10");
             } else {
-                emit("mov qword [rax], {}", extract_ir_arg(ir_fn, ir->right));
+                emit("mov qword [rax], {}", extract_ir_arg(ir_fn, ir->get_right()));
             }
             break;
         case Operation::Add:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("add rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("add rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Subtract:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("sub rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("sub rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Multiply:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("imul rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("imul rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Divide:
             [[fallthrough]];
         case Operation::Modulo: {
             emit("push rdx");
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("mov r10, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("mov r10, {}", extract_ir_arg(ir_fn, ir->get_right()));
             auto *type = ir->ast->expr_type;
             assert(type);
             if (type->is_unsigned()) {
@@ -462,18 +464,18 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             break;
         }
         case Operation::And:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("and rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("and rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Or:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("or rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("or rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::Xor:
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            emit("xor rax, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            emit("xor rax, {}", extract_ir_arg(ir_fn, ir->get_right()));
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
         case Operation::LeftShift:
@@ -498,12 +500,12 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
                         todo(func, __FILE__, __LINE__);
                 }
             }();
-            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->left));
-            if (is_on_stack(ir->right.arg_type)) {
-                emit("mov cl, {}", extract_ir_arg(ir_fn, ir->right));
+            emit("mov rax, {}", extract_ir_arg(ir_fn, ir->get_left()));
+            if (is_on_stack(ir->get_right().arg_type)) {
+                emit("mov cl, {}", extract_ir_arg(ir_fn, ir->get_right()));
                 emit("{} rax, cl", op); // nasm doesn't like cl not being named explicitly
             } else {
-                emit("{} rax, {}", op, extract_ir_arg(ir_fn, ir->right));
+                emit("{} rax, {}", op, extract_ir_arg(ir_fn, ir->get_right()));
             }
             emit("mov {}, rax", stack_addr(ir_fn, ir->target));
             break;
@@ -556,8 +558,8 @@ void emit_asm_binary(const IRFunction &ir_fn, IR *ir)
             };
             auto *br = dynamic_cast<IRCondBranch *>(ir);
             const char *jcc = pick_jcc();
-            emit("mov rax, {}", extract_ir_arg(ir_fn, br->left));
-            emit_compare(ir_fn, br->right);
+            emit("mov rax, {}", extract_ir_arg(ir_fn, br->get_left()));
+            emit_compare(ir_fn, br->get_right());
             emit_cond_jump(ir, jcc, br->true_block, br->false_block);
             break;
         }

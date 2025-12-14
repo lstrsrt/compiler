@@ -68,9 +68,9 @@ void new_ir_function(Compiler &cc, AstFunction *ast)
     irb.current_function->current_block->reachable = true;
 }
 
-void generate_ir(Compiler &cc, [[maybe_unused]] IR *ir, IRArg &arg, Ast *ast)
+void generate_ir(Compiler &cc, IR *ir, Ast *ast)
 {
-    arg = generate_ir_impl(cc, ast);
+    ir->operands.push_back(generate_ir_impl(cc, ast));
 }
 
 IRArg generate_ir_unary(Compiler &cc, Ast *ast)
@@ -79,7 +79,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
     auto *ir = new IR(ast);
 
     auto do_generic_unary = [&]() {
-        generate_ir(cc, ir, ir->left, static_cast<AstUnary *>(ast)->operand);
+        generate_ir(cc, ir, static_cast<AstUnary *>(ast)->operand);
         ir->target = ++ir_fn->temp_regs;
         add_ir(ir, get_current_block(ir_fn));
     };
@@ -93,7 +93,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
                 push->ast = call->args[i];
                 push->operation = Operation::PushArg;
                 push->type = AstType::Unary;
-                generate_ir(cc, ir, push->left, call->args[i]);
+                generate_ir(cc, push, call->args[i]);
                 push->target = i;
                 // An argument may consist of another function call, so save
                 // it for now and only add them to the current IR once everything
@@ -101,7 +101,7 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
                 args.push_back(push);
             }
             auto *fn = get_callee(cc, call);
-            ir->left = IRArg::make_function(fn);
+            ir->operands.push_back(IRArg::make_function(fn));
             if (fn->return_type->get_kind() != TypeFlags::Void) {
                 ir->target = ++ir_fn->temp_regs;
             }
@@ -124,9 +124,10 @@ IRArg generate_ir_unary(Compiler &cc, Ast *ast)
             ir = nullptr;
             auto *cast = static_cast<AstCast *>(ast);
             auto *cast_ir = new IRCast(ast, cast->cast_type);
-            generate_ir(cc, cast_ir, cast_ir->left, cast->operand);
-            cast_ir->right.arg_type = IRArgType::Type;
-            cast_ir->right.u.type = cast->operand->expr_type;
+            generate_ir(cc, cast_ir, cast->operand);
+            cast_ir->operands.push_back(IRArg{});
+            cast_ir->get_right().arg_type = IRArgType::Type;
+            cast_ir->get_right().u.type = cast->operand->expr_type;
             cast_ir->target = ++ir_fn->temp_regs;
             add_ir(cast_ir, get_current_block(ir_fn));
             return IRArg::make_vreg(cast_ir->target);
@@ -141,8 +142,8 @@ IRArg generate_ir_binary(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *ir = new IR(ast);
-    generate_ir(cc, ir, ir->left, static_cast<AstBinary *>(ast)->left);
-    generate_ir(cc, ir, ir->right, static_cast<AstBinary *>(ast)->right);
+    generate_ir(cc, ir, static_cast<AstBinary *>(ast)->left);
+    generate_ir(cc, ir, static_cast<AstBinary *>(ast)->right);
     if (ir->operation != Operation::Assign && ir->operation != Operation::Store) {
         ir->target = ++ir_fn->temp_regs;
     }
@@ -160,8 +161,8 @@ IRArg generate_ir_var_decl(Compiler &cc, Ast *ast)
         // Transform into an assignment; we don't care (yet?)
         ir->operation = Operation::Assign;
         ir->type = AstType::Binary;
-        ir->left = IRArg::make_variable(&var_decl->var);
-        generate_ir(cc, ir, ir->right, var_decl->init_expr);
+        ir->operands.push_back(IRArg::make_variable(&var_decl->var));
+        generate_ir(cc, ir, var_decl->init_expr);
         add_ir(ir, get_current_block(ir_fn));
     }
     return IRArg::make_vreg(ir_fn->temp_regs);
@@ -175,7 +176,7 @@ void generate_ir_return(Compiler &cc, Ast *ast)
     bb->terminal = true;
     auto *ir = new IR(ast);
     if (ret->expr) {
-        generate_ir(cc, ir, ir->left, ret->expr);
+        generate_ir(cc, ir, ret->expr);
     }
     add_ir(ir, bb);
     ir_fn->current_block = add_block(ir_fn);
@@ -198,8 +199,8 @@ IR *generate_ir_logical(Compiler &cc, Ast *ast)
     auto *ir_fn = cc.ir_builder.current_function;
     auto *ir = new IR(ast);
     assert(ast->type == AstType::Binary);
-    generate_ir(cc, ir, ir->left, static_cast<AstBinary *>(ast)->left);
-    generate_ir(cc, ir, ir->right, static_cast<AstBinary *>(ast)->right);
+    generate_ir(cc, ir, static_cast<AstBinary *>(ast)->left);
+    generate_ir(cc, ir, static_cast<AstBinary *>(ast)->right);
     ir->target = ++ir_fn->temp_regs;
     add_ir(ir, get_current_block(ir_fn));
     return ir;
@@ -244,7 +245,7 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
     ir->type = AstType::Unary;
     ir->operation = Operation::Branch;
     // TODO: set AST so we can produce unreachable code warnings
-    ir->left = IRArg::make_block(bb1);
+    ir->operands.push_back(IRArg::make_block(bb1));
     if (bb->reachable && !bb->terminal) {
         bb1->reachable = true;
     }
@@ -298,24 +299,23 @@ void generate_ir_cond_branch(
         auto *bin = static_cast<AstBinary *>(ast);
         auto *br
             = new_cond_branch(bin->left, get_branch_type(bin->operation), true_block, false_block);
-        br->left = generate_ir_impl(cc, bin->left);
-        br->right = generate_ir_impl(cc, bin->right);
+        br->operands.push_back(generate_ir_impl(cc, bin->left));
+        br->operands.push_back(generate_ir_impl(cc, bin->right));
         update_bb_state();
         add_ir(br, ir_fn->current_block);
     } else if (ast->type == AstType::Identifier) {
         auto *bin = static_cast<AstBinary *>(ast);
         auto *br
             = new_cond_branch(bin->left /* TODO */, Operation::BranchNe, true_block, false_block);
-        br->left = generate_ir_impl(cc, ast);
-        br->right = IRArg::make_constant(
-            new AstLiteral(static_cast<AstIdentifier *>(ast)->var->type, 0, ast->location));
+        br->operands.push_back(generate_ir_impl(cc, ast));
+        br->operands.push_back(IRArg::make_constant(
+            new AstLiteral(static_cast<AstIdentifier *>(ast)->var->type, 0, ast->location)));
         update_bb_state();
         add_ir(br, ir_fn->current_block);
     } else {
-        auto arg = generate_ir_impl(cc, ast);
         auto *br = new_cond_branch(ast, Operation::BranchNe, true_block, false_block);
-        br->left = arg;
-        br->right = IRArg::make_constant(new AstLiteral(s64_type(), 0, ast->location));
+        br->operands.push_back(generate_ir_impl(cc, ast));
+        br->operands.push_back(IRArg::make_constant(new AstLiteral(s64_type(), 0, ast->location)));
         update_bb_state();
         add_ir(br, ir_fn->current_block);
     }
@@ -458,7 +458,7 @@ BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
     auto *ir = new IR;
     ir->operation = Operation::Branch;
     ir->type = AstType::Unary;
-    ir->left = IRArg::make_block(bb);
+    ir->operands.push_back(IRArg::make_block(bb));
     add_ir(ir, to);
     bb->reachable = to->reachable;
     return bb;
@@ -638,8 +638,8 @@ IR *make_assign(const IRArg &dst, const IRArg &src)
     auto *assign = new IR;
     assign->type = AstType::Binary;
     assign->operation = Operation::Assign;
-    assign->left = dst;
-    assign->right = src;
+    assign->operands.push_back(dst);
+    assign->operands.push_back(src);
     return assign;
 }
 
@@ -674,24 +674,24 @@ void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *
     for (auto it = bb->code.begin(); it != bb->code.end();) {
         auto *insn = *it;
         if (insn->operation != Operation::Assign) {
-            if (replacable(insn->left)) {
-                try_replace(insn->left, "LVar");
+            if (!insn->operands.empty() && replacable(insn->get_left())) {
+                try_replace(insn->get_left(), "LVar");
             }
-            if (replacable(insn->right)) {
-                try_replace(insn->right, "RVar");
+            if (size(insn->operands) > 1 && replacable(insn->get_right())) {
+                try_replace(insn->get_right(), "RVar");
             }
-        } else if (replacable(insn->left)) {
-            if (insn->right.arg_type == IRArgType::Constant) {
-                write_variable(insn->left.u.any, bb, insn->right);
+        } else if (!insn->operands.empty() && replacable(insn->get_left())) {
+            if (insn->get_right().arg_type == IRArgType::Constant) {
+                write_variable(insn->get_left().u.any, bb, insn->get_right());
             }
 
-            if (replacable(insn->right)) {
-                insn->right = read_variable(ir_fn, insn->right.u.any, bb);
+            if (size(insn->operands) > 1 && replacable(insn->get_right())) {
+                insn->get_right() = read_variable(ir_fn, insn->get_right().u.any, bb);
             }
-            auto *var = insn->left.u.variable;
+            auto *var = insn->get_left().u.variable;
             auto lhs_ssa = IRArg::make_ssa(var, new_ssa_id(var));
-            write_variable(insn->left.u.any, bb, lhs_ssa);
-            insn->left = lhs_ssa;
+            write_variable(insn->get_left().u.any, bb, lhs_ssa);
+            insn->get_left() = lhs_ssa;
         }
         ++it;
     }
@@ -781,8 +781,8 @@ IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)
     IR *ir = new IR;
     ir->operation = Operation::Assign;
     ir->type = AstType::Binary;
-    ir->left = temp;
-    ir->right = IRArg::make_constant(constant);
+    ir->operands.push_back(temp);
+    ir->operands.push_back(IRArg::make_constant(constant));
     return ir;
 }
 
@@ -901,8 +901,16 @@ void generate_ir(Compiler &cc, AstFunction *main)
 
 void free_bb(BasicBlock *bb)
 {
-    for (auto *code : bb->code) {
-        delete code;
+    for (auto *ir : bb->code) {
+        if (dynamic_cast<IRPhi *>(ir)) {
+            delete static_cast<IRPhi *>(ir);
+        } else if (dynamic_cast<IRCondBranch *>(ir)) {
+            delete static_cast<IRCondBranch *>(ir);
+        } else if (dynamic_cast<IRCast *>(ir)) {
+            delete static_cast<IRCast *>(ir);
+        } else {
+            delete ir;
+        }
     }
     delete bb;
 }
@@ -919,7 +927,7 @@ void insert_return(IRFunction *ir_fn, int32_t return_value)
     auto *ir = new IR;
     ir->type = AstType::Statement;
     ir->operation = Operation::Return;
-    ir->left = IRArg::make_constant(s32_literal(return_value));
+    ir->operands.push_back(IRArg::make_constant(s32_literal(return_value)));
     add_ir(ir, bb);
 }
 
@@ -960,7 +968,7 @@ void build_successor_lists(Compiler &cc)
                 bb->successors.push_back(br->true_block);
                 bb->successors.push_back(br->false_block);
             } else if (code->operation == Operation::Branch) {
-                bb->successors.push_back(code->left.u.basic_block);
+                bb->successors.push_back(code->get_left().u.basic_block);
             }
             for (auto *succ : bb->successors) {
                 succ->predecessors.push_back(bb);

@@ -135,8 +135,7 @@ struct IR {
     Ast *ast = nullptr;
     AstType type;
     Operation operation;
-    IRArg left;
-    IRArg right;
+    std::vector<IRArg> operands;
     size_t basic_block_index = 0; // which basic block am I in?
     ssize_t target = -1;
 
@@ -160,6 +159,18 @@ struct IR {
     bool has_vreg_target() const
     {
         return operation != Operation::PushArg && target > 0;
+    }
+
+    IRArg &get_left()
+    {
+        assert(size(operands) > 0);
+        return operands[0];
+    }
+
+    IRArg &get_right()
+    {
+        assert(size(operands) > 1);
+        return operands[1];
     }
 };
 
