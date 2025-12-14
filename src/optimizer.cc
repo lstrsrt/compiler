@@ -61,16 +61,14 @@ Ast *partial_fold_commutative(
     return ret;
 }
 
-Ast *try_fold_identities(
-    AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *)
+Ast *try_fold_identities(AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant)
 {
     bool has_side_effects(Ast *);
 
     auto maybe_return_constant_if = [&](uint64_t cmp) -> Ast * {
-        if (constant == cmp && !has_side_effects(variable_ast)) {
-            delete static_cast<AstLiteral *>(variable_ast);
+        if (cmp == constant && !has_side_effects(variable_ast)) {
+            delete variable_ast;
             delete binary;
-            // constant_ast->expr_type = expected;
             return constant_ast;
         }
         return nullptr;
@@ -79,7 +77,6 @@ Ast *try_fold_identities(
         if (cmp == constant) {
             delete static_cast<AstLiteral *>(constant_ast);
             delete binary;
-            // variable_ast->expr_type = expected;
             return variable_ast;
         }
         return nullptr;
@@ -105,7 +102,7 @@ Ast *try_fold_identities(
 Ast *try_partial_fold_commutative(
     AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant, Type *expected)
 {
-    if (auto *id = try_fold_identities(binary, constant_ast, variable_ast, constant, expected)) {
+    if (auto *id = try_fold_identities(binary, constant_ast, variable_ast, constant)) {
         return id;
     }
     if (binary->left->type != AstType::Binary && binary->right->type != AstType::Binary) {
@@ -361,7 +358,7 @@ uint64_t fold_sub_and_diagnose_overflow(Compiler &cc, AstBinary *binary, Integer
     bool overflows_i64 = __builtin_sub_overflow(
         static_cast<int64_t>(left_const.value), static_cast<int64_t>(right_const.value), &i64);
     result.value = static_cast<uint64_t>(i64);
-    if ((expected->size < 8 && i64 < std::numeric_limits<int32_t>::min()) || overflows_i64) {
+    if ((expected->size < 8 && i64 < S32Min) || overflows_i64) {
         handle_overflow(cc, binary, result, expected, overridable);
     }
     return result.value;

@@ -521,17 +521,13 @@ uint64_t max_for_type(Type *t)
         case 1:
             return 1;
         case 8:
-            return t->is_unsigned() ? std::numeric_limits<uint8_t>::max()
-                                    : std::numeric_limits<int8_t>::max();
+            return t->is_unsigned() ? U8Max : S8Max;
         case 16:
-            return t->is_unsigned() ? std::numeric_limits<uint16_t>::max()
-                                    : std::numeric_limits<int16_t>::max();
+            return t->is_unsigned() ? U16Max : S16Max;
         case 32:
-            return t->is_unsigned() ? std::numeric_limits<uint32_t>::max()
-                                    : std::numeric_limits<int32_t>::max();
+            return t->is_unsigned() ? U32Max : S32Max;
         case 64:
-            return t->is_unsigned() ? std::numeric_limits<uint64_t>::max()
-                                    : std::numeric_limits<int64_t>::max();
+            return t->is_unsigned() ? U64Max : S64Max;
     }
     TODO();
 }
@@ -544,13 +540,13 @@ Integer min_for_type(Type *t)
     }
     switch (t->size) {
         case 64:
-            return Integer(std::numeric_limits<int64_t>::min(), true);
+            return Integer(S64Min, true);
         case 32:
-            return Integer(std::numeric_limits<int32_t>::min(), true);
+            return Integer(S32Min, true);
         case 16:
-            return Integer(std::numeric_limits<int16_t>::min(), true);
+            return Integer(S16Min, true);
         case 8:
-            return Integer(std::numeric_limits<int8_t>::min(), true);
+            return Integer(S8Min, true);
         default:
             TODO();
     }
@@ -1182,9 +1178,8 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
                 return;
             }
 
-            if (get_int_literal(binary->right) > std::numeric_limits<uint8_t>::max()) {
-                verification_error(binary->right, "rotate count exceeds maximum of {}",
-                    std::numeric_limits<uint8_t>::max());
+            if (get_int_literal(binary->right) > U8Max) {
+                verification_error(binary->right, "rotate count exceeds maximum of {}", U8Max);
             }
             return;
         }
@@ -1200,9 +1195,8 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
                 return;
             }
 
-            if (get_int_literal(binary->right) > std::numeric_limits<uint8_t>::max()) {
-                verification_error(binary->right, "shift count exceeds maximum of {}",
-                    std::numeric_limits<uint8_t>::max());
+            if (get_int_literal(binary->right) > U8Max) {
+                verification_error(binary->right, "shift count exceeds maximum of {}", U8Max);
             }
             // The lhs check is here so we don't warn twice (here and again in the optimizer)
             if (!type_is_const_int(lhs_type, lhs_constness)) {

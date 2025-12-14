@@ -235,13 +235,13 @@ AstLiteral *parse_integer(Compiler &cc, const Token &token)
     uint64_t number;
     try_convert_string_to_u64(cc, token.location, token.string, number);
     consume(cc.lexer, token);
-    if (number > std::numeric_limits<int64_t>::max()) {
+    if (number > S64Max) {
         return new AstLiteral(u64_type(), number, token.location);
     }
-    if (number > std::numeric_limits<uint32_t>::max()) {
+    if (number > U32Max) {
         return new AstLiteral(s64_type(), number, token.location);
     }
-    if (number > std::numeric_limits<int32_t>::max()) {
+    if (number > S32Max) {
         return new AstLiteral(u32_type(), number, token.location);
     }
     // Default to s32. If the user wants a smaller type,
@@ -976,10 +976,10 @@ Ast *parse_enum(Compiler &cc)
     std::unreachable();
 }
 
-bool has_side_effects(Ast *);
-
 Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {
+    bool has_side_effects(Ast *);
+
     auto token = lex(cc);
 
     while (token.kind == TokenKind::Hash) {
