@@ -682,6 +682,7 @@ void emit_asm(Compiler &cc)
     }
 
     emit_impl("section .text\n"
+              "default rel\n"
               "extern printf\n");
     for (auto *ir_fn : cc.ir_builder.functions) {
         emit_asm_function(cc, *ir_fn);
@@ -710,8 +711,7 @@ void create_executable(const std::string &asm_file, const std::string &output_na
             "/usr/bin/nasm", { "-felf64", "-o", output_name + ".o", asm_file })) {
         die("nasm failure");
     }
-    if (spawn_blocking_process(
-            "/usr/bin/gcc", { "-no-pie", output_name + ".o", "-o", output_name })) {
+    if (spawn_blocking_process("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
         die("gcc failure");
     }
 #else
