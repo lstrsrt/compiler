@@ -9,9 +9,9 @@ AlignTrailingComments:
   OverEmptyLines: 1
 AlignAfterOpenBracket: DontAlign
 AlignEscapedNewlines: Left
+AllowShortBlocksOnASingleLine: Never
 AllowShortEnumsOnASingleLine: false
-AllowShortFunctionsOnASingleLine: Empty
-AllowShortBlocksOnASingleLine: Empty
+AllowShortFunctionsOnASingleLine: InlineOnly
 AllowShortLambdasOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: Never
 AlwaysBreakTemplateDeclarations: Yes

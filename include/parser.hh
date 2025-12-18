@@ -139,10 +139,7 @@ struct Ast {
     }
 
 #ifdef AST_USE_ARENA
-    static void *operator new(size_t size)
-    {
-        return ast_arena()->alloc_raw(size);
-    }
+    static void *operator new(size_t size) { return ast_arena()->alloc_raw(size); }
 
     static void operator delete(void *) { }
 #endif
@@ -169,20 +166,11 @@ struct Integer {
     {
     }
 
-    int64_t as_signed() const
-    {
-        return static_cast<int64_t>(value);
-    }
+    int64_t as_signed() const { return static_cast<int64_t>(value); }
 
-    bool is_negative() const
-    {
-        return is_signed && (as_signed() & (uint64_t(1) << 63));
-    }
+    bool is_negative() const { return is_signed && (as_signed() & (uint64_t(1) << 63)); }
 
-    bool is_nonnegative() const
-    {
-        return !is_negative();
-    }
+    bool is_nonnegative() const { return !is_negative(); }
 
     auto operator<=>(const Integer &rhs) const
     {
@@ -290,37 +278,19 @@ struct Type {
 
     SourceLocation location{};
 
-    TypeFlags get_kind() const
-    {
-        return flags & TypeFlags::kind_mask;
-    }
+    TypeFlags get_kind() const { return flags & TypeFlags::kind_mask; }
 
-    bool is_int() const
-    {
-        return get_kind() == TypeFlags::Integer;
-    }
+    bool is_int() const { return get_kind() == TypeFlags::Integer; }
 
-    bool is_bool() const
-    {
-        return get_kind() == TypeFlags::Boolean;
-    }
+    bool is_bool() const { return get_kind() == TypeFlags::Boolean; }
 
     // Is this a integer or an integer-like type?
     // NOTE: Booleans may not be used in arithmetic operations.
-    bool is_integral() const
-    {
-        return is_int() || is_bool();
-    }
+    bool is_integral() const { return is_int() || is_bool(); }
 
-    bool is_string() const
-    {
-        return get_kind() == TypeFlags::String;
-    }
+    bool is_string() const { return get_kind() == TypeFlags::String; }
 
-    TypeFlags get_flags() const
-    {
-        return flags & ~TypeFlags::kind_mask;
-    }
+    TypeFlags get_flags() const { return flags & ~TypeFlags::kind_mask; }
 
     size_t byte_size() const
     {
@@ -330,25 +300,13 @@ struct Type {
         return size / 8;
     }
 
-    bool has_flag(TypeFlags flag) const
-    {
-        return ::has_flag(flags, flag);
-    }
+    bool has_flag(TypeFlags flag) const { return ::has_flag(flags, flag); }
 
-    bool is_unsigned() const
-    {
-        return ::has_flag(flags, TypeFlags::UNSIGNED);
-    }
+    bool is_unsigned() const { return ::has_flag(flags, TypeFlags::UNSIGNED); }
 
-    bool is_signed() const
-    {
-        return !is_unsigned();
-    }
+    bool is_signed() const { return !is_unsigned(); }
 
-    bool is_pointer() const
-    {
-        return pointer > 0;
-    }
+    bool is_pointer() const { return pointer > 0; }
 
     std::string get_name() const
     {
@@ -507,10 +465,7 @@ struct Variable {
     int param_index = -1;
     bool is_unresolved;
 
-    bool is_parameter() const
-    {
-        return param_index > -1;
-    }
+    bool is_parameter() const { return param_index > -1; }
 
     explicit Variable(Type *_type, std::string_view _name, bool _is_unresolved)
         : type(_type)

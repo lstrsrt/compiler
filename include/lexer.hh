@@ -210,10 +210,7 @@ struct Lexer {
         return string[position + offset];
     }
 
-    bool out_of_bounds(size_t offset = 0) const
-    {
-        return (position + offset >= string.length());
-    }
+    bool out_of_bounds(size_t offset = 0) const { return (position + offset >= string.length()); }
 
     size_t count_while(const std::predicate<char> auto &&cond, size_t offset = 0) const
     {
@@ -224,10 +221,7 @@ struct Lexer {
         return count;
     }
 
-    SourceLocation location() const
-    {
-        return { line, column, column + 1, position };
-    }
+    SourceLocation location() const { return { line, column, column + 1, position }; }
 
     struct UndoState {
         struct {
