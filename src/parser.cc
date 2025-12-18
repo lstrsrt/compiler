@@ -1,4 +1,5 @@
 #include "parser.hh"
+#include "base.hh"
 #include "compiler.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
@@ -255,6 +256,17 @@ Ast *parse_string(Compiler &cc, const Token &token)
     return new AstString(*token.real_string, token.location);
 }
 
+Token parse_identifier(Compiler &cc)
+{
+    auto token = lex(cc);
+    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
+        parser_error(
+            token.location, "expected an identifier, got `{}`", diag::make_printable(token.string));
+    }
+    consume(cc.lexer, token);
+    return token;
+}
+
 // This also handles unary operations.
 Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
 {
@@ -298,14 +310,10 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
                 parser_error(
                     token.location, "type `{}` is not declared in this scope", token.string);
             }
-            token = lex(cc);
-            if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-                parser_error(token.location, "expected identifier");
-            }
+            token = parse_identifier(cc);
             auto *enum_decl = static_cast<AstEnumDecl *>(type->decl);
             if (auto it = enum_decl->members.find(std::string(token.string));
                 it != enum_decl->members.end()) {
-                consume(cc.lexer, token);
                 // TODO: do we want a new AstEnumMember here?
                 // otherwise we will have to be careful with changing the member
                 return it->second;
@@ -496,17 +504,6 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
     return root;
 }
 
-Token parse_identifier(Compiler &cc)
-{
-    auto token = lex(cc);
-    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-        parser_error(
-            token.location, "expected an identifier, got `{}`", diag::make_printable(token.string));
-    }
-    consume(cc.lexer, token);
-    return token;
-}
-
 Type *make_pointer(Compiler &cc, Type *real)
 {
     if (real->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
@@ -569,6 +566,8 @@ void expect_rbrace(Compiler &cc)
 
 AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
 {
+    AutoScope auto_scope;
+
     // TODO: keep track of the last token so we don't have to call lex again
     consume_expected(cc, TokenKind::LBrace, lex(cc));
     cc.lexer.ignore_newlines = false;
@@ -603,20 +602,16 @@ FunctionAttributes parse_fn_attributes(Compiler &, bool is_main);
 
 AstFunction *parse_function(Compiler &cc)
 {
-    auto token = lex(cc); // Name
+    auto token = parse_identifier(cc);
     auto location = token.location;
-    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-        parser_error(token.location, "invalid function name {}", token.string);
-    }
 
     auto name = token.string;
-    consume(cc.lexer, token);
 
     consume_expected(cc, TokenKind::LParen, lex(cc));
     token = lex(cc); // `)` or identifier
 
     // Function parameters already belong to new scope
-    enter_new_scope();
+    AutoScope auto_scope;
 
 #ifdef AST_USE_ARENA
     VariableDecls params(ast_vec_allocator());
@@ -663,7 +658,6 @@ AstFunction *parse_function(Compiler &cc)
     current_scope->parent->add_function(cc, function, name);
     function->body = parse_block(cc, function);
     function->scope = current_scope->parent;
-    leave_scope();
 
     return function;
 }
@@ -708,9 +702,7 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
     } else if (expr->operation == Operation::VariableDecl) {
         current_scope->add_variable(cc, static_cast<AstVariableDecl *>(expr));
     }
-    enter_new_scope();
     AstBlock *body = parse_block(cc, current_function);
-    leave_scope();
 
     Ast *else_ = nullptr;
     auto token = lex(cc);
@@ -730,6 +722,8 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
 
 AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
 {
+    AutoScope auto_scope;
+
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
     if (!expr) {
@@ -902,13 +896,9 @@ Ast *parse_enum(Compiler &cc)
               }
           };
 
-    auto token = lex(cc); // Name
-    if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-        parser_error(token.location, "expected identifier");
-    }
+    auto token = parse_identifier(cc);
     auto name = token.string;
     auto location = token.location;
-    consume(cc.lexer, token);
     token = lex(cc); // Type or {
     auto *underlying = s32_type();
     if (token.kind == TokenKind::LParen) {
@@ -937,7 +927,8 @@ Ast *parse_enum(Compiler &cc)
             continue;
         }
         if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-            parser_error(token.location, "expected identifier");
+            parser_error(token.location, "expected an identifier, got `{}`",
+                diag::make_printable(token.string));
         }
         auto member_name = token.string;
         auto member_location = token.location;
@@ -1073,9 +1064,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             return var_decl;
         }
     } else if (token.kind == TokenKind::LBrace) {
-        enter_new_scope();
         auto *block = parse_block(cc, current_function);
-        leave_scope();
         return block;
     }
 

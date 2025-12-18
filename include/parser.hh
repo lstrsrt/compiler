@@ -658,6 +658,30 @@ inline void leave_scope()
     }
 }
 
+struct AutoScope {
+    explicit AutoScope() { enter_new(); }
+
+    void enter_new()
+    {
+        ++count;
+        enter_new_scope();
+    }
+
+    AutoScope(AutoScope &) = delete;
+    AutoScope(AutoScope &&) = delete;
+    auto operator=(AutoScope &) = delete;
+    auto operator=(AutoScope &&) = delete;
+
+    ~AutoScope()
+    {
+        while (count--) {
+            leave_scope();
+        }
+    }
+
+    int count = 0;
+};
+
 inline bool at_top_level()
 {
     return !current_scope->parent;
@@ -665,11 +689,11 @@ inline bool at_top_level()
 
 inline void free_scopes()
 {
+    assert(!current_scope);
     for (auto *scope : g_scopes) {
         delete scope;
     }
     g_scopes.clear();
-    current_scope = nullptr;
 }
 
 enum class SearchParents {
