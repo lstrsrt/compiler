@@ -118,7 +118,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
     std::println("\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
     // This produces a SIGILL (ud2), not a SIGTRAP because it's impossible to continue after here.
-    __builtin_debugtrap();
+    __builtin_trap();
 #endif
     exit(EXIT_FAILURE);
 }
