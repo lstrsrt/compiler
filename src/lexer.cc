@@ -590,7 +590,7 @@ void Lexer::set_input(const std::string &filename)
     if (!input.open(filename, OpenFlags::Open | OpenFlags::READ)) {
         die("unable to open or read input file '{}'", filename);
     }
-    string = input.map;
+    string = input.view();
 }
 
 void Lexer::free_input()

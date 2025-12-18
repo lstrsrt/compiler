@@ -209,11 +209,12 @@ bool make_file_mappable(File::Handle handle, size_t size, OpenFlags flags)
         // FIXME: has_flags() is used (not has_flag()) because TRUNCATE consists of two flags.
         // Seems bugprone!!!
 
-        // Truncate to 0 first and then extend again so it's mappable.
+        // Truncate to 0 first.
         if (!truncate_file(handle, 0, Seek::Yes)) {
             return false;
         }
-        if (!truncate_file(handle, 1024, Seek::No)) {
+        // Extend so it's mappable, but only if we want to read.
+        if (has_flag(flags, READ) && !truncate_file(handle, 1024, Seek::No)) {
             return false;
         }
     } else if (has_flag(flags, WRITE)) {
@@ -230,6 +231,8 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
 {
     using enum OpenFlags;
     File ret;
+
+    ret.file_handle = handle;
 
 #ifdef __linux__
     if (!access) {
@@ -254,20 +257,16 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
     if (len != -1) {
         ret.filename = path;
     }
-    ret.file_handle = handle;
-    ret.map = map_file(handle, get_file_size(handle), ret.flags);
 #else
-    ret.file_handle = handle;
-
     // DWORD type = GetFileType(handle);
     // TODO: Enable this? stdout is FILE_TYPE_UNKNOWN which would have to be whitelisted, making
     // this check kind of useless.
     // assert(type == FILE_TYPE_CHAR || type == FILE_TYPE_DISK);
 
     if (!access) {
+        // No equivalent to fcntl(F_GETFL) exists on Windows so just set it to READ.
         ret.flags = READ;
     } else {
-        // No equivalent to fcntl(F_GETFL) exists on Windows so just set it to READ.
         ret.flags = access & ~behavior_mask;
     }
 
@@ -276,12 +275,10 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
     if (len && len < MAX_PATH /* not <= because null terminator is not included */) {
         ret.filename = path;
     }
-
-    ret.file_size = get_file_size(handle);
+#endif
     // NOTE: we don't call make_file_mappable() here because it only makes sense for text files,
     // but we don't know what this file is. The caller has to check `map`.
-    ret.map = map_file(handle, ret.file_size, ret.flags);
-#endif
+    ret.map = map_file(handle, get_file_size(handle), ret.flags);
     ret.owning = owning;
     ret.valid = true;
     return ret;
@@ -358,13 +355,11 @@ bool File::open(const std::string &name, OpenFlags flags)
 
     Defer fail_defer{ [&] { close(); } };
 
-    auto file_size = this->file_size();
-
-    if (!make_file_mappable(file_handle, file_size, flags)) {
+    if (!make_file_mappable(file_handle, file_size(), flags)) {
         return false;
     }
 
-    map = map_file(file_handle, file_size, flags);
+    map = map_file(file_handle, file_size(), flags);
     if (has_flag(flags, READ) && !map) {
         // If the user intends to read, fail here.
         // For write-only it is not an issue because write_file() uses the handle.
@@ -394,11 +389,13 @@ bool File::write(std::string_view str)
 
 bool File::commit()
 {
+    if (!has_flag(flags, OpenFlags::WRITE)) {
+        return false;
+    }
     if (buffered == Buffered::No) {
         return true;
     }
-    if (!is_valid() || !has_flag(flags, OpenFlags::WRITE)
-        || !write_file(file_handle, write_buffer)) {
+    if (!write_file(file_handle, write_buffer)) {
         return false;
     }
     write_buffer.clear();
@@ -415,7 +412,7 @@ bool File::close(Commit commit)
         unmap_file(map, file_size());
     }
     if (owning == Owning::Yes && is_valid_handle()) {
-        close_file(file_handle);
+        ret &= close_file(file_handle);
     }
     // Even if we don't own this file, reset the handle.
     file_handle = InvalidHandle;

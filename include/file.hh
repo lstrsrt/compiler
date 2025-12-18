@@ -60,6 +60,11 @@ struct File {
 
     bool open(const std::string &name, OpenFlags);
 
+    std::string_view view() const
+    {
+        return is_valid() ? std::string_view{ map, file_size() } : std::string_view{};
+    }
+
     // In buffered mode (default), this function only appends to the write buffer and returns true
     // without actually writing to the file.
     // Call commit() to flush the write buffer to the file.

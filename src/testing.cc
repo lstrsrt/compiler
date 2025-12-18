@@ -113,8 +113,8 @@ bool files_are_equal(const std::string &path1, const std::string &path2)
         return false;
     }
 
-    std::string_view s1 = file1.map;
-    std::string_view s2 = file2.map;
+    auto s1 = file2.view();
+    auto s2 = file2.view();
     bool equals = std::equal(s1.begin(), s1.end(), s2.begin());
     return equals;
 }
