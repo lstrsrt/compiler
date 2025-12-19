@@ -20,7 +20,7 @@ void print_line(std::string_view source, SourceLocation location)
 
 std::string make_printable(char c)
 {
-    if (c != ' ' && std::isprint(static_cast<unsigned char>(c))) {
+    if (std::isgraph(static_cast<unsigned char>(c))) {
         return std::string(1, c);
     }
 
@@ -55,84 +55,23 @@ std::string make_printable(std::string_view s)
 
 std::string to_string(TokenKind kind)
 {
+    using enum TokenKind;
+#define __ENUMERATE_OPERATOR_TOKEN(name, string) \
+    case name:                                   \
+        return string;
+#define __ENUMERATE_KEYWORD_TOKEN(name, string) \
+    case name:                                  \
+        return string;
+
     switch (kind) {
-        case TokenKind::Plus:
-            return "+";
-        case TokenKind::Minus:
-            return "-";
-        case TokenKind::Star:
-            return "*";
-        case TokenKind::Slash:
-            return "/";
-        case TokenKind::Percent:
-            return "%";
-        case TokenKind::LParen:
-            return "(";
-        case TokenKind::RParen:
-            return ")";
-        case TokenKind::LBrace:
-            return "{";
-        case TokenKind::RBrace:
-            return "}";
-        case TokenKind::LAngle:
-            return "<";
-        case TokenKind::RAngle:
-            return ">";
-        case TokenKind::Comma:
-            return ",";
-        case TokenKind::Equals:
-            return "=";
-        case TokenKind::Excl:
-            return "!";
-        case TokenKind::Colon:
-            return ":";
-        case TokenKind::Hash:
-            return "#";
-        case TokenKind::LAngleEquals:
-            return "<=";
-        case TokenKind::RAngleEquals:
-            return ">=";
-        case TokenKind::EqualsEquals:
-            return "==";
-        case TokenKind::ExclEquals:
-            return "!=";
-        case TokenKind::ColonEquals:
-            return ":=";
-        case TokenKind::Arrow:
-            return "->";
-        case TokenKind::And:
-            return "and";
-        case TokenKind::Or:
-            return "or";
-        case TokenKind::Fn:
-            return "fn";
-        case TokenKind::Return:
-            return "return";
-        case TokenKind::If:
-            return "if";
-        case TokenKind::Else:
-            return "else";
-        case TokenKind::While:
-            return "while";
-        case TokenKind::Alias:
-            return "alias";
-        case TokenKind::False:
-            return "false";
-        case TokenKind::True:
-            return "true";
-        case TokenKind::Continue:
-            return "continue";
-        case TokenKind::Break:
-            return "break";
-        case TokenKind::Null:
-            return "null";
-        case TokenKind::As:
-            return "as";
-        case TokenKind::Enum:
-            return "enum";
+        ENUMERATE_OPERATOR_TOKENS()
+        ENUMERATE_KEYWORD_TOKENS()
         default:
             TODO();
     }
+
+#undef __ENUMERATE_OPERATOR_TOKEN
+#undef __ENUMERATE_KEYWORD_TOKEN
 }
 
 std::string to_string(Type *type)

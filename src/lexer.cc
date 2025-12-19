@@ -17,7 +17,7 @@ constexpr bool is_valid_char_in_identifier(char c)
 
 constexpr bool is_start_of_operator(char c)
 {
-    constexpr std::array<char, 21> ops{ "+-*/%(){}<>=!,:#&|^~" };
+    constexpr std::array<char, 22> ops{ "+-*/%(){}<>=!,:#&|^~." };
     return std::ranges::any_of(ops, [c](char x) { return c == x; });
 }
 
@@ -145,6 +145,11 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
             kind = DoubleColon;
             return "::";
         }
+    } else if (c2 == '.') {
+        if (c == '.') {
+            kind = DotDot;
+            return "..";
+        }
     } else {
         switch (c) {
             case '+':
@@ -233,6 +238,8 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
         { "if", If },
         { "else", Else },
         { "while", While },
+        { "for", For },
+        { "in", In },
         { "alias", Alias },
         { "false", False },
         { "true", True },
@@ -362,10 +369,9 @@ void skip_single_line_comment(Lexer &lexer)
 void skip_multi_line_comment(Compiler &cc)
 {
     auto &lexer = cc.lexer;
-    size_t nesting = 0;
     auto loc = lexer.location();
+    size_t nesting = 1;
     advance_column(lexer, 2);
-    ++nesting;
     for (;;) {
         const char c = lexer.get();
         if (c == '/' && lexer.get(1) == '*') {

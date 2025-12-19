@@ -69,6 +69,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(EnumDecl)      \
     __ENUMERATE_OPERATION(If)            \
     __ENUMERATE_OPERATION(While)         \
+    __ENUMERATE_OPERATION(For)           \
     __ENUMERATE_OPERATION(Break)         \
     __ENUMERATE_OPERATION(Continue)      \
     __ENUMERATE_OPERATION(Cast)          \
@@ -531,6 +532,26 @@ struct AstWhile : Ast {
     }
 };
 
+struct AstFor : Ast {
+    AstVariableDecl *var_decl;
+    Ast *ident;
+    Ast *body = nullptr;
+    Ast *end;
+    Ast *cmp;
+    Ast *change;
+
+    explicit AstFor(AstVariableDecl *_var_decl, AstIdentifier *_ident, Ast *_end, Ast *_cmp,
+        Ast *_change, const SourceLocation &_location)
+        : Ast(AstType::Statement, Operation::For, _location)
+        , var_decl(_var_decl)
+        , ident(_ident)
+        , end(_end)
+        , cmp(_cmp)
+        , change(_change)
+    {
+    }
+};
+
 struct AstBreak : Ast {
     explicit AstBreak(SourceLocation _location)
         : Ast(AstType::Statement, Operation::Break, _location)
@@ -720,5 +741,5 @@ void diagnose_redeclaration_or_shadowing(Compiler &, Scope *, std::string_view n
 
 struct ParseState {
     bool in_call = false;
-    AstWhile *current_loop = nullptr;
+    Ast *current_loop = nullptr;
 };

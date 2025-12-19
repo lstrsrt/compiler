@@ -477,7 +477,7 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
             break;
         }
         if (token.kind == TokenKind::RParen || token.kind == TokenKind::LBrace
-            || token.kind == TokenKind::RBrace) {
+            || token.kind == TokenKind::RBrace || token.kind == TokenKind::DotDot) {
             break;
         }
 
@@ -734,14 +734,66 @@ AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
         parser_ast_error(expr, "assignments are not allowed in while statements");
     }
 
-    enter_new_scope();
     auto *while_stmt = new AstWhile(expr, loc);
+    auto_scope.enter_new();
     cc.parse_state.current_loop = while_stmt;
     while_stmt->body = parse_block(cc, current_function);
     cc.parse_state.current_loop = nullptr;
-    leave_scope();
 
     return while_stmt;
+}
+
+AstFor *parse_for(Compiler &cc, AstFunction *current_function, const SourceLocation &location)
+{
+    AutoScope auto_scope;
+
+    // i(: int_type)
+    auto token = parse_identifier(cc);
+    auto var_name = token.string;
+    auto var_location = token.location;
+    token = lex(cc); // : or in
+    auto *type = unresolved_type();
+    if (token.kind == TokenKind::Colon) {
+        consume(cc.lexer, token);
+        type = parse_type(cc);
+        token = lex(cc);
+    }
+
+    // x..{<,=}y
+    consume_expected(cc, TokenKind::In, token);
+    auto *start = parse_expr(cc);
+    token = lex(cc);
+    consume_expected(cc, TokenKind::DotDot, token);
+    token = lex(cc);
+    Operation operation;
+    if (token.kind == TokenKind::LAngle) {
+        operation = Operation::Less;
+    } else if (token.kind == TokenKind::Equals) {
+        operation = Operation::LessEquals;
+    } else [[unlikely]] {
+        parser_error(
+            token.location, "expected `<` or `=`, got `{}`", diag::make_printable(token.string));
+    }
+    consume(cc.lexer, token);
+    auto *end = parse_expr(cc);
+
+    auto *var_decl = new AstVariableDecl(type, var_name, nullptr, var_location);
+    auto *ident = new AstIdentifier(var_name, &var_decl->var, var_location);
+    var_decl->init_expr = start;
+    current_scope->add_variable(cc, var_decl);
+
+    auto *cmp = new AstBinary(operation, ident, end, end->location);
+    auto *change = new AstBinary(
+        Operation::Add, ident, new AstLiteral(s32_type(), 1, end->location), end->location);
+    change = new AstBinary(Operation::Assign, ident, change, change->location);
+
+    auto *for_stmt = new AstFor(var_decl, ident, end, cmp, change, location);
+
+    auto_scope.enter_new();
+    cc.parse_state.current_loop = for_stmt;
+    for_stmt->body = parse_block(cc, current_function);
+    cc.parse_state.current_loop = nullptr;
+    return for_stmt;
 }
 
 void parse_error_attribute(Compiler &cc)
@@ -993,6 +1045,10 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         if (token.kind == TokenKind::While) {
             consume(cc.lexer, token);
             return parse_while(cc, current_function);
+        }
+        if (token.kind == TokenKind::For) {
+            consume(cc.lexer, token);
+            return parse_for(cc, current_function, token.location);
         }
         if (token.kind == TokenKind::Fn) {
             consume(cc.lexer, token);

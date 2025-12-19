@@ -1672,6 +1672,35 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
     }
 }
 
+void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
+{
+    auto *for_stmt = static_cast<AstFor *>(ast);
+
+    verify_var_decl(cc, for_stmt->var_decl);
+    auto *var = &for_stmt->var_decl->var;
+    auto *expected = get_unaliased_type(var->type);
+    if (!expected->is_int()) {
+        verification_type_error(
+            for_stmt->var_decl->location, "range variable must be of an integer-like type");
+    }
+
+    verify_comparison(cc, for_stmt->cmp, WarnDiscardedReturn::No);
+    verify_expr(cc, for_stmt->end, WarnDiscardedReturn::No, var->type);
+
+    auto *start = for_stmt->var_decl->init_expr;
+    auto *end = static_cast<AstBinary *>(for_stmt->cmp)->right;
+    if (expr_is_const_integral(start, IgnoreCasts::Yes)
+        && expr_is_const_integral(end, IgnoreCasts::Yes)) {
+        auto eq = get_int_literal(start) <=> get_int_literal(end);
+        if (eq == std::strong_ordering::greater
+            || (eq == std::strong_ordering::equal && for_stmt->cmp->operation == Operation::Less)) {
+            verification_error(for_stmt->cmp, "invalid range");
+        }
+    }
+
+    verify_ast(cc, for_stmt->body, current_function);
+}
+
 void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *while_stmt = static_cast<AstWhile *>(ast);
@@ -1807,6 +1836,9 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
             case Operation::Return:
                 verify_return(cc, static_cast<AstReturn *>(ast), current_function,
                     current_function->return_type);
+                break;
+            case Operation::For:
+                verify_for(cc, ast, current_function);
                 break;
             case Operation::While:
                 verify_while(cc, ast, current_function);

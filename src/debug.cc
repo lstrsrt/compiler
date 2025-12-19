@@ -154,6 +154,7 @@ static void print_var_decl(File &file, AstVariableDecl *var_decl)
     if (type->name.empty()) {
         file.fwrite("{}: <auto>", var_decl->var.name);
     } else {
+        // TODO: different behavior for pointers
         const auto flags_str = type_flags_to_string(type->flags);
         file.fwrite("{}: {} {}", var_decl->var.name, type->get_name(), flags_str);
         if (type->has_flag(TypeFlags::ALIAS)) {
@@ -281,6 +282,11 @@ void print_ast(File &file, Ast *ast, std::string indent)
             } else if (ast->operation == Operation::While) {
                 print_ast(file, static_cast<AstWhile *>(ast)->expr, indent);
                 print_ast(file, static_cast<AstWhile *>(ast)->body, indent);
+            } else if (ast->operation == Operation::For) {
+                print_ast(file, static_cast<AstFor *>(ast)->var_decl, indent);
+                print_ast(file, static_cast<AstFor *>(ast)->change, indent);
+                print_ast(file, static_cast<AstFor *>(ast)->cmp, indent);
+                print_ast(file, static_cast<AstFor *>(ast)->body, indent);
             } else if (ast->operation == Operation::Break
                 || ast->operation == Operation::Continue) {
                 break;

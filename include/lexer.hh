@@ -42,12 +42,65 @@ constexpr bool is_control_char(char c)
 
 constexpr char to_upper(char c)
 {
-    return is_lower(c) ? (c - ('a' - 'A')) : c;
+    return is_lower(c) ? static_cast<char>(c - ('a' - 'A')) : c;
 }
+
+#define ENUMERATE_OPERATOR_TOKENS()                 \
+    __ENUMERATE_OPERATOR_TOKEN(Plus, "+")           \
+    __ENUMERATE_OPERATOR_TOKEN(Minus, "-")          \
+    __ENUMERATE_OPERATOR_TOKEN(Star, "*")           \
+    __ENUMERATE_OPERATOR_TOKEN(Slash, "/")          \
+    __ENUMERATE_OPERATOR_TOKEN(Percent, "%")        \
+    __ENUMERATE_OPERATOR_TOKEN(Bar, "|")            \
+    __ENUMERATE_OPERATOR_TOKEN(Caret, "^")          \
+    __ENUMERATE_OPERATOR_TOKEN(Tilde, "~")          \
+    __ENUMERATE_OPERATOR_TOKEN(LParen, "(")         \
+    __ENUMERATE_OPERATOR_TOKEN(RParen, ")")         \
+    __ENUMERATE_OPERATOR_TOKEN(LBrace, "{")         \
+    __ENUMERATE_OPERATOR_TOKEN(RBrace, "}")         \
+    __ENUMERATE_OPERATOR_TOKEN(LAngle, "<")         \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleLAngle, "<<")  \
+    __ENUMERATE_OPERATOR_TOKEN(TripleLAngle, "<<<") \
+    __ENUMERATE_OPERATOR_TOKEN(RAngle, ">")         \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleRAngle, ">>")  \
+    __ENUMERATE_OPERATOR_TOKEN(TripleRAngle, ">>>") \
+    __ENUMERATE_OPERATOR_TOKEN(Comma, ",")          \
+    __ENUMERATE_OPERATOR_TOKEN(Equals, "=")         \
+    __ENUMERATE_OPERATOR_TOKEN(Excl, "!")           \
+    __ENUMERATE_OPERATOR_TOKEN(Colon, ":")          \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleColon, "::")   \
+    __ENUMERATE_OPERATOR_TOKEN(DotDot, "..")        \
+    __ENUMERATE_OPERATOR_TOKEN(Hash, "#")           \
+    __ENUMERATE_OPERATOR_TOKEN(Ampersand, "&")      \
+    __ENUMERATE_OPERATOR_TOKEN(LAngleEquals, "<=")  \
+    __ENUMERATE_OPERATOR_TOKEN(RAngleEquals, ">=")  \
+    __ENUMERATE_OPERATOR_TOKEN(EqualsEquals, "==")  \
+    __ENUMERATE_OPERATOR_TOKEN(ExclEquals, "!=")    \
+    __ENUMERATE_OPERATOR_TOKEN(ColonEquals, ":=")   \
+    __ENUMERATE_OPERATOR_TOKEN(Arrow, "->")         \
+    __ENUMERATE_OPERATOR_TOKEN(And, "and")          \
+    __ENUMERATE_OPERATOR_TOKEN(Or, "or")
+
+#define ENUMERATE_KEYWORD_TOKENS()                  \
+    __ENUMERATE_KEYWORD_TOKEN(Fn, "fn")             \
+    __ENUMERATE_KEYWORD_TOKEN(Return, "return")     \
+    __ENUMERATE_KEYWORD_TOKEN(If, "if")             \
+    __ENUMERATE_KEYWORD_TOKEN(Else, "else")         \
+    __ENUMERATE_KEYWORD_TOKEN(For, "for")           \
+    __ENUMERATE_KEYWORD_TOKEN(In, "in")             \
+    __ENUMERATE_KEYWORD_TOKEN(While, "while")       \
+    __ENUMERATE_KEYWORD_TOKEN(Alias, "alias")       \
+    __ENUMERATE_KEYWORD_TOKEN(False, "false")       \
+    __ENUMERATE_KEYWORD_TOKEN(True, "true")         \
+    __ENUMERATE_KEYWORD_TOKEN(Continue, "continue") \
+    __ENUMERATE_KEYWORD_TOKEN(Break, "break")       \
+    __ENUMERATE_KEYWORD_TOKEN(Null, "null")         \
+    __ENUMERATE_KEYWORD_TOKEN(As, "as")             \
+    __ENUMERATE_KEYWORD_TOKEN(Enum, "enum")
 
 enum class TokenKind : uint32_t {
     //
-    // Group
+    // Groups:
     //
     GroupEmpty = 1 << 16,
     GroupNewline = 2 << 16,
@@ -59,55 +112,18 @@ enum class TokenKind : uint32_t {
     group_mask = 0xffff'0000,
 
     //
-    // Value
+    // Kinds:
+    // Upper 16 bits is the group, lower 16 bits is the kind.
     //
-    Plus = 1 | GroupOperator,
-    Minus,
-    Star,
-    Slash,
-    Percent,
-    Bar,
-    Caret,
-    Tilde,
-    LParen,
-    RParen,
-    LBrace,
-    RBrace,
-    LAngle,
-    DoubleLAngle,
-    TripleLAngle,
-    RAngle,
-    DoubleRAngle,
-    TripleRAngle,
-    Comma,
-    Equals,
-    Excl,
-    Colon,
-    DoubleColon,
-    Hash,
-    Ampersand,
-    LAngleEquals,
-    RAngleEquals,
-    EqualsEquals,
-    ExclEquals,
-    ColonEquals,
-    Arrow,
-    And,
-    Or,
+    operators_start = GroupOperator | 0,
+#define __ENUMERATE_OPERATOR_TOKEN(name, string) name,
+    ENUMERATE_OPERATOR_TOKENS()
+#undef __ENUMERATE_OPERATOR_TOKEN
 
-    Fn = 1 | GroupKeyword,
-    Return,
-    If,
-    Else,
-    While,
-    Alias,
-    False,
-    True,
-    Continue,
-    Break,
-    Null,
-    As,
-    Enum,
+    keywords_start = GroupKeyword | 0,
+#define __ENUMERATE_KEYWORD_TOKEN(name, string) name,
+    ENUMERATE_KEYWORD_TOKENS()
+#undef __ENUMERATE_KEYWORD_TOKEN
 };
 
 struct Lexer;
