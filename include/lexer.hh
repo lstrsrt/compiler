@@ -40,45 +40,62 @@ constexpr bool is_control_char(char c)
     return (c >= 0 && c <= 31) || c == 127;
 }
 
+constexpr bool is_graph(char c)
+{
+    return c >= 33 && c <= 126;
+}
+
 constexpr char to_upper(char c)
 {
     return is_lower(c) ? static_cast<char>(c - ('a' - 'A')) : c;
 }
 
-#define ENUMERATE_OPERATOR_TOKENS()                 \
-    __ENUMERATE_OPERATOR_TOKEN(Plus, "+")           \
-    __ENUMERATE_OPERATOR_TOKEN(Minus, "-")          \
-    __ENUMERATE_OPERATOR_TOKEN(Star, "*")           \
-    __ENUMERATE_OPERATOR_TOKEN(Slash, "/")          \
-    __ENUMERATE_OPERATOR_TOKEN(Percent, "%")        \
-    __ENUMERATE_OPERATOR_TOKEN(Bar, "|")            \
-    __ENUMERATE_OPERATOR_TOKEN(Caret, "^")          \
-    __ENUMERATE_OPERATOR_TOKEN(Tilde, "~")          \
-    __ENUMERATE_OPERATOR_TOKEN(LParen, "(")         \
-    __ENUMERATE_OPERATOR_TOKEN(RParen, ")")         \
-    __ENUMERATE_OPERATOR_TOKEN(LBrace, "{")         \
-    __ENUMERATE_OPERATOR_TOKEN(RBrace, "}")         \
-    __ENUMERATE_OPERATOR_TOKEN(LAngle, "<")         \
-    __ENUMERATE_OPERATOR_TOKEN(DoubleLAngle, "<<")  \
-    __ENUMERATE_OPERATOR_TOKEN(TripleLAngle, "<<<") \
-    __ENUMERATE_OPERATOR_TOKEN(RAngle, ">")         \
-    __ENUMERATE_OPERATOR_TOKEN(DoubleRAngle, ">>")  \
-    __ENUMERATE_OPERATOR_TOKEN(TripleRAngle, ">>>") \
-    __ENUMERATE_OPERATOR_TOKEN(Comma, ",")          \
-    __ENUMERATE_OPERATOR_TOKEN(Equals, "=")         \
-    __ENUMERATE_OPERATOR_TOKEN(Excl, "!")           \
-    __ENUMERATE_OPERATOR_TOKEN(Colon, ":")          \
-    __ENUMERATE_OPERATOR_TOKEN(DoubleColon, "::")   \
-    __ENUMERATE_OPERATOR_TOKEN(DotDot, "..")        \
-    __ENUMERATE_OPERATOR_TOKEN(Hash, "#")           \
-    __ENUMERATE_OPERATOR_TOKEN(Ampersand, "&")      \
-    __ENUMERATE_OPERATOR_TOKEN(LAngleEquals, "<=")  \
-    __ENUMERATE_OPERATOR_TOKEN(RAngleEquals, ">=")  \
-    __ENUMERATE_OPERATOR_TOKEN(EqualsEquals, "==")  \
-    __ENUMERATE_OPERATOR_TOKEN(ExclEquals, "!=")    \
-    __ENUMERATE_OPERATOR_TOKEN(ColonEquals, ":=")   \
-    __ENUMERATE_OPERATOR_TOKEN(Arrow, "->")         \
-    __ENUMERATE_OPERATOR_TOKEN(And, "and")          \
+#define ENUMERATE_OPERATOR_TOKENS()                        \
+    __ENUMERATE_OPERATOR_TOKEN(Plus, "+")                  \
+    __ENUMERATE_OPERATOR_TOKEN(Minus, "-")                 \
+    __ENUMERATE_OPERATOR_TOKEN(Star, "*")                  \
+    __ENUMERATE_OPERATOR_TOKEN(Slash, "/")                 \
+    __ENUMERATE_OPERATOR_TOKEN(Percent, "%")               \
+    __ENUMERATE_OPERATOR_TOKEN(Bar, "|")                   \
+    __ENUMERATE_OPERATOR_TOKEN(Caret, "^")                 \
+    __ENUMERATE_OPERATOR_TOKEN(Tilde, "~")                 \
+    __ENUMERATE_OPERATOR_TOKEN(LParen, "(")                \
+    __ENUMERATE_OPERATOR_TOKEN(RParen, ")")                \
+    __ENUMERATE_OPERATOR_TOKEN(LBrace, "{")                \
+    __ENUMERATE_OPERATOR_TOKEN(RBrace, "}")                \
+    __ENUMERATE_OPERATOR_TOKEN(LAngle, "<")                \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleLAngle, "<<")         \
+    __ENUMERATE_OPERATOR_TOKEN(TripleLAngle, "<<<")        \
+    __ENUMERATE_OPERATOR_TOKEN(RAngle, ">")                \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleRAngle, ">>")         \
+    __ENUMERATE_OPERATOR_TOKEN(TripleRAngle, ">>>")        \
+    __ENUMERATE_OPERATOR_TOKEN(PlusEquals, "+=")           \
+    __ENUMERATE_OPERATOR_TOKEN(MinusEquals, "-=")          \
+    __ENUMERATE_OPERATOR_TOKEN(StarEquals, "*=")           \
+    __ENUMERATE_OPERATOR_TOKEN(SlashEquals, "/=")          \
+    __ENUMERATE_OPERATOR_TOKEN(PercentEquals, "%=")        \
+    __ENUMERATE_OPERATOR_TOKEN(AmpersandEquals, "&=")      \
+    __ENUMERATE_OPERATOR_TOKEN(BarEquals, "|=")            \
+    __ENUMERATE_OPERATOR_TOKEN(CaretEquals, "^=")          \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleLAngleEquals, "<<=")  \
+    __ENUMERATE_OPERATOR_TOKEN(TripleLAngleEquals, "<<<=") \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleRAngleEquals, ">>=")  \
+    __ENUMERATE_OPERATOR_TOKEN(TripleRAngleEquals, ">>>=") \
+    __ENUMERATE_OPERATOR_TOKEN(Comma, ",")                 \
+    __ENUMERATE_OPERATOR_TOKEN(Equals, "=")                \
+    __ENUMERATE_OPERATOR_TOKEN(Excl, "!")                  \
+    __ENUMERATE_OPERATOR_TOKEN(Colon, ":")                 \
+    __ENUMERATE_OPERATOR_TOKEN(DoubleColon, "::")          \
+    __ENUMERATE_OPERATOR_TOKEN(DotDot, "..")               \
+    __ENUMERATE_OPERATOR_TOKEN(Hash, "#")                  \
+    __ENUMERATE_OPERATOR_TOKEN(Ampersand, "&")             \
+    __ENUMERATE_OPERATOR_TOKEN(LAngleEquals, "<=")         \
+    __ENUMERATE_OPERATOR_TOKEN(RAngleEquals, ">=")         \
+    __ENUMERATE_OPERATOR_TOKEN(EqualsEquals, "==")         \
+    __ENUMERATE_OPERATOR_TOKEN(ExclEquals, "!=")           \
+    __ENUMERATE_OPERATOR_TOKEN(ColonEquals, ":=")          \
+    __ENUMERATE_OPERATOR_TOKEN(Arrow, "->")                \
+    __ENUMERATE_OPERATOR_TOKEN(And, "and")                 \
     __ENUMERATE_OPERATOR_TOKEN(Or, "or")
 
 #define ENUMERATE_KEYWORD_TOKENS()                  \

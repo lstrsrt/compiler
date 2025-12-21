@@ -371,15 +371,73 @@ Ast *parse_cast_expr(Compiler &cc, AllowVarDecl allow_var_decl)
     return expr;
 }
 
+AstBinary *parse_assign_by(Compiler &, const Token &operation_token, Ast *lhs, Ast *rhs)
+{
+    using enum TokenKind;
+
+    auto *binary = new AstBinary(Operation::Assign, lhs, rhs, operation_token.location);
+
+    Operation operation;
+
+    switch (operation_token.kind) {
+        case PlusEquals:
+            operation = Operation::Add;
+            break;
+        case MinusEquals:
+            operation = Operation::Subtract;
+            break;
+        case StarEquals:
+            operation = Operation::Multiply;
+            break;
+        case SlashEquals:
+            operation = Operation::Divide;
+            break;
+        case PercentEquals:
+            operation = Operation::Modulo;
+            break;
+        case AmpersandEquals:
+            operation = Operation::And;
+            break;
+        case BarEquals:
+            operation = Operation::Or;
+            break;
+        case CaretEquals:
+            operation = Operation::Xor;
+            break;
+        case DoubleLAngleEquals:
+            operation = Operation::LeftShift;
+            break;
+        case TripleLAngleEquals:
+            operation = Operation::LeftRotate;
+            break;
+        case DoubleRAngleEquals:
+            operation = Operation::RightShift;
+            break;
+        case TripleRAngleEquals:
+            operation = Operation::RightRotate;
+            break;
+        default:
+            TODO();
+    }
+
+    binary->right = new AstBinary(operation, lhs, rhs, operation_token.location);
+    return binary;
+}
+
 AstBinary *parse_binary(Compiler &cc, const Token &operation_token, Ast *lhs, Ast *rhs)
 {
+    using enum TokenKind;
+
     if (!lhs || !rhs) {
         const char *side = lhs ? "right-hand" : "left-hand";
         parser_error(operation_token.location, "binary operation missing {} operand", side);
     }
 
+    if (operation_token.kind >= PlusEquals && operation_token.kind <= TripleRAngleEquals) {
+        return parse_assign_by(cc, operation_token, lhs, rhs);
+    }
+
     Operation operation = Operation::None;
-    using enum TokenKind;
 
     switch (operation_token.kind) {
         case Plus:
@@ -702,7 +760,7 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
     } else if (expr->operation == Operation::VariableDecl) {
         current_scope->add_variable(cc, static_cast<AstVariableDecl *>(expr));
     }
-    AstBlock *body = parse_block(cc, current_function);
+    auto *body = parse_block(cc, current_function);
 
     Ast *else_ = nullptr;
     auto token = lex(cc);

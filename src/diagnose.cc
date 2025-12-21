@@ -20,7 +20,7 @@ void print_line(std::string_view source, SourceLocation location)
 
 std::string make_printable(char c)
 {
-    if (std::isgraph(static_cast<unsigned char>(c))) {
+    if (is_graph(c)) {
         return std::string(1, c);
     }
 

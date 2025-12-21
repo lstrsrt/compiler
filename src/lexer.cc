@@ -93,8 +93,10 @@ Token lex_number(Compiler &cc)
         SourceLocation::with_lexer(lexer, static_cast<uint32_t>(count)));
 }
 
-const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
+const char *lex_operator_impl(Compiler &cc, TokenKind &kind)
 {
+    auto &lexer = cc.lexer;
+
     using enum TokenKind;
     const auto c = lexer.get();
     const auto c2 = lexer.get(1);
@@ -115,28 +117,68 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
             case ':':
                 kind = ColonEquals;
                 return ":=";
+            case '+':
+                kind = PlusEquals;
+                return "+=";
+            case '-':
+                kind = MinusEquals;
+                return "-=";
+            case '*':
+                kind = StarEquals;
+                return "*=";
+            case '/':
+                kind = SlashEquals;
+                return "/=";
+            case '%':
+                kind = PercentEquals;
+                return "%=";
+            case '&':
+                kind = AmpersandEquals;
+                return "&=";
+            case '|':
+                kind = BarEquals;
+                return "|=";
+            case '^':
+                kind = CaretEquals;
+                return "^=";
         }
     } else if (c2 == '>') {
         if (c == '-') {
             kind = Arrow;
             return "->";
         }
-        const auto c3 = lexer.get(2);
-        if (c3 == '>' && c == '>') {
-            kind = TripleRAngle;
-            return ">>>";
-        }
         if (c == '>') {
+            const auto c3 = lexer.get(2);
+            if (c3 == '>') {
+                if (lexer.get(3) == '=') {
+                    kind = TripleRAngleEquals;
+                    return ">>>=";
+                }
+                kind = TripleRAngle;
+                return ">>>";
+            }
+            if (c3 == '=') {
+                kind = DoubleRAngleEquals;
+                return ">>=";
+            }
             kind = DoubleRAngle;
             return ">>";
         }
     } else if (c2 == '<') {
-        const auto c3 = lexer.get(2);
-        if (c3 == '<' && c == '<') {
-            kind = TripleLAngle;
-            return "<<<";
-        }
         if (c == '<') {
+            const auto c3 = lexer.get(2);
+            if (c3 == '<') {
+                if (lexer.get(3) == '=') {
+                    kind = TripleLAngleEquals;
+                    return "<<<=";
+                }
+                kind = TripleLAngle;
+                return "<<<";
+            }
+            if (c3 == '=') {
+                kind = DoubleLAngleEquals;
+                return "<<=";
+            }
             kind = DoubleLAngle;
             return "<<";
         }
@@ -214,17 +256,19 @@ const char *lex_operator_impl(Lexer &lexer, TokenKind &kind)
                 return "~";
         }
     }
-    assert(!"lex_operator unhandled operator");
+    auto location = lexer.location();
+    location.end += lexer.count_while(is_graph);
+    diag::lexer_error(cc, location, "unknown operator");
     return "";
 }
 
-Token lex_operator(Lexer &lexer)
+Token lex_operator(Compiler &cc)
 {
     TokenKind kind;
-    std::string_view str = lex_operator_impl(lexer, kind);
-    auto location = SourceLocation::with_lexer(lexer, str.size());
+    std::string_view str = lex_operator_impl(cc, kind);
+    auto location = SourceLocation::with_lexer(cc.lexer, str.size());
     if (kind == TokenKind::LBrace) {
-        lexer.last_lbrace.push(location);
+        cc.lexer.last_lbrace.push(location);
     }
     return Token::make_operator(str, kind, location);
 }
@@ -532,7 +576,7 @@ Token lex_impl(Compiler &cc)
         return lex_string(cc);
     }
     if (is_start_of_operator(c)) {
-        return lex_operator(lexer);
+        return lex_operator(cc);
     }
     if (is_start_of_identifier(c)) {
         return lex_identifier_or_keyword(cc);
