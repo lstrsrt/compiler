@@ -594,6 +594,58 @@ bool is_commutative_operation(Operation op)
     }
 }
 
+bool exprs_identical(Ast *, Ast *, CheckSideEffects);
+
+Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *left, Ast *right, Type *expected)
+{
+    if (has_side_effects(left) || has_side_effects(right)) {
+        return binary;
+    }
+
+    bool left_negate = left->operation == Operation::Negate;
+    bool right_negate = right->operation == Operation::Negate;
+    auto *&negated = left_negate ? binary->left : binary->right;
+    auto *&other = left_negate ? binary->right : binary->left;
+
+    if (binary->operation == Operation::Add) {
+        if (left_negate != right_negate) {
+            if (exprs_identical(negated, other, CheckSideEffects::No)) {
+                // x + -x  or  -x + x  --> 0
+                return new AstLiteral(expected, 0, binary->location);
+            }
+            // x + -y  or  -y + x  --> x - y
+            binary->operation = Operation::Subtract;
+            if (negated == binary->left) {
+                std::swap(binary->left, binary->right);
+                binary->right = static_cast<AstNegate *>(binary->right)->operand;
+            } else {
+                negated = static_cast<AstNegate *>(negated)->operand;
+            }
+        } else if (left_negate && right_negate) {
+            // -x + -x  --> -(x + x)
+            // -x + -y  --> -(x + y)
+            negated = static_cast<AstNegate *>(negated)->operand;
+            other = static_cast<AstNegate *>(other)->operand;
+            return new AstUnary(Operation::Negate, binary, binary->location);
+        }
+    } else if (binary->operation == Operation::Subtract) {
+        if (left_negate && right_negate) {
+            if (exprs_identical(negated, other, CheckSideEffects::No)) {
+                // -x - -x  --> 0
+                return new AstLiteral(expected, 0, binary->location);
+            }
+            // -x - -y  --> -x + y
+            binary->operation = Operation::Add;
+            binary->right = static_cast<AstNegate *>(right)->operand;
+        } else if (right_negate && !left_negate) {
+            // x - -x  --> x + x
+            binary->operation = Operation::Add;
+            binary->right = static_cast<AstNegate *>(right)->operand;
+        }
+    }
+    return binary;
+}
+
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)
 {
     // Figure out which parts of the expression are constant.
@@ -602,6 +654,10 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
     bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
     bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
     if (!left_is_const && !right_is_const) {
+        // We can still try to do some simplifcations on binary ops with negation.
+        if (left->operation == Operation::Negate || right->operation == Operation::Negate) {
+            return try_simplify_binary_with_negate(binary, left, right, expected);
+        }
         return binary;
     }
 
