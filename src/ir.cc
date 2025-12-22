@@ -756,21 +756,33 @@ void generate_ir_for(Compiler &cc, Ast *ast)
     auto *ir_fn = cc.ir_builder.current_function;
     auto *for_stmt = static_cast<AstFor *>(ast);
 
-    generate_ir_var_decl(cc, for_stmt->var_decl);
+    if (for_stmt->var_decl) {
+        generate_ir_var_decl(cc, for_stmt->var_decl);
+    }
+
     auto *cmp_block = add_fallthrough_block(ir_fn, get_current_block(ir_fn));
     cmp_block->sealed = false;
-    cc.ir_builder.while_cmp_block = cmp_block;
     auto *true_block = new_block();
     auto *after_block = new_block();
     cc.ir_builder.while_after_block = after_block;
+    cc.ir_builder.while_cmp_block = cmp_block;
+
     ir_fn->current_block = cmp_block;
-    generate_ir_cond_branch(cc, for_stmt->cmp, true_block, after_block);
+    if (for_stmt->cmp) {
+        generate_ir_cond_branch(cc, for_stmt->cmp, true_block, after_block);
+    } else {
+        generate_ir_branch(cc, true_block);
+    }
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
     generate_ir_impl(cc, for_stmt->body);
-    generate_ir_binary(cc, for_stmt->change);
-    generate_ir_branch(cc, cmp_block);
+    if (for_stmt->change) {
+        generate_ir_binary(cc, for_stmt->change);
+    }
+    if (cmp_block) {
+        generate_ir_branch(cc, cmp_block);
+    }
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;

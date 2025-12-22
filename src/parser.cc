@@ -18,9 +18,8 @@ enum class Associativity {
 using Precedence = int;
 
 namespace prec {
-constexpr Precedence Comma = 1, Assignment = 2, ExplicitCast = 3, LogicalOr = 4, LogicalAnd = 5,
-                     Comparison = 6, Bitwise = 7, AdditiveArithmetic = 8,
-                     MultiplicativeArithmetic = 9, Unary = 10;
+constexpr Precedence Comma = 1, Assignment = 2, LogicalOr = 3, LogicalAnd = 4, Comparison = 5,
+                     Bitwise = 6, AdditiveArithmetic = 7, MultiplicativeArithmetic = 8, Unary = 9;
 constexpr Precedence Lowest = Comma, Highest = Unary;
 } // namespace prec
 
@@ -62,8 +61,6 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
             return { prec::LogicalAnd, Associativity::Left };
         case Or:
             return { prec::LogicalOr, Associativity::Left };
-        case As:
-            return { prec::ExplicitCast, Associativity::Right };
         case ColonEquals:
         case Equals:
             return { prec::Assignment, Associativity::Right };
@@ -535,7 +532,8 @@ Ast *parse_expr(Compiler &cc, AllowVarDecl allow_var_decl, Precedence min_preced
             break;
         }
         if (token.kind == TokenKind::RParen || token.kind == TokenKind::LBrace
-            || token.kind == TokenKind::RBrace || token.kind == TokenKind::DotDot) {
+            || token.kind == TokenKind::RBrace || token.kind == TokenKind::Comma
+            || token.kind == TokenKind::DotDot) {
             break;
         }
 
@@ -801,24 +799,21 @@ AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
     return while_stmt;
 }
 
-AstFor *parse_for(Compiler &cc, AstFunction *current_function, const SourceLocation &location)
+AstFor *parse_for_in(Compiler &cc, AstFunction *current_function, Token &token, Token &next_token,
+    const SourceLocation &location)
 {
-    AutoScope auto_scope;
-
     // i(: int_type)
-    auto token = parse_identifier(cc);
     auto var_name = token.string;
     auto var_location = token.location;
-    token = lex(cc); // : or in
     auto *type = unresolved_type();
-    if (token.kind == TokenKind::Colon) {
-        consume(cc.lexer, token);
+    if (next_token.kind == TokenKind::Colon) {
+        consume(cc.lexer, next_token);
         type = parse_type(cc);
-        token = lex(cc);
+        next_token = lex(cc);
     }
 
     // x..{<,=}y
-    consume_expected(cc, TokenKind::In, token);
+    consume_expected(cc, TokenKind::In, next_token);
     auto *start = parse_expr(cc);
     token = lex(cc);
     consume_expected(cc, TokenKind::DotDot, token);
@@ -835,19 +830,63 @@ AstFor *parse_for(Compiler &cc, AstFunction *current_function, const SourceLocat
     consume(cc.lexer, token);
     auto *end = parse_expr(cc);
 
-    auto *var_decl = new AstVariableDecl(type, var_name, nullptr, var_location);
+    auto *var_decl = new AstVariableDecl(type, var_name, start, var_location);
     auto *ident = new AstIdentifier(var_name, &var_decl->var, var_location);
-    var_decl->init_expr = start;
     current_scope->add_variable(cc, var_decl);
 
     auto *cmp = new AstBinary(operation, ident, end, end->location);
+    // TODO: use the var type instead of s32?
     auto *change = new AstBinary(
         Operation::Add, ident, new AstLiteral(s32_type(), 1, end->location), end->location);
     change = new AstBinary(Operation::Assign, ident, change, change->location);
 
     auto *for_stmt = new AstFor(var_decl, ident, end, cmp, change, location);
 
-    auto_scope.enter_new();
+    cc.parse_state.current_loop = for_stmt;
+    for_stmt->body = parse_block(cc, current_function);
+    cc.parse_state.current_loop = nullptr;
+    return for_stmt;
+}
+
+AstFor *parse_for(Compiler &cc, AstFunction *current_function, const SourceLocation &location)
+{
+    AutoScope auto_scope;
+
+    AstVariableDecl *var_decl = nullptr;
+    AstIdentifier *ident = nullptr;
+    auto token = lex(cc);
+    if (is_group(token.kind, TokenKind::GroupIdentifier)) {
+        var_decl = parse_var_decl(cc);
+        if (!var_decl) {
+            auto next_token = lex(cc);
+            if (next_token.kind == TokenKind::In) {
+                return parse_for_in(cc, current_function, token, next_token, location);
+            }
+            parser_error(location, "invalid for loop");
+        }
+        current_scope->add_variable(cc, var_decl);
+        ident = new AstIdentifier(var_decl->var.name, &var_decl->var, var_decl->location);
+    }
+
+    // C-style loop:
+    // (var_decl), (cond), (change)
+    consume_expected(cc, TokenKind::Comma, lex(cc));
+
+    token = lex(cc);
+    Ast *cond = nullptr;
+    if (token.kind != TokenKind::Comma) {
+        cond = parse_expr(cc);
+    }
+    consume_expected(cc, TokenKind::Comma, lex(cc));
+
+    token = lex(cc);
+    Ast *change = nullptr;
+    if (token.kind != TokenKind::LBrace) {
+        change = parse_expr(cc);
+    }
+
+    auto *for_stmt = new AstFor(var_decl, ident, nullptr, cond, change, location);
+
     cc.parse_state.current_loop = for_stmt;
     for_stmt->body = parse_block(cc, current_function);
     cc.parse_state.current_loop = nullptr;

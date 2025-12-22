@@ -1672,7 +1672,7 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
     }
 }
 
-void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
+void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *for_stmt = static_cast<AstFor *>(ast);
 
@@ -1685,7 +1685,10 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
     }
 
     verify_comparison(cc, for_stmt->cmp, WarnDiscardedReturn::No);
-    verify_expr(cc, for_stmt->end, WarnDiscardedReturn::No, var->type);
+    if (for_stmt->end) {
+        verify_expr(cc, for_stmt->end, WarnDiscardedReturn::No, var->type);
+    }
+    verify_expr(cc, for_stmt->change, WarnDiscardedReturn::No);
 
     auto *start = for_stmt->var_decl->init_expr;
     auto *end = static_cast<AstBinary *>(for_stmt->cmp)->right;
@@ -1696,6 +1699,37 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
             || (eq == std::strong_ordering::equal && for_stmt->cmp->operation == Operation::Less)) {
             verification_error(for_stmt->cmp, "invalid range");
         }
+    }
+
+    verify_ast(cc, for_stmt->body, current_function);
+}
+
+void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
+{
+    auto *for_stmt = static_cast<AstFor *>(ast);
+
+    if (for_stmt->end) {
+        // This is a for-in loop.
+        verify_for_in(cc, ast, current_function);
+        return;
+    }
+
+    if (for_stmt->var_decl) {
+        verify_var_decl(cc, for_stmt->var_decl);
+        auto *var = &for_stmt->var_decl->var;
+        auto *expected = get_unaliased_type(var->type);
+        if (!expected->is_int()) {
+            verification_type_error(
+                for_stmt->var_decl->location, "range variable must be of an integer-like type");
+        }
+    }
+
+    if (for_stmt->cmp) {
+        verify_expr(cc, for_stmt->cmp, WarnDiscardedReturn::No, bool_type());
+    }
+
+    if (for_stmt->change) {
+        verify_expr(cc, for_stmt->change, WarnDiscardedReturn::No);
     }
 
     verify_ast(cc, for_stmt->body, current_function);
