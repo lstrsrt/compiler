@@ -325,7 +325,7 @@ Token lex_string(Compiler &cc)
 {
     Lexer &lexer = cc.lexer;
     auto loc = lexer.location();
-    auto str = std::make_unique<std::string>();
+    auto *str = new std::string;
     for (size_t i = 1; !lexer.out_of_bounds(i); ++i) {
         char c = lexer.get(i);
         if (c == '\\') {
@@ -365,14 +365,22 @@ Token lex_string(Compiler &cc)
                 case '"':
                     str->push_back('\"');
                     break;
-                default:
-                    // TODO - show warning
-                    break;
+                default: {
+                    loc.column += i;
+                    loc.end = loc.column + 10;
+                    diag::warning_at(cc, loc, "unknown escape sequence `\\{}`",
+                        diag::make_printable(lexer.get(i + 1)));
+                    str->push_back(lexer.get(i + 1));
+                }
             }
             ++i;
         } else if (c == '"') {
-            return Token::make_string(
-                std::move(str), i + 1, SourceLocation::with_lexer(lexer, i + 1));
+            return Token::make_string(str, i + 1, SourceLocation::with_lexer(lexer, i + 1));
+        } else if (c == '\r' || c == '\n') {
+            // Multiline string, skip the newline.
+        } else if (!is_graph(c) || !is_space(c)) {
+            diag::warning_at(cc, loc, "non-printable character {}", diag::make_printable(c));
+            str->push_back(c);
         } else {
             str->push_back(c);
         }

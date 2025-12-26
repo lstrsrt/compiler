@@ -178,11 +178,10 @@ struct Token {
     {
     }
 
-    explicit constexpr Token(
-        std::unique_ptr<std::string> _string, size_t _length, SourceLocation _location)
+    explicit constexpr Token(std::string *_string, size_t _length, SourceLocation _location)
         : kind(TokenKind::GroupString)
         , location(_location)
-        , real_string(std::move(_string))
+        , real_string(_string)
         , real_length(_length)
     {
     }
@@ -203,9 +202,9 @@ struct Token {
     }
 
     static constexpr Token make_string(
-        std::unique_ptr<std::string> _string, size_t length, SourceLocation _location)
+        std::string *_string, size_t length, SourceLocation _location)
     {
-        return Token(std::move(_string), length, _location);
+        return Token(_string, length, _location);
     }
 
     static constexpr Token make_operator(
@@ -230,7 +229,7 @@ struct Token {
     SourceLocation location{};
 
     // For strings
-    std::shared_ptr<std::string> real_string;
+    std::string *real_string = nullptr;
     size_t real_length{};
 };
 
