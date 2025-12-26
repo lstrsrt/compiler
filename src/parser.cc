@@ -33,13 +33,16 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
     using enum TokenKind;
     switch (kind) {
         case Excl:
+            [[fallthrough]];
         case Tilde:
             return { prec::Unary, Associativity::Right };
         case Star:
         case Slash:
+            [[fallthrough]];
         case Percent:
             return { prec::MultiplicativeArithmetic, Associativity::Left };
         case Plus:
+            [[fallthrough]];
         case Minus:
             return { prec::AdditiveArithmetic, Associativity::Left };
         case Bar:
@@ -48,6 +51,7 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
         case DoubleLAngle:
         case TripleLAngle:
         case DoubleRAngle:
+            [[fallthrough]];
         case TripleRAngle:
             return { prec::Bitwise, Associativity::Left };
         case EqualsEquals:
@@ -55,6 +59,7 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
         case LAngle:
         case LAngleEquals:
         case RAngle:
+            [[fallthrough]];
         case RAngleEquals:
             return { prec::Comparison, Associativity::Left };
         case And:
@@ -63,6 +68,19 @@ OperatorInfo get_binary_operator_info(TokenKind kind)
             return { prec::LogicalOr, Associativity::Left };
         case ColonEquals:
         case Equals:
+        case PlusEquals:
+        case MinusEquals:
+        case StarEquals:
+        case SlashEquals:
+        case PercentEquals:
+        case AmpersandEquals:
+        case BarEquals:
+        case CaretEquals:
+        case DoubleLAngleEquals:
+        case TripleLAngleEquals:
+        case DoubleRAngleEquals:
+            [[fallthrough]];
+        case TripleRAngleEquals:
             return { prec::Assignment, Associativity::Right };
         case Comma:
             return { prec::Comma, Associativity::Left };
@@ -298,6 +316,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             consume_expected(cc, TokenKind::RParen, lex(cc));
             return call;
         }
+
         if (next_token.kind == TokenKind::DoubleColon) {
             consume(cc.lexer, next_token);
             auto *type = find_type(current_scope, token.string);
@@ -318,12 +337,14 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             parser_error(token.location, "enumerator `{}` is not a member of enum `{}`",
                 token.string, enum_decl->name);
         }
+
         auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (!var_decl && !cc.parse_state.in_call) {
             undo_lex(cc.lexer, undo);
             parser_error(
                 token.location, "variable `{}` is not declared in this scope", token.string);
         }
+
         // If !var_decl and we're here, we are parsing a function argument, which
         // may be unresolved forever (if it's a named function parameter or simply invalid).
         return new AstIdentifier(
@@ -372,7 +393,7 @@ AstBinary *parse_assign_by(Compiler &, const Token &operation_token, Ast *lhs, A
 {
     using enum TokenKind;
 
-    auto *binary = new AstBinary(Operation::Assign, lhs, rhs, operation_token.location);
+    auto *binary = new AstBinary(Operation::Assign, lhs, nullptr, operation_token.location);
 
     Operation operation;
 
