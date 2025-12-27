@@ -1,0 +1,4 @@
+enum Color(s64) {
+    Red = 123,
+}
+x := Color::Red
