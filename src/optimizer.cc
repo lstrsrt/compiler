@@ -63,8 +63,6 @@ Ast *partial_fold_commutative(
 
 Ast *try_fold_identities(AstBinary *binary, Ast *constant_ast, Ast *variable_ast, uint64_t constant)
 {
-    bool has_side_effects(Ast *);
-
     auto maybe_return_constant_if = [&](uint64_t cmp) -> Ast * {
         if (cmp == constant && !has_side_effects(variable_ast)) {
             delete variable_ast;
@@ -609,7 +607,8 @@ Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *left, Ast *right, T
 
     if (binary->operation == Operation::Add) {
         if (left_negate != right_negate) {
-            if (exprs_identical(negated, other, CheckSideEffects::No)) {
+            if (exprs_identical(
+                    static_cast<AstUnary *>(negated)->operand, other, CheckSideEffects::No)) {
                 // x + -x  or  -x + x  --> 0
                 return new AstLiteral(expected, 0, binary->location);
             }
@@ -651,13 +650,19 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
     // Figure out which parts of the expression are constant.
     auto *left = try_constant_fold(cc, binary->left, expected, overridable);
     auto *right = try_constant_fold(cc, binary->right, expected, overridable);
+
+    // We can do some simplifications on binary ops with negation.
+    if (left->operation == Operation::Negate || right->operation == Operation::Negate) {
+        auto *ret = try_simplify_binary_with_negate(binary, left, right, expected);
+        if (ret->type != AstType::Binary) {
+            return ret;
+        }
+    }
+
+    left = binary->left, right = binary->right;
     bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
     bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
     if (!left_is_const && !right_is_const) {
-        // We can still try to do some simplifcations on binary ops with negation.
-        if (left->operation == Operation::Negate || right->operation == Operation::Negate) {
-            return try_simplify_binary_with_negate(binary, left, right, expected);
-        }
         return binary;
     }
 
