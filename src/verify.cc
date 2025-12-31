@@ -174,6 +174,7 @@ void flatten_binary(Ast *ast, std::vector<Ast *> &flattened)
 void insert_cast(Ast *&expr, Type *to)
 {
     expr = new AstCast(expr, to, expr->location);
+    expr->expr_type = to;
 }
 
 void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeError err)
@@ -666,11 +667,11 @@ void verify_print(Compiler &cc, Ast *ast)
         verify_arg(cc, print->args[i], type);
         if (type->is_pointer()) {
             str.replace(to_replace[i - 1], __builtin_strlen("{}"), "%p");
-        } else if (type->is_int()) {
+        } else if (type->is_integral()) {
             std::string fmt_s = [&]() {
                 switch (type->size) {
                     case 64:
-                        return type->is_unsigned() ? "%lu" : "%l";
+                        return type->is_unsigned() ? "%lu" : "%ld";
                     case 32:
                         return type->is_unsigned() ? "%u" : "%d";
                     case 16:
@@ -694,6 +695,7 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
 {
     auto *call = static_cast<AstCall *>(ast);
     auto *fn = get_callee(cc, call);
+    call->expr_type = fn->return_type;
     if (has_flag(fn->attributes, FunctionAttributes::BUILTIN_PRINT)) {
         verify_print(cc, ast);
         return;
@@ -928,6 +930,12 @@ bool has_side_effects(Ast *ast)
                 || has_side_effects(static_cast<AstBinary *>(ast)->right);
         case AstType::Unary:
             if (ast->operation == Operation::Call) {
+                // We don't see through calls yet.
+                return true;
+            }
+            if (ast->operation == Operation::AddressOf || ast->operation == Operation::Dereference
+                || ast->operation == Operation::Load || ast->operation == Operation::Store) {
+                // Same for memory operations.
                 return true;
             }
             return has_side_effects(static_cast<AstUnary *>(ast)->operand);
@@ -940,7 +948,7 @@ bool has_side_effects(Ast *ast)
 
 bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
 {
-    if (left->operation != right->operation) {
+    if (left->operation != right->operation || left->type != right->type) {
         return false;
     }
     if (check_side_effects == CheckSideEffects::Yes
@@ -1066,6 +1074,8 @@ void verify_logical_chain(Compiler &cc, Ast *&_cmp)
         // If this is not a binary, we may be dealing with something like
         // "x and 0" which always evaluates to false but is not folded since 0 is the last part of
         // the expr. So just skip it.
+        // TODO: we already know that there are no side effects...
+        // so can we just fold and exit at this point?
         if (ast->type != AstType::Binary) {
             continue;
         }
@@ -1216,6 +1226,10 @@ void verify_binary(
 {
     // TODO: operator overloading
     verify_binary_operation(cc, binary, expected);
+    if (!expected && binary->operation == Operation::Assign) {
+        ExprConstness c{};
+        expected = get_expression_type(cc, binary->left, &c);
+    }
     verify_expr(cc, binary->left, warn_discarded, expected);
     verify_expr(cc, binary->right, warn_discarded, expected);
 }
@@ -1333,29 +1347,31 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
     auto *cmp = static_cast<AstBinary *>(ast);
     ComparisonTypes c;
     get_comparison_types(cc, cmp, c);
+    auto *expected = get_unaliased_type(c.type);
 
-    if (!cmp->expr_type->is_integral()) {
+    if (!expected->is_integral()) {
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
 
-    verify_expr(cc, cmp->left, warn_discarded, cmp->expr_type);
-    verify_expr(cc, cmp->right, warn_discarded, cmp->expr_type);
+    verify_expr(cc, cmp->left, warn_discarded, expected);
+    verify_expr(cc, cmp->right, warn_discarded, expected);
 
     // verify_expr can insert casts etc so get type again
     get_comparison_types(cc, cmp, c);
+    expected = get_unaliased_type(c.type);
     bool is_left_const = expr_is_const_integral(cmp->left, IgnoreCasts::Yes);
     bool is_right_const = expr_is_const_integral(cmp->right, IgnoreCasts::Yes);
 
     if (is_left_const || is_right_const) {
         auto constant
             = Integer(is_left_const ? get_int_literal(cmp->left) : get_int_literal(cmp->right),
-                cmp->expr_type->is_signed());
-        if (auto err = is_illogical_comparison(cmp->expr_type, cmp->operation, constant);
+                expected->is_signed());
+        if (auto err = is_illogical_comparison(expected, cmp->operation, constant);
             err != ComparisonLogicError::None) {
             const char *s = err == ComparisonLogicError::AlwaysFalse ? "false" : "true";
             diag::ast_warning(cc, cmp, "comparison is always {}", s);
         } else {
-            ast = try_constant_fold(cc, cmp, cmp->expr_type, TypeOverridable::Yes);
+            ast = try_constant_fold(cc, cmp, expected, TypeOverridable::Yes);
             if (expr_is_const_integral(ast, IgnoreCasts::Yes)) {
                 diag::ast_warning(
                     cc, ast, "comparison is always {}", get_int_literal(ast) ? "true" : "false");
