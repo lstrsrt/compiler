@@ -13,7 +13,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
     using namespace colors;
 
     Timer timer;
-    cc.initialize();
+    cc.initialize(main);
 
     bool testing = opts.testing;
 
@@ -95,9 +95,9 @@ void compiler_main(Compiler &cc, AstFunction *main)
     }
 }
 
-void Compiler::initialize()
+void Compiler::initialize(AstFunction *main)
 {
-    enter_new_scope();
+    enter_new_scope(main);
     add_default_types();
 }
 

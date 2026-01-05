@@ -14,7 +14,7 @@ struct Compiler {
     IRBuilder ir_builder;
     TestMode test_mode;
 
-    void initialize();
+    void initialize(AstFunction *main);
     void add_default_types();
     void cleanup(AstFunction *root);
 };

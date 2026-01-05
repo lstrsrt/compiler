@@ -339,6 +339,11 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         }
 
         auto *var_decl = find_variable(current_scope, std::string(token.string));
+        if (var_decl && var_decl->scope->function != current_scope->function) {
+            undo_lex(cc.lexer, undo);
+            parser_error(token.location,
+                "capturing variable `{}` in nested function is not allowed", token.string);
+        }
         if (!var_decl && !cc.parse_state.in_call) {
             undo_lex(cc.lexer, undo);
             parser_error(
@@ -643,7 +648,7 @@ void expect_rbrace(Compiler &cc)
 
 AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
 {
-    AutoScope auto_scope;
+    AutoScope auto_scope(current_function);
 
     // TODO: keep track of the last token so we don't have to call lex again
     consume_expected(cc, TokenKind::LBrace, lex(cc));
@@ -687,14 +692,16 @@ AstFunction *parse_function(Compiler &cc)
     consume_expected(cc, TokenKind::LParen, lex(cc));
     token = lex(cc); // `)` or identifier
 
-    // Function parameters already belong to new scope
-    AutoScope auto_scope;
-
 #ifdef AST_USE_ARENA
     VariableDecls params(ast_vec_allocator());
 #else
     VariableDecls params;
 #endif
+
+    // Function parameters already belong to new scope
+    // HACK: we have to declare `function` later so pass nullptr here.
+    AutoScope auto_scope(nullptr);
+
     if (token.kind != TokenKind::RParen) {
         // TODO - let's not allow init exprs for now... maybe this will change
         int idx = 0;
@@ -726,6 +733,8 @@ AstFunction *parse_function(Compiler &cc)
     }
 
     auto *function = new AstFunction(name, ret_type, params, {}, location);
+    // HACK: see above
+    current_scope->function = function;
 
     if (token.kind == TokenKind::Hash) {
         consume(cc.lexer, token);
@@ -799,7 +808,7 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
 
 AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
 {
-    AutoScope auto_scope;
+    AutoScope auto_scope(current_function);
 
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
@@ -812,7 +821,7 @@ AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
     }
 
     auto *while_stmt = new AstWhile(expr, loc);
-    auto_scope.enter_new();
+    auto_scope.enter_new(current_function);
     cc.parse_state.current_loop = while_stmt;
     while_stmt->body = parse_block(cc, current_function);
     cc.parse_state.current_loop = nullptr;
@@ -871,7 +880,7 @@ AstFor *parse_for_in(Compiler &cc, AstFunction *current_function, Token &token, 
 
 AstFor *parse_for(Compiler &cc, AstFunction *current_function, const SourceLocation &location)
 {
-    AutoScope auto_scope;
+    AutoScope auto_scope(current_function);
 
     AstVariableDecl *var_decl = nullptr;
     AstIdentifier *ident = nullptr;

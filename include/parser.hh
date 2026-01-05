@@ -649,12 +649,14 @@ void free_ast(std::vector<Ast *> &);
 
 struct Scope {
     Scope *parent;
+    AstFunction *function;
     std::unordered_map<std::string_view, Type *> types;
     std::unordered_map<std::string_view, AstFunction *> functions;
     std::unordered_map<std::string, AstVariableDecl *> variables;
 
-    explicit Scope(Scope *_parent)
+    explicit Scope(Scope *_parent, AstFunction *_function)
         : parent(_parent)
+        , function(_function)
     {
     }
 
@@ -666,9 +668,9 @@ struct Scope {
 
 inline std::vector<Scope *> g_scopes;
 
-inline void enter_new_scope()
+inline void enter_new_scope(AstFunction *function)
 {
-    g_scopes.emplace_back(new Scope(current_scope));
+    g_scopes.emplace_back(new Scope(current_scope, function));
     current_scope = g_scopes.back();
 }
 
@@ -680,12 +682,12 @@ inline void leave_scope()
 }
 
 struct AutoScope {
-    explicit AutoScope() { enter_new(); }
+    explicit AutoScope(AstFunction *main) { enter_new(main); }
 
-    void enter_new()
+    void enter_new(AstFunction *function)
     {
         ++count;
-        enter_new_scope();
+        enter_new_scope(function);
     }
 
     AutoScope(AutoScope &) = delete;
