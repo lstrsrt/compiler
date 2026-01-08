@@ -1,0 +1,10 @@
+#{returns(55)}
+x := 0
+for i := 0, , i += 1 {
+    x += i
+    if i == 10 {
+        break
+    }
+}
+y := x
+return y
