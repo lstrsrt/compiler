@@ -13,6 +13,7 @@ struct Compiler {
     ParseState parse_state;
     IRBuilder ir_builder;
     TestMode test_mode;
+    Ast *current_function = nullptr;
 
     void initialize(AstFunction *main);
     void add_default_types();

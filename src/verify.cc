@@ -773,8 +773,12 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
                 cc, call, "discarded return value for non-void function call `{}`", fn->name);
         }
     }
-    // FIXME: not entirely accurate (e.g. recursive calls)
-    ++fn->call_count;
+    if (fn == cc.current_function) {
+        // call_count is for calls from other places, don't increment it here.
+        fn->flags |= AstFlags::RECURSIVE;
+    } else {
+        ++fn->call_count;
+    }
 }
 
 void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
@@ -1677,7 +1681,6 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
         auto *&ast = if_stmt->expr;
         convert_expr_to_boolean(cc, ast);
         verify_expr(cc, ast, WarnDiscardedReturn::No, bool_type());
-        // FIXME: we can also have logical chains in assigns/decls...
         if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, ast);
         }
@@ -1795,7 +1798,10 @@ void verify_function_decl(Compiler &cc, Ast *ast)
     for (auto &param : fn->params) {
         resolve_type(cc, fn->scope, param->var.type);
     }
+    auto *last = cc.current_function;
+    cc.current_function = fn;
     verify_ast(cc, fn->body, fn);
+    cc.current_function = last;
 }
 
 TypeError const_int_compatible_with_underlying(Type *type, Type *underlying, Ast *expr)

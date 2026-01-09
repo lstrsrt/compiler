@@ -101,6 +101,8 @@ enum_flags(AstFlags, uint64_t){
     FOLDED = 1 << 0,
     // Tell the typechecker that this tree can mix integers and pointers in operations.
     PTR_ARITH = 1 << 1,
+    // This is a function that directly calls itself.
+    RECURSIVE = 1 << 2,
 };
 
 constexpr uint64_t KiB(uint64_t bytes)
