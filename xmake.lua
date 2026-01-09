@@ -27,6 +27,9 @@ target("compiler")
         end
     else -- release
         add_defines("NDEBUG")
+        add_cxxflags("-march=native")
         set_optimize("faster")
+        set_symbols("debug")
+        set_strip("none")
         set_targetdir("build/release")
     end
