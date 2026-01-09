@@ -651,6 +651,7 @@ AstBlock *parse_block(Compiler &cc, AstFunction *current_function)
     AutoScope auto_scope(current_function);
 
     // TODO: keep track of the last token so we don't have to call lex again
+    cc.lexer.ignore_newlines = true;
     consume_expected(cc, TokenKind::LBrace, lex(cc));
     cc.lexer.ignore_newlines = false;
     consume_newline_or_eof(cc, lex(cc));
@@ -1247,8 +1248,7 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             return var_decl;
         }
     } else if (token.kind == TokenKind::LBrace) {
-        auto *block = parse_block(cc, current_function);
-        return block;
+        return parse_block(cc, current_function);
     }
 
     if (is_group(token.kind, TokenKind::GroupEmpty)) {
