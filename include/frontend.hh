@@ -12,6 +12,7 @@ struct Options {
     bool testing = false;
     bool check_only = false;
     bool full_compile = false;
+    bool ssa = true;
     std::string output_name;
     std::string output_exe_name;
 };

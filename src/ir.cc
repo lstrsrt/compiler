@@ -466,17 +466,17 @@ BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
 
 void generate_ir_break(Compiler &cc, Ast *)
 {
-    assert(cc.ir_builder.while_after_block && "not in while");
+    assert(cc.ir_builder.loop_merge_block && "not in loop");
     auto *ir_fn = cc.ir_builder.current_function;
-    generate_ir_branch(cc, cc.ir_builder.while_after_block);
+    generate_ir_branch(cc, cc.ir_builder.loop_merge_block);
     ir_fn->current_block = add_block(ir_fn);
 }
 
 void generate_ir_continue(Compiler &cc, Ast *)
 {
-    assert(cc.ir_builder.while_cmp_block && "not in while");
+    assert(cc.ir_builder.loop_cmp_block && "not in loop");
     auto *ir_fn = cc.ir_builder.current_function;
-    generate_ir_branch(cc, cc.ir_builder.while_cmp_block);
+    generate_ir_branch(cc, cc.ir_builder.loop_cmp_block);
     ir_fn->current_block = add_block(ir_fn);
 }
 
@@ -663,7 +663,7 @@ void transform_params(BasicBlock *first_block, const VariableDecls &decls)
 
 void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *> &unsealed_blocks)
 {
-    auto replacable = [](const IRArg &arg) {
+    auto replaceable = [](const IRArg &arg) {
         return arg.arg_type == IRArgType::Variable || arg.arg_type == IRArgType::Parameter;
     };
     auto try_replace = [&ir_fn, bb](IRArg &arg, [[maybe_unused]] const char *s) {
@@ -674,18 +674,19 @@ void transform_block(IRFunction &ir_fn, BasicBlock *bb, std::vector<BasicBlock *
     for (auto it = bb->code.begin(); it != bb->code.end();) {
         auto *insn = *it;
         if (insn->operation != Operation::Assign) {
-            if (!insn->operands.empty() && replacable(insn->get_left())) {
+            if (!insn->operands.empty() && replaceable(insn->get_left())) {
                 try_replace(insn->get_left(), "LVar");
             }
-            if (size(insn->operands) > 1 && replacable(insn->get_right())) {
+            if (size(insn->operands) > 1 && replaceable(insn->get_right())) {
                 try_replace(insn->get_right(), "RVar");
             }
-        } else if (!insn->operands.empty() && replacable(insn->get_left())) {
+        } else if (!insn->operands.empty() && replaceable(insn->get_left())) {
             if (insn->get_right().arg_type == IRArgType::Constant) {
+                ssa_dbgln("write_variable");
                 write_variable(insn->get_left().u.any, bb, insn->get_right());
             }
 
-            if (size(insn->operands) > 1 && replacable(insn->get_right())) {
+            if (size(insn->operands) > 1 && replaceable(insn->get_right())) {
                 insn->get_right() = read_variable(ir_fn, insn->get_right().u.any, bb);
             }
             auto *var = insn->get_left().u.variable;
@@ -764,8 +765,8 @@ void generate_ir_for(Compiler &cc, Ast *ast)
     cmp_block->sealed = false;
     auto *true_block = new_block();
     auto *after_block = new_block();
-    cc.ir_builder.while_after_block = after_block;
-    cc.ir_builder.while_cmp_block = cmp_block;
+    cc.ir_builder.loop_merge_block = after_block;
+    cc.ir_builder.loop_cmp_block = cmp_block;
 
     ir_fn->current_block = cmp_block;
     if (for_stmt->cmp) {
@@ -786,8 +787,8 @@ void generate_ir_for(Compiler &cc, Ast *ast)
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
-    cc.ir_builder.while_cmp_block = nullptr;
-    cc.ir_builder.while_after_block = nullptr;
+    cc.ir_builder.loop_cmp_block = nullptr;
+    cc.ir_builder.loop_merge_block = nullptr;
 }
 
 void generate_ir_while(Compiler &cc, Ast *ast)
@@ -797,10 +798,10 @@ void generate_ir_while(Compiler &cc, Ast *ast)
 
     auto *cmp_block = add_fallthrough_block(ir_fn, get_current_block(ir_fn));
     cmp_block->sealed = false;
-    cc.ir_builder.while_cmp_block = cmp_block;
+    cc.ir_builder.loop_cmp_block = cmp_block;
     auto *true_block = new_block();
     auto *after_block = new_block();
-    cc.ir_builder.while_after_block = after_block;
+    cc.ir_builder.loop_merge_block = after_block;
     ir_fn->current_block = cmp_block;
     generate_ir_condition(cc, while_stmt->expr, true_block, after_block);
 
@@ -811,8 +812,8 @@ void generate_ir_while(Compiler &cc, Ast *ast)
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
-    cc.ir_builder.while_cmp_block = nullptr;
-    cc.ir_builder.while_after_block = nullptr;
+    cc.ir_builder.loop_cmp_block = nullptr;
+    cc.ir_builder.loop_merge_block = nullptr;
 }
 
 IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)
@@ -1050,15 +1051,17 @@ void optimize_ir(Compiler &cc)
     }
 
     build_successor_lists(cc);
-    ssa::enter(cc);
-    ssa_dbgln("********* SSA form:");
+    if (opts.ssa) {
+        ssa::enter(cc);
+        ssa_dbgln("********* SSA form:");
 #ifdef SSA_DEBUG
-    for (const auto *fn : cc.ir_builder.functions) {
-        print_ir(stdout_file(), *fn);
-    }
+        for (const auto *fn : cc.ir_builder.functions) {
+            print_ir(stdout_file(), *fn);
+        }
 #endif
-    ssa_dbgln("********* End SSA form");
-    ssa::leave(cc);
+        ssa_dbgln("********* End SSA form");
+        ssa::leave(cc);
+    }
 
     if (!opts.testing) {
         for (auto *ir_fn : cc.ir_builder.functions) {
@@ -1093,6 +1096,6 @@ void free_ir(IRBuilder &irb)
     }
     irb.functions.clear();
     irb.current_function = nullptr;
-    irb.while_after_block = nullptr;
-    irb.while_cmp_block = nullptr;
+    irb.loop_merge_block = nullptr;
+    irb.loop_cmp_block = nullptr;
 }

@@ -10,7 +10,8 @@
                  "\t--test: run in test mode\n"
                  "\t--exe: compile to executable instead of generating assembler\n"
                  "         (requires nasm and gcc to be installed)\n"
-                 "\t-o: set output filename (default: output)");
+                 "\t-o: set output filename (default: output)\n"
+                 "\t--[no-]ssa: toggle ssa optimizations (default: on)");
     exit(errc);
 }
 
@@ -40,6 +41,12 @@ void process_cmdline(ArgumentParser &ap)
                 }
                 opts.output_name = ap.arguments[i + 1];
                 ++i;
+                break;
+            case hash("--ssa"):
+                opts.ssa = true;
+                break;
+            case hash("--no-ssa"):
+                opts.ssa = false;
                 break;
             default:
                 if (i < ap.arguments.size() - 1) {

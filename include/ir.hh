@@ -156,10 +156,7 @@ struct IR {
 
     virtual ~IR() = default;
 
-    bool has_vreg_target() const
-    {
-        return operation != Operation::PushArg && target > 0;
-    }
+    bool has_vreg_target() const { return operation != Operation::PushArg && target > 0; }
 
     IRArg &get_left()
     {
@@ -235,8 +232,8 @@ inline std::vector<std::string> string_map;
 struct IRBuilder {
     std::vector<IRFunction *> functions;
     IRFunction *current_function;
-    BasicBlock *while_cmp_block = nullptr;
-    BasicBlock *while_after_block = nullptr;
+    BasicBlock *loop_cmp_block = nullptr;
+    BasicBlock *loop_merge_block = nullptr;
 };
 
 void generate_ir(Compiler &, AstFunction *);
