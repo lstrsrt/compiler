@@ -378,7 +378,7 @@ Token lex_string(Compiler &cc)
             return Token::make_string(str, i + 1, SourceLocation::with_lexer(lexer, i + 1));
         } else if (c == '\r' || c == '\n') {
             // Multiline string, skip the newline.
-        } else if (!is_graph(c) || !is_space(c)) {
+        } else if (!is_graph(c) && !is_space(c)) {
             diag::warning_at(cc, loc, "non-printable character {}", diag::make_printable(c));
             str->push_back(c);
         } else {
