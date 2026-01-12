@@ -1694,16 +1694,9 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
 void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *for_stmt = static_cast<AstFor *>(ast);
-
-    verify_var_decl(cc, for_stmt->var_decl);
     auto *var = &for_stmt->var_decl->var;
-    auto *expected = get_unaliased_type(var->type);
-    if (!expected->is_int()) {
-        verification_type_error(
-            for_stmt->var_decl->location, "range variable must be of an integer-like type");
-    }
 
-    verify_comparison(cc, for_stmt->cmp, WarnDiscardedReturn::No);
+    verify_expr(cc, for_stmt->cmp, WarnDiscardedReturn::No, bool_type());
     if (for_stmt->end) {
         verify_expr(cc, for_stmt->end, WarnDiscardedReturn::No, var->type);
     }
@@ -1727,20 +1720,19 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *for_stmt = static_cast<AstFor *>(ast);
 
-    if (for_stmt->end) {
-        // This is a for-in loop.
-        verify_for_in(cc, ast, current_function);
-        return;
-    }
-
     if (for_stmt->var_decl) {
         verify_var_decl(cc, for_stmt->var_decl);
-        auto *var = &for_stmt->var_decl->var;
-        auto *expected = get_unaliased_type(var->type);
+        auto *expected = get_unaliased_type(for_stmt->var_decl->var.type);
         if (!expected->is_int()) {
             verification_type_error(
                 for_stmt->var_decl->location, "range variable must be of an integer-like type");
         }
+    }
+
+    if (for_stmt->end) {
+        // This is a for-in loop.
+        verify_for_in(cc, ast, current_function);
+        return;
     }
 
     if (for_stmt->cmp) {
@@ -1785,10 +1777,13 @@ void verify_assign(Compiler &cc, Ast *ast)
     }
     if (binary->right->operation == Operation::LogicalOr
         || binary->right->operation == Operation::LogicalAnd) {
-        verify_logical_chain(cc, ast);
+        verify_logical_chain(cc, binary->right);
     }
     verify_expr(cc, binary->left, WarnDiscardedReturn::No);
     verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
+    if (exprs_identical(binary->left, binary->right, CheckSideEffects::Yes)) {
+        diag::ast_warning(cc, binary, "self-assignment has no effect");
+    }
 }
 
 void verify_function_decl(Compiler &cc, Ast *ast)
