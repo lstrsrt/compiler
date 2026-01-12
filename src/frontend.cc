@@ -8,6 +8,7 @@
     std::println("OPTIONS:\n"
                  "\t--check-only: do not compile input, only check validity\n"
                  "\t--test: run in test mode\n"
+                 "\t--new-ir: use new ir (no codegen supported, implies --check-only)\n"
                  "\t--exe: compile to executable instead of generating assembler\n"
                  "         (requires nasm and gcc to be installed)\n"
                  "\t-o: set output filename (default: output)\n"
@@ -23,6 +24,10 @@ void process_cmdline(ArgumentParser &ap)
         switch (hash(ap.arguments[i])) {
             case hash("--test"):
                 opts.testing = true;
+                break;
+            case hash("--new-ir"):
+                opts.new_ir = true;
+                opts.check_only = true;
                 break;
             case hash("--check-only"):
                 opts.check_only = true;
@@ -65,6 +70,10 @@ void process_cmdline(ArgumentParser &ap)
 
     if (opts.testing && !opts.output_name.empty()) {
         die("--test and -o are incompatible");
+    }
+
+    if (opts.new_ir && opts.full_compile) {
+        die("--new-ir is not supported by the backend yet");
     }
 }
 

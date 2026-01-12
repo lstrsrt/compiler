@@ -10,6 +10,7 @@ struct ArgumentParser {
 
 struct Options {
     bool testing = false;
+    bool new_ir = false;
     bool check_only = false;
     bool full_compile = false;
     bool ssa = true;

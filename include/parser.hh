@@ -85,6 +85,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(BranchSGe)     \
     __ENUMERATE_OPERATION(BranchSLt)     \
     __ENUMERATE_OPERATION(BranchSLe)     \
+    __ENUMERATE_OPERATION(Alloca)        \
     __ENUMERATE_OPERATION(Phi)
 
 enum class Operation {
@@ -466,7 +467,9 @@ struct Variable {
     std::string name;
     // If this is a function parameter...
     int param_index = -1;
-    bool is_unresolved;
+    bool is_unresolved = false;
+
+    bool force_stack = false;
 
     bool is_parameter() const { return param_index > -1; }
 

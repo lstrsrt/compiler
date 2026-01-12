@@ -793,6 +793,7 @@ void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_
     if (type->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
         verification_error(unary, "exceeded indirection limit");
     }
+    static_cast<AstIdentifier *>(unary->operand)->var->force_stack = true;
 
     verify_expr(cc, unary->operand, warn_discarded);
 }

@@ -2,6 +2,7 @@
 #include "asm.hh"
 #include "debug.hh"
 #include "frontend.hh"
+#include "new-ir.hh"
 #include "verify.hh"
 
 #ifdef __linux__
@@ -43,26 +44,32 @@ void compiler_main(Compiler &cc, AstFunction *main)
 #endif
     }
 
-    generate_ir(cc, main);
+    if (opts.new_ir) {
+        new_ir::generate(cc, main);
+        new_ir::consume_stats(stdout_file());
+        new_ir::free(cc);
+    } else {
+        generate_ir(cc, main);
 
-    if (!testing) {
+        if (!testing) {
 #ifdef _DEBUG
-        dbgln("\n{}generated ir:{}", Cyan, Default);
-        for (const auto *fn : cc.ir_builder.functions) {
-            print_ir(stdout_file(), *fn);
-        }
+            dbgln("\n{}generated ir:{}", Cyan, Default);
+            for (const auto *fn : cc.ir_builder.functions) {
+                print_ir(stdout_file(), *fn);
+            }
 #endif
-    }
+        }
 
-    optimize_ir(cc);
+        optimize_ir(cc);
 
-    if (!testing) {
+        if (!testing) {
 #ifdef _DEBUG
-        dbgln("{}optimized ir:{}", Cyan, Default);
-        for (const auto *fn : cc.ir_builder.functions) {
-            print_ir(stdout_file(), *fn);
-        }
+            dbgln("{}optimized ir:{}", Cyan, Default);
+            for (const auto *fn : cc.ir_builder.functions) {
+                print_ir(stdout_file(), *fn);
+            }
 #endif
+        }
     }
 
     // We have to go through IR passes even in check-only mode because it detects missing return
