@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <utility>
 
 #include "lexer.hh"
@@ -30,6 +31,7 @@ struct Stats {
     uint64_t insts_added = 0;
     uint64_t insts_killed = 0;
     uint64_t vars_to_ssa = 0;
+    uint64_t inlined_calls = 0;
 };
 
 inline Stats stats;

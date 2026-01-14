@@ -14,6 +14,7 @@ struct Options {
     bool check_only = false;
     bool full_compile = false;
     bool ssa = true;
+    bool inliner = false;
     std::string output_name;
     std::string output_exe_name;
 };

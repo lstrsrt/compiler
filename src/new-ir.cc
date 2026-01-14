@@ -904,6 +904,11 @@ void generate(Compiler &cc, AstFunction *fn)
         visit_successors(cc, fn, fn->blocks[0], visited, i == 0);
     }
 
+    if (opts.inliner) {
+        void inline_pass(IRBuilder &);
+        inline_pass(cc.new_ir_builder);
+    }
+
     if (opts.ssa) {
 #ifdef SSA_DEBUG
         ssa_dbgln("********************************* pre ssa:");
@@ -944,6 +949,7 @@ void consume_stats(File &file)
     file.fwriteln("Insts created:   {:>6}", stats.insts_added);
     file.fwriteln("SSA transforms:  {:>6}", stats.vars_to_ssa);
     file.fwriteln("DCE sweep count: {:>6}", stats.insts_killed);
+    file.fwriteln("Inlined calls:   {:>6}", stats.inlined_calls);
     file.commit();
     stats = {};
 }

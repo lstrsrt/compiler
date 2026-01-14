@@ -9,7 +9,6 @@
 #include "base.hh"
 #include "lexer.hh"
 
-#include <map>
 #include <unordered_map>
 
 //
@@ -587,6 +586,13 @@ using VariableDecls = std::vector<AstVariableDecl *, arena::ArenaAllocator<AstVa
 using VariableDecls = std::vector<AstVariableDecl *>;
 #endif
 
+enum class InlineDecision {
+    Undecided,
+    NoInline,
+    TryInline, // TODO: add an attribute and make this a thing
+    Inline,
+};
+
 struct AstFunction : Ast {
     std::string name;
     Type *return_type;
@@ -594,6 +600,7 @@ struct AstFunction : Ast {
     AstBlock *body;
     uint64_t call_count = 0;
     FunctionAttributes attributes{};
+    InlineDecision should_inline;
 
     explicit AstFunction(std::string_view _name, Type *_return_type, VariableDecls _params,
         AstBlock *_body, SourceLocation _location)

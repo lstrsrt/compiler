@@ -12,7 +12,8 @@
                  "\t--exe: compile to executable instead of generating assembler\n"
                  "         (requires nasm and gcc to be installed)\n"
                  "\t-o: set output filename (default: output)\n"
-                 "\t--[no-]ssa: toggle ssa optimizations (default: on)");
+                 "\t--[no-]ssa: toggle ssa optimizations (default: on)\n"
+                 "\t--[no-]inline: toggle inlining pass (default: off)");
     exit(errc);
 }
 
@@ -52,6 +53,12 @@ void process_cmdline(ArgumentParser &ap)
                 break;
             case hash("--no-ssa"):
                 opts.ssa = false;
+                break;
+            case hash("--inline"):
+                opts.inliner = true;
+                break;
+            case hash("--no-inline"):
+                opts.inliner = false;
                 break;
             default:
                 if (i < ap.arguments.size() - 1) {
