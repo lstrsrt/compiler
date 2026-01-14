@@ -20,6 +20,7 @@
     __ENUMERATE_AST_TYPE(Integer)    \
     __ENUMERATE_AST_TYPE(Boolean)    \
     __ENUMERATE_AST_TYPE(String)     \
+    __ENUMERATE_AST_TYPE(Enum)       \
     __ENUMERATE_AST_TYPE(Identifier) \
     __ENUMERATE_AST_TYPE(Unary)      \
     __ENUMERATE_AST_TYPE(Binary)     \
@@ -67,6 +68,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(VariableDecl)  \
     __ENUMERATE_OPERATION(FunctionDecl)  \
     __ENUMERATE_OPERATION(EnumDecl)      \
+    __ENUMERATE_OPERATION(EnumMember)    \
     __ENUMERATE_OPERATION(If)            \
     __ENUMERATE_OPERATION(While)         \
     __ENUMERATE_OPERATION(For)           \
@@ -359,7 +361,7 @@ struct AstString : Ast {
     }
 };
 
-std::string extract_integer_constant(AstLiteral *);
+std::string extract_integer_constant(Ast *);
 
 struct Variable;
 
@@ -609,38 +611,48 @@ struct AstFunction : Ast {
     }
 };
 
-struct AstEnumDecl;
-
-struct AstEnumMember : AstLiteral {
-    AstEnumDecl *enum_decl;
-    SourceLocation location; // The location of the name.
-
-    explicit AstEnumMember(
-        AstEnumDecl *_enum_decl, Type *_underlying, uint64_t _literal, SourceLocation _location)
-        : AstLiteral(_underlying, _literal, _location)
-        , enum_decl(_enum_decl)
-        , location(_location)
-    {
-    }
-
-    explicit AstEnumMember(AstEnumDecl *_enum_decl, AstLiteral *_literal, SourceLocation _location)
-        : AstLiteral(_literal->expr_type, _literal->u.u64, _location)
-        , enum_decl(_enum_decl)
-        , location(_location)
-    {
-    }
+struct EnumMembers {
+    std::unordered_map<std::string, struct AstEnumMember *> map;
+    std::vector<Ast *> vector;
 };
-
-using EnumMembers = std::map<std::string, AstEnumMember *>;
 
 struct AstEnumDecl : Ast {
     std::string name;
-    Type *enum_type;
-    EnumMembers members;
+    Type *enum_type = nullptr;
+    EnumMembers *members;
+    uint64_t next_int = 0;
 
     explicit AstEnumDecl(std::string_view _name, SourceLocation _location)
         : Ast(AstType::Statement, Operation::EnumDecl, _location)
         , name(_name)
+        , members(new EnumMembers)
+    {
+    }
+};
+
+struct AstEnumMember : Ast {
+    std::string name;
+    std::string enum_name;
+    AstEnumDecl *enum_decl;
+    Ast *expr;
+
+    explicit AstEnumMember(
+        std::string_view _name, AstEnumDecl *_enum_decl, Ast *_ast, SourceLocation _location)
+        : Ast(AstType::Enum, Operation::EnumMember, _location)
+        , name(_name)
+        , enum_name(_enum_decl->name)
+        , enum_decl(_enum_decl)
+        , expr(_ast)
+    {
+    }
+
+    explicit AstEnumMember(
+        std::string_view _enum_name, std::string_view _name, SourceLocation _location)
+        : Ast(AstType::Enum, Operation::EnumMember, _location)
+        , name(_name)
+        , enum_name(_enum_name)
+        , enum_decl(nullptr)
+        , expr(nullptr)
     {
     }
 };
@@ -656,6 +668,7 @@ struct Scope {
     Scope *parent;
     AstFunction *function;
     std::unordered_map<std::string_view, Type *> types;
+    std::unordered_map<std::string_view, AstEnumDecl *> enums;
     std::unordered_map<std::string_view, AstFunction *> functions;
     std::unordered_map<std::string, AstVariableDecl *> variables;
 
@@ -668,7 +681,7 @@ struct Scope {
     void add_variable(Compiler &, AstVariableDecl *);
     void add_function(Compiler &, Ast *, std::string_view unmangled_name);
     void add_alias(Compiler &, Type *, std::string_view alias, SourceLocation);
-    void add_enum(Compiler &, AstEnumDecl *, Type *underlying);
+    void add_enum(Compiler &, AstEnumDecl *);
 };
 
 inline std::vector<Scope *> g_scopes;
@@ -729,13 +742,16 @@ enum class SearchParents {
     Yes
 };
 
+Type *find_type(Scope *, std::string_view name, Scope **result_scope = nullptr,
+    SearchParents = SearchParents::Yes);
+
+AstEnumDecl *find_enum(Scope *scope, std::string_view name, Scope **result_scope = nullptr,
+    SearchParents search_parents = SearchParents::Yes);
+
 AstVariableDecl *find_variable(Scope *, const std::string &name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
 AstFunction *find_function(Scope *, std::string_view name, Scope **result_scope = nullptr,
-    SearchParents = SearchParents::Yes);
-
-Type *find_type(Scope *, std::string_view name, Scope **result_scope = nullptr,
     SearchParents = SearchParents::Yes);
 
 enum class ErrorOnShadowing {
@@ -748,5 +764,6 @@ void diagnose_redeclaration_or_shadowing(Compiler &, Scope *, std::string_view n
 
 struct ParseState {
     bool in_call = false;
+    AstEnumDecl *current_enum = nullptr;
     Ast *current_loop = nullptr;
 };

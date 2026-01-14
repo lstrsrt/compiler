@@ -208,6 +208,9 @@ InstType to_inst_type(Type *t)
     if (t->size == 1) {
         return InstType::S1;
     }
+    if (t->has_flag(TypeFlags::ENUM)) {
+        return to_inst_type(t->real);
+    }
     bool is_signed = t->is_signed();
     switch (t->size) {
         case 8:
@@ -807,6 +810,8 @@ Inst *generate(IRBuilder &irb, Ast *ast)
             return generate_const(irb, ast);
         case AstType::String:
             return generate_string(irb, ast);
+        case AstType::Enum:
+            return generate(irb, static_cast<AstEnumMember *>(ast)->expr);
         case AstType::Identifier:
             return generate_identifier(irb, static_cast<AstIdentifier *>(ast)->var);
         case AstType::Unary:

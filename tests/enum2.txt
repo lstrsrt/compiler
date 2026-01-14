@@ -1,0 +1,14 @@
+#{returns(18)}
+x := E::First
+y := E::Second
+z := E::Third
+w := E::Fourth
+enum E(int) {
+    First,
+    Second,
+    Third = 8,
+    Fourth,
+    Fifth,
+}
+alias int: s32
+return x as s32 + y as s32 + z as s32 + w as s32

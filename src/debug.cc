@@ -177,6 +177,15 @@ static void print_enum_decl(File &file, AstEnumDecl *decl)
 
 static void print_node(File &file, Ast *ast, std::string_view indent)
 {
+    if (ast->operation == Operation::EnumMember) {
+        if (!static_cast<AstEnumMember *>(ast)->expr) {
+            file.fwrite("{}<unevaluated>\n", indent);
+        } else {
+            print_node(file, static_cast<AstEnumMember *>(ast)->expr, indent);
+        }
+        return;
+    }
+
     if (ast->operation == Operation::None) {
         file.fwrite("{}", indent);
         if (ast->type == AstType::Integer || ast->type == AstType::Boolean) {
@@ -294,9 +303,9 @@ void print_ast(File &file, Ast *ast, std::string indent)
                 break;
             } else if (ast->operation == Operation::EnumDecl) {
                 auto *decl = static_cast<AstEnumDecl *>(ast);
-                for (const auto &[name, enumerator] : decl->members) {
-                    file.fwriteln("{}{} = {} ({})", indent, name, enumerator->u.u64,
-                        enumerator->expr_type->get_name());
+                for (auto *member : decl->members->vector) {
+                    file.fwrite("{}{} = ", indent, static_cast<AstEnumMember *>(member)->name);
+                    print_node(file, member, "");
                 }
             } else {
                 TODO();
@@ -313,6 +322,8 @@ void print_ast(File &file, Ast *ast, std::string indent)
         case AstType::Integer:
         case AstType::Boolean:
         case AstType::String:
+        case AstType::Enum:
+            [[fallthrough]];
         case AstType::Identifier:
             break;
         default:

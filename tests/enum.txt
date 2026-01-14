@@ -1,4 +1,7 @@
+x := Color::Red
+y := Color::Blue
 enum Color(s64) {
     Red = 123,
+    Blue = 456,
 }
-x := Color::Red
+return x as s32

@@ -155,7 +155,7 @@ AstFunction *get_callee(Compiler &cc, AstCall *call)
         // Cache it so the next lookup takes the fast path
         call->fn = find_function(call->scope, call->name);
         if (!call->fn) {
-            verification_error(call, "function `{}` is not declared", call->name);
+            verification_error(call, "function `{}` is not declared in this scope", call->name);
         }
     }
     return call->fn;
@@ -199,6 +199,15 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
             const char *rhs_str = rhs_type->is_pointer() ? "pointer" : "non-pointer";
             verification_type_error(ast->location,
                 "incompatible expression applied to left-hand {} type {} and right-hand {} type {}",
+                lhs_str, to_string(lhs_type), rhs_str, to_string(rhs_type));
+            break;
+        }
+        case TypeError::EnumMismatch: {
+            const char *lhs_str = lhs_type->has_flag(TypeFlags::ENUM) ? "enum" : "non-enum";
+            const char *rhs_str = rhs_type->has_flag(TypeFlags::ENUM) ? "enum" : "non-enum";
+            verification_type_error(ast->location,
+                "incompatible expression applied to left-hand {} type {} and right-hand {} "
+                "type {}",
                 lhs_str, to_string(lhs_type), rhs_str, to_string(rhs_type));
             break;
         }
@@ -391,6 +400,14 @@ Type *get_expression_type(
             case AstType::String:
                 *constness |= ExprConstness::SAW_CONSTANT;
                 return string_type();
+            case AstType::Enum: {
+                auto *member = static_cast<AstEnumMember *>(ast);
+                (void)get_expression_type(cc, member->expr, constness);
+                if (!member->enum_decl) {
+                    member->enum_decl = find_enum(member->scope, member->enum_name);
+                }
+                return member->enum_decl->enum_type;
+            }
             case AstType::Identifier:
                 *constness |= ExprConstness::SAW_NON_CONSTANT;
                 return static_cast<AstIdentifier *>(ast)->var->type;
@@ -465,13 +482,23 @@ bool is_auto_inferred(Type *type)
 void resolve_type(Compiler &cc, Scope *scope, Type *&type)
 {
     // If a type is unresolved, it's a) invalid, b) auto inferred, or c) declared later
-    // (possibly as an alias). b) only applies to variable declarations, so it is dealt with in
-    // verify_var_decl().
+    // (possibly as an enum or alias). b) only applies to variable declarations, so it is dealt with
+    // in verify_var_decl().
 
     if (type->has_flag(TypeFlags::UNRESOLVED)) {
-        auto *resolved = find_type(scope, type->get_name());
+        // Don't use get_name() because it includes the pointer stars etc.
+        auto *resolved = find_type(scope, type->name);
+        if (!resolved) {
+            if (auto *enum_decl = find_enum(scope, type->name)) {
+                resolve_type(cc, enum_decl->scope, enum_decl->enum_type->real);
+                resolved = enum_decl->enum_type;
+            }
+        }
         if (resolved) {
             // c)
+            for (int i = 0; i < type->pointer; ++i) {
+                resolved = make_pointer(cc, resolved);
+            }
             delete type;
             type = resolved;
         } else {
@@ -492,6 +519,7 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         }
     }
 
+    // TODO: what if pointer was an unresolved alias?
     if (type->has_flag(TypeFlags::ALIAS)) {
         // Walk the alias chain and see if we end up with a circular definition
         // TODO: can we do this faster/more efficiently?
@@ -927,6 +955,7 @@ bool has_side_effects(Ast *ast)
         case AstType::Integer:
         case AstType::Boolean:
         case AstType::String:
+        case AstType::Enum:
             [[fallthrough]];
         case AstType::Identifier:
             return false;
@@ -1276,6 +1305,10 @@ TypeError types_match(Type *t1, Type *t2)
         }
     }
 
+    if (t1_u->has_flag(TypeFlags::ENUM) != t2_u->has_flag(TypeFlags::ENUM)) {
+        return TypeError::EnumMismatch;
+    }
+
     return TypeError::Default;
 }
 
@@ -1476,38 +1509,59 @@ void verify_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
     // pointer casts: always allowed
     // integer casts: always allowed // TODO: add overflow checks
     // -> bool: not allowed
+    // <-> string: not allowed
     // self -> self: removed without warning
 
     auto *cast = static_cast<AstCast *>(ast);
     auto *cast_type = cast->cast_type;
 
     ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, cast->operand, &constness));
+    auto *t = get_expression_type(cc, cast->operand, &constness);
+    auto *type = get_unaliased_type(t);
 
-    if (cast_type->is_bool() && !type->is_bool()) {
-        verification_type_error(ast->location, "cannot cast {} to `bool`", to_string(type));
-    }
-
-    if (cast_type->pointer != type->pointer) {
-        if (!cast_type->pointer && cast_type->size < 64) {
-            verification_type_error(ast->location, "cannot cast {} to {} due to precision loss",
-                to_string(type), to_string(cast_type));
-        }
-    }
-
-    if (types_match(cast_type, type) == TypeError::None) {
-        // TODO: there are more instances where a cast can be deleted
+    auto err = types_match(cast_type, type);
+    if (err == TypeError::None) {
         remove_cast(ast);
         verify_expr(cc, ast /* this is the operand now */, warn_discarded, type);
-    } else {
-        // We don't pass anything for `expected` because verify_expr uses get_expression_type
-        // so passing `type` would always succeed, and passing the type we're casting to would
-        // always fail.
-        // ^ ^ ^ ^ ^
-        // This is false now that pointer arithmetic checking inserts a cast to s64.
-        // Pass `type` so we don't crash in constant folding.
-        verify_expr(cc, cast->operand, warn_discarded, type);
+        return;
     }
+
+    // TODO: can remove_cast when casting enum to underlying
+
+    {
+        auto *type2 = type;
+        auto *t2 = t;
+        if (type->has_flag(TypeFlags::ENUM)) {
+            t = t->real;
+            type = get_unaliased_type(t);
+        }
+
+        if (cast_type->is_string() != type->is_string()) {
+            verification_type_error(ast->location, "cannot cast to or from string");
+        }
+
+        if (cast_type->is_bool() && !type->is_bool()) {
+            verification_type_error(ast->location, "cannot cast {} to `bool`", to_string(t));
+        }
+
+        if (cast_type->pointer != type->pointer) {
+            if (!cast_type->pointer && cast_type->size < 64) {
+                verification_type_error(ast->location, "cannot cast {} to {} due to precision loss",
+                    to_string(t), to_string(cast_type));
+            }
+        }
+
+        type = type2;
+        t = t2;
+    }
+
+    // We don't pass anything for `expected` because verify_expr uses get_expression_type
+    // so passing `type` would always succeed, and passing the type we're casting to would
+    // always fail.
+    // ^ ^ ^ ^ ^
+    // This is false now that pointer arithmetic checking inserts a cast to s64.
+    // Pass `type` so we don't crash in constant folding.
+    verify_expr(cc, cast->operand, warn_discarded, type);
 }
 
 void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
@@ -1544,15 +1598,83 @@ void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, T
     }
 }
 
+AstEnumMember *get_enum_member(Compiler &cc, AstEnumDecl *enum_decl, AstEnumMember *unresolved)
+{
+    if (auto it = enum_decl->members->map.find(unresolved->name);
+        it != enum_decl->members->map.end()) {
+        return it->second;
+    }
+    verification_error(unresolved, "enum `{}` does not have a member named `{}`", enum_decl->name,
+        unresolved->name);
+}
+
+void verify_enum_member(Compiler &cc, Ast *&ast)
+{
+    // TODO: some of this work can be done only once.
+
+    auto *member = static_cast<AstEnumMember *>(ast);
+    if (!member->enum_decl) {
+        member->enum_decl = find_enum(member->scope, member->enum_name);
+    }
+    auto *enum_decl = member->enum_decl;
+
+    assert(enum_decl->enum_type);
+    // `t` needs to be a reference so we do the following work only once.
+    auto *&t = enum_decl->enum_type->real;   // This is our underlying.
+    resolve_type(cc, enum_decl->scope, t);   // Maybe it is unresolved.
+    auto *unaliased = get_unaliased_type(t); // Maybe it is also an alias.
+
+    // If this happens, we are using an enum and we need to get the expr from the declaration.
+    auto *&expr = member->expr;
+    auto *member_decl = get_enum_member(cc, enum_decl, member);
+    if (!member_decl->expr) {
+        if (!unaliased->is_int()) {
+            verification_type_error(enum_decl->location,
+                "only integer based enums can have enumerators with implicit values, but"
+                " enum `{}` is based on type {}",
+                enum_decl->name, to_string(t));
+        }
+        member_decl->expr = new AstLiteral(unaliased, enum_decl->next_int, ast->location);
+    } else {
+        // TODO: constant folder does not support enums so the const int assert will fail on complex
+        // expressions.
+        member_decl->expr
+            = try_constant_fold(cc, member_decl->expr, unaliased, TypeOverridable::No);
+    }
+    expr = member_decl->expr;
+
+    ExprConstness constness{};
+    auto *expr_type = get_expression_type(cc, member->expr, &constness);
+    if (!expr_is_fully_constant(constness)) {
+        verification_error(member->expr, "enum initializer needs to be fully constant");
+    }
+    if (auto err = types_match(expr_type, t); err != TypeError::None) {
+        // If it's not the underlying type, we might be assigning from another member.
+        err = types_match(expr_type, enum_decl->enum_type);
+        if (err != TypeError::None) {
+            verification_type_error(member->expr->location,
+                "enum initializer resolves to type {} instead of underlying type {}",
+                to_string(expr_type), to_string(t));
+        }
+    }
+    if (unaliased->is_int()) {
+        assert(expr_is_const_integral(expr, IgnoreCasts::Yes));
+        enum_decl->next_int = get_int_literal(expr) + 1;
+    }
+}
+
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
 {
     Type *type;
     switch (ast->type) {
         case AstType::Integer:
         case AstType::Boolean:
-        case AstType::Identifier:
-            [[fallthrough]];
         case AstType::String:
+            [[fallthrough]];
+        case AstType::Identifier:
+            break;
+        case AstType::Enum:
+            verify_enum_member(cc, ast);
             break;
         case AstType::Unary:
             verify_unary(cc, ast, warn_discarded, expected);
@@ -1611,7 +1733,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
     } else if (var_decl->init_expr) {
         // x: T = y
         resolve_type(cc, var_decl->scope, var.type);
-        if (get_unaliased_type(var.type) == bool_type()) {
+        if (get_unaliased_type(var.type)->is_bool()) {
             convert_expr_to_boolean(cc, var_decl->init_expr);
         }
         if (var_decl->init_expr->operation == Operation::LogicalOr
@@ -1645,31 +1767,31 @@ void verify_ast(Compiler &, Ast *, AstFunction *);
 void verify_return(
     Compiler &cc, AstReturn *return_stmt, AstFunction *current_function, Type *expected)
 {
+    auto *expr = return_stmt->expr;
+
     if (current_function->returns_void()) {
-        if (return_stmt->expr) {
-            if (return_stmt->expr->operation == Operation::Call) {
-                auto *call = static_cast<AstCall *>(return_stmt->expr);
-                verify_call(cc, return_stmt->expr, WarnDiscardedReturn::No);
+        if (expr) {
+            if (expr->operation == Operation::Call) {
+                auto *call = static_cast<AstCall *>(expr);
+                verify_call(cc, expr, WarnDiscardedReturn::No);
                 if (get_callee(cc, call)->returns_void()) {
                     // Returning f() (where f returns void) is allowed
                     return;
                 }
             }
             ExprConstness constness{};
-            verification_error(return_stmt->expr,
-                "void function `{}` must not return a value (got type `{}`)",
-                current_function->name,
-                get_expression_type(cc, return_stmt->expr, &constness)->get_name());
+            verification_error(expr, "void function `{}` must not return a value (got type `{}`)",
+                current_function->name, get_expression_type(cc, expr, &constness)->get_name());
         }
         return;
     }
 
-    if (!return_stmt->expr) {
+    if (!expr) {
         verification_error(return_stmt, "function `{}` must return value of type `{}`",
             current_function->name, current_function->return_type->get_name());
     }
 
-    verify_expr(cc, return_stmt->expr, WarnDiscardedReturn::No, expected);
+    verify_expr(cc, expr, WarnDiscardedReturn::No, expected);
 }
 
 void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
@@ -1773,7 +1895,7 @@ void verify_assign(Compiler &cc, Ast *ast)
     }
     ExprConstness constness{};
     auto *expected = get_expression_type(cc, binary->left, &constness);
-    if (get_unaliased_type(expected) == bool_type()) {
+    if (get_unaliased_type(expected)->is_bool()) {
         convert_expr_to_boolean(cc, binary->right);
     }
     if (binary->right->operation == Operation::LogicalOr
@@ -1827,44 +1949,26 @@ TypeError const_int_compatible_with_underlying(Type *type, Type *underlying, Ast
     return TypeError::None;
 }
 
-void verify_enum_member(Compiler &cc, AstEnumMember *&ast)
-{
-    auto *enum_decl = ast->enum_decl;
-    auto *underlying = enum_decl->enum_type->real;
-    auto *real = get_unaliased_type(underlying);
-
-    ExprConstness constness{};
-    auto *type = get_unaliased_type(get_expression_type(cc, ast, &constness));
-
-    if (real->is_int()) {
-        // We don't do casting here so match_type_or_cast() is not suitable.
-        if (auto err = const_int_compatible_with_underlying(type, underlying, ast);
-            err == TypeError::None) {
-            // HACK: usage of this enum member relies on this being correct
-            ast->expr_type = real;
-        } else {
-            type_error(cc, ast, type, underlying, err);
-        }
-    }
-}
-
 void verify_enum_decl(Compiler &cc, Ast *ast)
 {
     auto *enum_decl = static_cast<AstEnumDecl *>(ast);
 
-    // `enum_type` is guaranteed to exist.
-    auto *&underlying = enum_decl->enum_type->real;
-    resolve_type(cc, enum_decl->scope, underlying);
+    resolve_type(cc, enum_decl->scope, enum_decl->enum_type->real);
+    auto *real = get_unaliased_type(enum_decl->enum_type->real);
 
-    auto *real = get_unaliased_type(underlying);
     if (!real->is_int() && !real->is_string()) {
-        verification_type_error(underlying->location,
-            "cannot declare type `{}` as the underlying enum type.\n"
+        verification_type_error(real->location,
+            "cannot use type `{}` as the underlying type for enum `{}`.\n"
             "the underlying type must be an integer or string type.",
-            underlying->get_name());
+            real->get_name(), enum_decl->name);
     }
 
-    for (auto &[name, member] : enum_decl->members) {
+    enum_decl->enum_type->size = real->size;
+    // NOTE: Technically this would be correct but we don't do it because it would make us be
+    // treated as a literal in some places.
+    // enum_decl->enum_type->flags |= (real->flags & TypeFlags::kind_mask);
+
+    for (auto *&member : enum_decl->members->vector) {
         verify_enum_member(cc, member);
     }
 }

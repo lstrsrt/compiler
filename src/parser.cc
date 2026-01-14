@@ -320,22 +320,29 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         if (next_token.kind == TokenKind::DoubleColon) {
             consume(cc.lexer, next_token);
             auto *type = find_type(current_scope, token.string);
-            // TODO: should be possible to use an enum that is declared later.
-            // move this to verifier phase
-            if (!type || !type->decl) {
-                parser_error(
-                    token.location, "type `{}` is not declared in this scope", token.string);
+            auto ident = parse_identifier(cc);
+            if (type) {
+                // Enum was already declared.
+                auto *enum_decl = static_cast<AstEnumDecl *>(type->decl);
+                if (auto it = enum_decl->members->map.find(std::string(ident.string));
+                    it != enum_decl->members->map.end()) {
+                    return it->second;
+                }
+                parser_error(ident.location, "enum `{}` does not have a member named `{}`",
+                    ident.string, enum_decl->name);
             }
-            token = parse_identifier(cc);
-            auto *enum_decl = static_cast<AstEnumDecl *>(type->decl);
-            if (auto it = enum_decl->members.find(std::string(token.string));
-                it != enum_decl->members.end()) {
-                // TODO: do we want a new AstEnumMember here?
-                // otherwise we will have to be careful with changing the member
-                return it->second;
+            // Undeclared, we have to resolve it later.
+            // This sets `enum_decl` and `expr` to null.
+            return new AstEnumMember(token.string, ident.string, ident.location);
+        }
+
+        if (auto *enum_decl = cc.parse_state.current_enum) {
+            if (auto it = enum_decl->members->map.find(std::string(token.string));
+                it != enum_decl->members->map.end()) {
+                return new AstEnumMember(token.string, enum_decl, it->second, token.location);
             }
-            parser_error(token.location, "enumerator `{}` is not a member of enum `{}`",
-                token.string, enum_decl->name);
+            parser_error(token.location, "enum `{}` does not have a member named `{}`",
+                enum_decl->name, token.string);
         }
 
         auto *var_decl = find_variable(current_scope, std::string(token.string));
@@ -627,6 +634,7 @@ Type *parse_type(Compiler &cc)
     // TODO: unnecessary string creation?
     return new Type{ .name = std::string(token.string),
         .flags = TypeFlags::UNRESOLVED,
+        .pointer = static_cast<uint8_t>(pointer),
         .location = token.location };
 }
 
@@ -1061,20 +1069,20 @@ FunctionAttributes parse_fn_attributes(Compiler &cc, bool is_main)
 
 Ast *parse_enum(Compiler &cc)
 {
-    auto try_add_enum_member
-        = [&](std::string_view name, AstEnumDecl *enum_decl, AstLiteral *literal,
-              const SourceLocation &new_location, EnumMembers &members) {
-              auto [it, success] = members.try_emplace(std::string(name),
-                  new AstEnumMember(enum_decl, literal->expr_type, literal->u.u64, new_location));
-              if (!success) {
-                  diag::prepare_error(cc, new_location,
-                      "enumerator `{}` cannot be redeclared.\n"
-                      "here is the existing declaration: ",
-                      name);
-                  diag::print_line(cc.lexer.string, it->second->location);
-                  parser_error(new_location, "and this is the new declaration: ");
-              }
-          };
+    auto try_add_enum_member = [&cc](std::string_view name, AstEnumDecl *enum_decl, Ast *ast,
+                                   const SourceLocation &new_location, EnumMembers *members) {
+        auto *member = new AstEnumMember(name, enum_decl, ast, new_location);
+        auto [it, success] = members->map.try_emplace(std::string(name), member);
+        if (!success) {
+            diag::prepare_error(cc, new_location,
+                "enumerator `{}` cannot be redeclared.\n"
+                "here is the existing declaration: ",
+                name);
+            diag::print_line(cc.lexer.string, it->second->location);
+            parser_error(new_location, "and this is the new declaration: ");
+        }
+        members->vector.push_back(member);
+    };
 
     auto token = parse_identifier(cc);
     auto name = token.string;
@@ -1087,64 +1095,55 @@ Ast *parse_enum(Compiler &cc)
         consume_expected(cc, TokenKind::RParen, lex(cc));
         token = lex(cc);
     }
-    EnumMembers members;
+    // TODO: underlying must not be a pointer
     consume_expected(cc, TokenKind::LBrace, token);
     cc.lexer.ignore_newlines = false;
     consume_newline_or_eof(cc, lex(cc));
+    cc.lexer.ignore_newlines = true;
     auto *enum_decl = new AstEnumDecl(name, location);
+    enum_decl->enum_type = new Type{ .name = enum_decl->name,
+        // size and type kind are not set at this point
+        // because underlying can be unresolved!
+        .flags = TypeFlags::ENUM,
+        .real = underlying,
+        .decl = enum_decl,
+        .location = enum_decl->location };
+    auto *members = enum_decl->members;
+    cc.parse_state.current_enum = enum_decl;
+
     for (;;) {
         token = lex(cc);
         if (token.kind == TokenKind::RBrace) {
             consume(cc.lexer, token);
-            cc.lexer.ignore_newlines = true;
-            enum_decl->members = std::move(members);
-            // `enum_type` is also set by this.
-            current_scope->add_enum(cc, enum_decl, underlying);
+            current_scope->add_enum(cc, enum_decl);
+            cc.parse_state.current_enum = nullptr;
             return enum_decl;
-        }
-        if (is_group(token.kind, TokenKind::GroupNewline)) {
-            consume_newline_or_eof(cc, token);
-            continue;
         }
         if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
             parser_error(token.location, "expected an identifier, got `{}`",
                 diag::make_printable(token.string));
         }
-        auto member_name = token.string;
-        auto member_location = token.location;
+        auto name = token.string;
+        auto location = token.location;
         consume(cc.lexer, token);
-        consume_expected(cc, TokenKind::Equals, lex(cc));
         token = lex(cc);
-        // TODO: support negative numbers
-        // TODO: support constant expressions
-        if (is_group(token.kind, TokenKind::GroupNumber)) {
-            auto *literal = parse_integer(cc, token);
-            try_add_enum_member(member_name, enum_decl, literal, member_location, members);
-        } else if (is_group(token.kind, TokenKind::GroupString)) {
-            // auto *string = parse_string(cc, token);
-            // try_add_enum_member(member_name, enum_decl, string, member_location, members);
-            // TODO: merge AstString and AstLiteral so we can do this easily
-            TODO();
-        } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
-            if (auto it = members.find(std::string(token.string)); it != members.end()) {
-                try_add_enum_member(member_name, enum_decl, it->second, member_location, members);
-            } else {
-                parser_error(token.location, "enumerator `{}` is not declared", token.string);
-            }
+        Ast *expr = nullptr;
+        if (token.kind == TokenKind::Equals) {
             consume(cc.lexer, token);
-        } else {
-            parser_error(token.location, "expected integer, string or enumerator");
+            expr = parse_expr(cc);
         }
+        try_add_enum_member(name, enum_decl, expr, location, members);
+        cc.lexer.ignore_newlines = false;
         token = lex(cc);
         if (token.kind == TokenKind::Comma) {
             consume(cc.lexer, token);
-            consume_newline_or_eof(cc, lex(cc));
-        } else {
-            consume_newline_or_eof(cc, token);
+            token = lex(cc);
         }
+        consume_newline_or_eof(cc, token);
+        cc.lexer.ignore_newlines = true;
     }
 
-    std::unreachable();
+    return nullptr;
 }
 
 Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
@@ -1280,9 +1279,10 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
     return maybe_expr;
 }
 
-std::string extract_integer_constant(AstLiteral *literal)
+std::string extract_integer_constant(Ast *ast)
 {
-    auto *type = get_unaliased_type(literal->expr_type);
+    auto *type = get_unaliased_type(ast->expr_type);
+    auto *literal = static_cast<AstLiteral *>(ast);
     if (type->is_int()) {
         if (type->is_unsigned()) {
             return std::format("{:#x}", literal->u.u64);
@@ -1380,18 +1380,11 @@ void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLo
     };
 }
 
-void Scope::add_enum(Compiler &cc, AstEnumDecl *enum_decl, Type *underlying)
+void Scope::add_enum(Compiler &cc, AstEnumDecl *enum_decl)
 {
     diagnose_redeclaration_or_shadowing(
         cc, this, enum_decl->name, "type", enum_decl->location, ErrorOnShadowing::No);
-    enum_decl->enum_type = new Type{ .name = enum_decl->name,
-        // size and type kind are not set at this point
-        // because underlying can be unresolved!
-        .flags = TypeFlags::ENUM,
-        .real = underlying,
-        .decl = enum_decl,
-        .location = enum_decl->location };
-    types[enum_decl->name] = enum_decl->enum_type;
+    enums[enum_decl->name] = enum_decl;
 }
 
 void free_ast([[maybe_unused]] std::vector<Ast *> &ast_vec)
@@ -1501,6 +1494,18 @@ Type *find_type(
         }
         return nullptr;
     });
+}
+
+AstEnumDecl *find_enum(
+    Scope *scope, std::string_view name, Scope **result_scope, SearchParents search_parents)
+{
+    return find_helper<AstEnumDecl>(
+        scope, result_scope, search_parents, [name](Scope *s) -> AstEnumDecl * {
+            if (auto res = s->enums.find(name); res != s->enums.end()) {
+                return res->second;
+            }
+            return nullptr;
+        });
 }
 
 AstVariableDecl *find_variable(

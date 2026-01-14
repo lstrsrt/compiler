@@ -14,6 +14,7 @@ enum class TypeError {
     SignednessMismatch,
     SizeMismatch,
     PointerMismatch,
+    EnumMismatch,
 };
 
 enum class IgnoreCasts {
