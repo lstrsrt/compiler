@@ -7,7 +7,6 @@
 #include "verify.hh"
 
 #include <algorithm>
-#include <random>
 #include <ranges>
 #include <unordered_set>
 
@@ -15,14 +14,6 @@
 
 #ifdef alloca
 #undef alloca
-#endif
-
-// #define SSA_DEBUG
-
-#ifdef SSA_DEBUG
-#define ssa_dbgln(x, ...) std::println(x __VA_OPT__(, __VA_ARGS__))
-#else
-#define ssa_dbgln(...) (void)0
 #endif
 
 namespace new_ir {
@@ -332,7 +323,8 @@ void dce_sweep(IRBuilder &irb)
             bool deleted = false;
             for (auto it = bb->code.begin(); it != bb->code.end();) {
                 if ((*it)->kind == InstKind::Nop) {
-                    delete *it;
+                    void free(Inst *);
+                    free(*it);
                     it = bb->code.erase(it);
                     ++stats.insts_killed;
                     deleted = true;
@@ -345,283 +337,6 @@ void dce_sweep(IRBuilder &irb)
             }
         }
     }
-}
-
-namespace ssa {
-
-static std::unordered_map<BasicBlock *, std::unordered_map<std::string, Inst *>> current_def;
-
-struct IncompletePhi {
-    Inst *key;
-    PhiInst *phi;
-    InstType type;
-};
-
-static std::unordered_map<BasicBlock *, std::vector<IncompletePhi>> incomplete_phis;
-static InsertionSetMap insertion_sets;
-
-std::vector<BasicBlock *> get_reachable_preds(BasicBlock *block)
-{
-    std::vector<BasicBlock *> reachable_preds;
-    for (auto *pred : block->predecessors) {
-        if (pred->reachable) {
-            reachable_preds.push_back(pred);
-        }
-    }
-    return reachable_preds;
-}
-
-PhiInst *generate_phi(Function *fn, BasicBlock *bb, InstType type)
-{
-    auto *phi = new PhiInst(type, name_gen[fn].get("phi"));
-    insertion_sets[bb].insert_before(bb->code.front(), phi);
-    return phi;
-}
-
-Inst *try_remove_trivial_phi(Function *fn, Inst *phi)
-{
-    Inst *same = nullptr;
-    for (auto [_, value] : static_cast<PhiInst *>(phi)->incoming) {
-        if (value == same || value == phi) {
-            continue;
-        }
-        if (same) {
-            ssa_dbgln("***** {} not trivial", phi->name);
-            return phi;
-        }
-        same = value;
-    }
-
-    ssa_dbgln("***** {} trivial (always {})", phi->name, same ? same->name : "undef");
-    if (!same) {
-        same = new Inst(Operation::None, InstKind::Undef, phi->type, name_gen[fn].get("undef"));
-    }
-
-    phi->transform_to_identity(same, name_gen[fn].get("id"));
-    return same;
-}
-
-Inst *read_variable(Function *, BasicBlock *, Inst *, InstType);
-
-Inst *complete_phi(Function *fn, Inst *key, const std::vector<BasicBlock *> &reachable_preds,
-    PhiInst *phi, InstType inst_type)
-{
-    for (auto *pred : reachable_preds) {
-        phi->incoming.emplace_back(pred, read_variable(fn, pred, key, inst_type));
-    }
-    return try_remove_trivial_phi(fn, phi);
-}
-
-void write_variable(BasicBlock *bb, const std::string &key, Inst *value)
-{
-    current_def[bb][key] = value;
-}
-
-Inst *read_variable_recursive(Function *fn, BasicBlock *bb, Inst *key, InstType inst_type)
-{
-    auto reachable_preds = get_reachable_preds(bb);
-    Inst *value;
-
-    if (!bb->sealed) {
-        // Can't use key->type because it's Ptr (it's (always?) an alloca).
-        // inst_type is the actual type.
-        auto *phi = generate_phi(fn, bb, inst_type);
-        incomplete_phis[bb].emplace_back(key, phi);
-        // Operands will be filled in later during block sealing.
-        value = phi;
-        ssa_dbgln("read_variable inserting phi @ unsealed bb{}", bb->index_in_fn);
-    } else if (size(reachable_preds) == 1) {
-        value = read_variable(fn, reachable_preds.back(), key, inst_type);
-        ssa_dbgln("read_variable found globally @ bb{}", reachable_preds.back()->index_in_fn);
-    } else if (size(reachable_preds) > 1) {
-        auto *phi = generate_phi(fn, bb, inst_type);
-        write_variable(bb, key->name, phi);
-        value = complete_phi(fn, key, reachable_preds, phi, inst_type);
-        ssa_dbgln("read_variable inserting phi @ bb{}", bb->index_in_fn);
-    } else {
-        value = new Inst(Operation::None, InstKind::Undef, key->type, name_gen[fn].get("undef"));
-        ssa_dbgln("reachable_preds empty for sealed blk {}", bb->index_in_fn);
-    }
-
-    write_variable(bb, key->name, value);
-    return value;
-}
-
-Inst *read_variable(Function *fn, BasicBlock *bb, Inst *key, InstType inst_type)
-{
-    const auto &bb_it = current_def.find(bb);
-    if (bb_it != current_def.end()) {
-        const auto &defs = bb_it->second;
-        const auto &var_it = defs.find(key->name);
-        if (var_it != defs.end()) {
-            ssa_dbgln("read_variable found locally @ bb{}", bb->index_in_fn);
-            return var_it->second;
-        }
-    }
-    return read_variable_recursive(fn, bb, key, inst_type);
-}
-
-void seal_block(Function *fn, BasicBlock *bb)
-{
-    for (auto [key, phi, type] : incomplete_phis[bb]) {
-        complete_phi(fn, key, get_reachable_preds(bb), phi, type);
-    }
-    bb->sealed = true;
-}
-
-void transform_block(Function *fn, BasicBlock *bb, std::vector<BasicBlock *> &unsealed_blocks)
-{
-    for (auto *inst : bb->code) {
-        if (inst->operation == Operation::Alloca) {
-            auto *alloca = static_cast<AllocaInst *>(inst);
-            if (alloca->force_memory) {
-                continue;
-            }
-            auto *ssa = new SSAInst(alloca->inst_type, name_gen[fn].get("ssa"));
-            ssa_dbgln("transforming {} to ssa {}", alloca->name, ssa->name);
-            inst->transform_to_identity(ssa, name_gen[fn].get("id"));
-            ++stats.vars_to_ssa;
-        } else if (inst->operation == Operation::Store) {
-            if (inst->args[0]->operation != Operation::Alloca) {
-                continue;
-            }
-            auto *alloca = static_cast<AllocaInst *>(inst->args[0]);
-            if (alloca->force_memory) {
-                continue;
-            }
-            ssa_dbgln("writing {} -> {}", inst->args[0]->name, inst->args[1]->name);
-            write_variable(bb, inst->args[0]->name, inst->args[1]);
-            inst->transform_to_nop();
-        } else if (inst->operation == Operation::Load) {
-            if (inst->args[0]->operation != Operation::Alloca) {
-                continue;
-            }
-            auto *alloca = static_cast<AllocaInst *>(inst->args[0]);
-            if (alloca->force_memory) {
-                continue;
-            }
-            ssa_dbgln("reading {}", inst->args[0]->name);
-            auto *def = read_variable(fn, bb, inst->args[0], alloca->inst_type);
-            inst->transform_to_identity(def, name_gen[fn].get("id"));
-        }
-    }
-
-    if (!bb->sealed) {
-        unsealed_blocks.push_back(bb);
-    }
-}
-
-void enter(IRBuilder &irb)
-{
-    for (auto *fn : irb.fns) {
-        std::vector<BasicBlock *> unsealed_blocks;
-        for (auto *bb : fn->blocks) {
-            if (bb->code.empty() || !bb->reachable) {
-                continue;
-            }
-            transform_block(fn, bb, unsealed_blocks);
-        }
-        for (auto *bb : unsealed_blocks) {
-            seal_block(fn, bb);
-        }
-        incomplete_phis.clear();
-        insertion_sets.execute_all();
-    }
-}
-
-Inst *get_pre_terminator_inst(BasicBlock *bb)
-{
-    auto *last = bb->code.back();
-    if (last->operation == Operation::Return) {
-        return last;
-    }
-    if (last->operation == Operation::Branch) {
-        if (!last->args.empty()) {
-            // cond followed by branch, insert before cond
-            return last->args[0];
-        }
-        return last;
-    }
-    die("block should end on return or branch");
-}
-
-void leave_block(Function *fn, BasicBlock *bb)
-{
-    for (auto *insn : bb->code) {
-        if (insn->operation == Operation::Phi) {
-            auto *phi = static_cast<PhiInst *>(insn);
-            auto *ident = new VarInst(phi->type, name_gen[fn].get("fphi"));
-            for (auto &[pred, value] : phi->incoming) {
-                ssa_dbgln("inserting assign {} = {} for {}", ident->name, value->name, phi->name);
-                auto *assign = new Inst(Operation::Assign, InstKind::Binary, value->type, "asn");
-                assign->add_arg(ident);
-                assign->add_arg(value);
-                insertion_sets[pred].insert_before(get_pre_terminator_inst(pred), assign);
-            }
-            phi->transform_to_identity(ident, name_gen[fn].get("id"));
-            continue;
-        }
-    }
-}
-
-void elide_assignments(IRBuilder &irb)
-{
-    for (auto *fn : irb.fns) {
-        for (auto *bb : fn->blocks) {
-            if (bb->code.empty() || !bb->reachable) {
-                continue;
-            }
-            for (auto *inst : bb->code) {
-                if (inst->operation == Operation::Assign) {
-                    // Can happen after identities are resolved.
-                    if (inst->args[0] == inst->args[1]) {
-                        inst->transform_to_nop();
-                    }
-                }
-            }
-        }
-    }
-}
-
-void leave(IRBuilder &irb)
-{
-    for (auto *fn : irb.fns) {
-        for (auto *bb : fn->blocks) {
-            if (bb->code.empty() || !bb->reachable) {
-                continue;
-            }
-            leave_block(fn, bb);
-        }
-    }
-
-    insertion_sets.execute_all();
-
-#ifdef SSA_DEBUG
-    ssa_dbgln("********************************* pre opt:");
-    print(stdout_file(), irb);
-    ssa_dbgln("*********************************");
-#endif
-
-    replace_identities(irb);
-    elide_assignments(irb);
-    dce_sweep(irb);
-}
-
-} // namespace ssa
-
-std::string to_string(InstType type)
-{
-    using enum InstType;
-
-#define __ENUMERATE_INST_TYPE(type) \
-    case type:                      \
-        return #type;
-
-    switch (type) {
-        ENUMERATE_INST_TYPES()
-    }
-
-#undef __ENUMERATE_INST_TYPE
 }
 
 enum class KnownUnique {
@@ -1169,6 +884,11 @@ void visit_successors(Compiler &cc, Function *fn, BasicBlock *block,
     }
 }
 
+namespace ssa {
+void enter(IRBuilder &);
+void leave(IRBuilder &);
+} // namespace ssa
+
 void generate(Compiler &cc, AstFunction *fn)
 {
     generate_function(cc.new_ir_builder, fn);
@@ -1223,262 +943,62 @@ void consume_stats(File &file)
     stats = {};
 }
 
-void free(Compiler &cc)
+void free(Inst *inst)
 {
-    for (auto *fn : cc.new_ir_builder.fns) {
+    switch (inst->kind) {
+        case InstKind::Const:
+            delete static_cast<ConstInst *>(inst);
+            break;
+        case InstKind::Arg:
+            delete static_cast<ArgInst *>(inst);
+            break;
+        case InstKind::String:
+            delete static_cast<StringInst *>(inst);
+            break;
+        case InstKind::Var:
+            delete static_cast<VarInst *>(inst);
+            break;
+        case InstKind::SSA:
+            delete static_cast<SSAInst *>(inst);
+            break;
+        case InstKind::Phi:
+            delete static_cast<PhiInst *>(inst);
+            break;
+        case InstKind::Cast:
+            delete static_cast<CastInst *>(inst);
+            break;
+        case InstKind::Call:
+            delete static_cast<CallInst *>(inst);
+            break;
+        case InstKind::Unary:
+            if (inst->operation == Operation::Alloca) {
+                delete static_cast<AllocaInst *>(inst);
+                break;
+            }
+            [[fallthrough]];
+        case InstKind::Binary:
+        case InstKind::Identity:
+        case InstKind::Nop:
+        case InstKind::Undef:
+            delete inst;
+            break;
+        default:
+            TODO();
+    }
+}
+
+void free(IRBuilder &irb)
+{
+    for (auto *fn : irb.fns) {
         for (auto *bb : fn->blocks) {
             for (auto *inst : bb->code) {
-                switch (inst->kind) {
-                    case InstKind::Const:
-                        delete static_cast<ConstInst *>(inst);
-                        break;
-                    case InstKind::Arg:
-                        delete static_cast<ArgInst *>(inst);
-                        break;
-                    case InstKind::String:
-                        delete static_cast<StringInst *>(inst);
-                        break;
-                    case InstKind::Var:
-                        delete static_cast<VarInst *>(inst);
-                        break;
-                    case InstKind::SSA:
-                        delete static_cast<SSAInst *>(inst);
-                        break;
-                    case InstKind::Phi:
-                        delete static_cast<PhiInst *>(inst);
-                        break;
-                    case InstKind::Cast:
-                        delete static_cast<CastInst *>(inst);
-                        break;
-                    case InstKind::Call:
-                        delete static_cast<CallInst *>(inst);
-                        break;
-                    case InstKind::Unary:
-                        if (inst->operation == Operation::Alloca) {
-                            delete static_cast<AllocaInst *>(inst);
-                            break;
-                        }
-                        [[fallthrough]];
-                    case InstKind::Binary:
-                    case InstKind::Identity:
-                    case InstKind::Nop:
-                    case InstKind::Undef:
-                        delete inst;
-                        break;
-                    default:
-                        TODO();
-                }
+                free(inst);
             }
             delete bb;
         }
         delete fn;
     }
-    cc.new_ir_builder.fns.clear();
-}
-
-std::array<int, 3> hsv_to_rgb(double h, double s, double v)
-{
-    h = std::fmod(h, 360.0);
-    if (h < 0) {
-        h += 360.0;
-    }
-    s = std::clamp(s, 0.0, 1.0);
-    v = std::clamp(v, 0.0, 1.0);
-
-    double r = 0.0;
-    double g = 0.0;
-    double b = 0.0;
-
-    if (s == 0.0) {
-        auto gray = static_cast<int>(round(v * 255.0));
-        gray = std::clamp(gray, 0, 255);
-        return { gray, gray, gray };
-    }
-
-    double hh = h / 60.0;
-    int i = static_cast<int>(floor(hh));
-    double f = hh - i;
-    double p = v * (1.0 - s);
-    double q = v * (1.0 - s * f);
-    double t = v * (1.0 - s * (1.0 - f));
-
-    switch (i) {
-        case 0:
-            r = v, g = t, b = p;
-            break;
-        case 1:
-            r = q, g = v, b = p;
-            break;
-        case 2:
-            r = p, g = v, b = t;
-            break;
-        case 3:
-            r = p, g = q, b = v;
-            break;
-        case 4:
-            r = t, g = p, b = v;
-            break;
-        case 5:
-            r = v, g = p, b = q;
-            break;
-        default:
-            r = g = b = 0;
-    }
-
-    auto R = static_cast<int>(std::round(r * 255.0));
-    auto G = static_cast<int>(std::round(g * 255.0));
-    auto B = static_cast<int>(std::round(b * 255.0));
-    R = std::clamp(R, 0, 255);
-    G = std::clamp(G, 0, 255);
-    B = std::clamp(B, 0, 255);
-    return { R, G, B };
-}
-
-std::string random_color()
-{
-    static std::mt19937 rng{ std::random_device{}() };
-    // if we don't have truecolor:
-    // std::uniform_int_distribution<> dist{ 20, 225 };
-    // return std::format("\e[38;5;{}m", dist(rng));
-    std::uniform_int_distribution<> dist_h{ 0, 360 };
-    std::uniform_int_distribution<> dist_sv{ 50, 100 };
-    auto h = dist_h(rng);
-    auto s = dist_sv(rng) / 100.0;
-    auto v = dist_sv(rng) / 100.0;
-    auto [r, g, b] = hsv_to_rgb(h, s, v);
-    return std::format("\e[38;2;{};{};{}m", r, g, b);
-}
-
-std::string colored(const std::string &s)
-{
-    static std::unordered_map<std::string, std::string> color_map;
-    if (auto it = color_map.find(s); it != color_map.end()) {
-        return it->second;
-    }
-    auto v = random_color() + s + colors::Default;
-    color_map[s] = v;
-    return v;
-}
-
-void print(File &file, BasicBlock *bb)
-{
-    file.fwriteln("  bb{} {} (terminal={}, reachable={}):", bb->index_in_fn, colored(bb->name),
-        bb->terminal, bb->reachable);
-    if (!bb->predecessors.empty()) {
-        file.write("  # preds:");
-        for (size_t i = 0; i < size(bb->predecessors); ++i) {
-            file.fwrite(
-                " bb{} {}", bb->predecessors[i]->index_in_fn, colored(bb->predecessors[i]->name));
-            if (i < size(bb->predecessors) - 1) {
-                file.write(",");
-            }
-        }
-        file.write("\n");
-    }
-    for (auto *inst : bb->code) {
-        file.fwrite("    [{}] {} ", inst->index_in_bb, to_string(inst->type));
-        switch (inst->kind) {
-            case InstKind::Nop:
-                file.fwrite("Nop {}", inst->name);
-                break;
-            case InstKind::Identity:
-                file.fwrite("{} =", inst->name);
-                break;
-            case InstKind::Const:
-                // TODO: to_string(Integer)
-                file.fwrite("{} = {}", inst->name, static_cast<ConstInst *>(inst)->constant.value);
-                break;
-            case InstKind::Arg:
-                file.fwrite("{} = Arg {}", inst->name, static_cast<ArgInst *>(inst)->index);
-                break;
-            case InstKind::String:
-                file.fwrite("{} = \"{}\"", inst->name, *static_cast<StringInst *>(inst)->string);
-                break;
-            case InstKind::Undef:
-                file.fwrite("{} = undef", inst->name);
-                break;
-            case InstKind::Var: {
-                auto *var = static_cast<VarInst *>(inst);
-                file.fwrite("{} = {}", inst->name, var->variable->name);
-            } break;
-            case InstKind::SSA: {
-                file.fwrite("{}", inst->name);
-            } break;
-            case InstKind::Unary:
-                [[fallthrough]];
-            case InstKind::Binary: {
-                file.fwrite("{} = {}", inst->name, to_string(inst->operation));
-            } break;
-            case InstKind::Cast:
-                file.fwrite("{} =", inst->name);
-                break;
-            case InstKind::Call:
-                file.fwrite("{} = {} {}", inst->name, to_string(inst->operation),
-                    static_cast<CallInst *>(inst)->function->name);
-                break;
-            case InstKind::Phi: {
-                auto *phi = static_cast<PhiInst *>(inst);
-                file.fwrite("{} =", inst->name);
-                if (!phi->incoming.empty()) {
-                    file.write(" [");
-                    for (size_t i = 0; i < size(phi->incoming); ++i) {
-                        file.fwrite(" {} {}", colored(phi->incoming[i].block->name),
-                            phi->incoming[i].value->name);
-                        if (i < size(phi->incoming) - 1) {
-                            file.write(",");
-                        }
-                    }
-                    file.write(" ]");
-                }
-            } break;
-            default:
-                file.fwriteln("skipping...");
-        }
-        if (inst->operation == Operation::Alloca) {
-            file.fwrite(" {}", to_string(static_cast<AllocaInst *>(inst)->inst_type));
-        }
-        for (size_t i = 0; i < size(inst->args); ++i) {
-            file.fwrite(" {}", inst->args[i]->name);
-            if (i < size(inst->args) - 1) {
-                file.write(",");
-            }
-        }
-        if (inst->kind == InstKind::Cast) {
-            file.fwrite(" to {}", to_string(static_cast<CastInst *>(inst)->cast));
-        }
-        file.write("\n");
-    }
-    if (!bb->successors.empty()) {
-        file.write("  # succs:");
-        for (size_t i = 0; i < size(bb->successors); ++i) {
-            file.fwrite(
-                " bb{} {}", bb->successors[i]->index_in_fn, colored(bb->successors[i]->name));
-            if (i < size(bb->successors) - 1) {
-                file.write(",");
-            }
-        }
-        file.write("\n");
-    }
-    file.write("\n");
-    file.commit();
-}
-
-void print(File &file, Function *fn)
-{
-    file.fwriteln("fn {}:", fn->name);
-    for (auto *bb : fn->blocks) {
-        print(file, bb);
-    }
-    file.write("\n");
-    file.commit();
-}
-
-void print(File &file, IRBuilder &irb)
-{
-    for (auto *fn : irb.fns) {
-        print(file, fn);
-    }
-    file.commit();
+    irb.fns.clear();
 }
 
 } // namespace new_ir

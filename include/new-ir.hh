@@ -307,7 +307,7 @@ std::string demangled_name(const std::string &);
 void replace_identities(IRBuilder &);
 void dce_sweep(IRBuilder &);
 
-void free(Compiler &);
+void free(IRBuilder &);
 
 void print(File &, IRBuilder &);
 void print(File &, Function *);

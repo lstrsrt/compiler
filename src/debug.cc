@@ -1,5 +1,7 @@
 #include "debug.hh"
+#include "new-ir.hh"
 #include "parser.hh"
+#include "utils.hh"
 
 std::string to_string(AstType type)
 {
@@ -435,3 +437,143 @@ void print_ir(File &file, const IRFunction &ir_fn)
     file.write("\n");
     file.commit();
 }
+
+namespace new_ir {
+
+std::string to_string(InstType type)
+{
+    using enum InstType;
+
+#define __ENUMERATE_INST_TYPE(type) \
+    case type:                      \
+        return #type;
+
+    switch (type) {
+        ENUMERATE_INST_TYPES()
+    }
+
+#undef __ENUMERATE_INST_TYPE
+}
+
+void print(File &file, BasicBlock *bb)
+{
+    file.fwriteln("  bb{} {} (terminal={}, reachable={}):", bb->index_in_fn, colored(bb->name),
+        bb->terminal, bb->reachable);
+    if (!bb->predecessors.empty()) {
+        file.write("  # preds:");
+        for (size_t i = 0; i < size(bb->predecessors); ++i) {
+            file.fwrite(
+                " bb{} {}", bb->predecessors[i]->index_in_fn, colored(bb->predecessors[i]->name));
+            if (i < size(bb->predecessors) - 1) {
+                file.write(",");
+            }
+        }
+        file.write("\n");
+    }
+    for (auto *inst : bb->code) {
+        file.fwrite("    [{}] {} ", inst->index_in_bb, to_string(inst->type));
+        switch (inst->kind) {
+            case InstKind::Nop:
+                file.fwrite("Nop {}", inst->name);
+                break;
+            case InstKind::Identity:
+                file.fwrite("{} =", inst->name);
+                break;
+            case InstKind::Const:
+                // TODO: to_string(Integer)
+                file.fwrite("{} = {}", inst->name, static_cast<ConstInst *>(inst)->constant.value);
+                break;
+            case InstKind::Arg:
+                file.fwrite("{} = Arg {}", inst->name, static_cast<ArgInst *>(inst)->index);
+                break;
+            case InstKind::String:
+                file.fwrite("{} = \"{}\"", inst->name, *static_cast<StringInst *>(inst)->string);
+                break;
+            case InstKind::Undef:
+                file.fwrite("{} = undef", inst->name);
+                break;
+            case InstKind::Var: {
+                auto *var = static_cast<VarInst *>(inst);
+                file.fwrite("{} = {}", inst->name, var->variable->name);
+            } break;
+            case InstKind::SSA: {
+                file.fwrite("{}", inst->name);
+            } break;
+            case InstKind::Unary:
+                [[fallthrough]];
+            case InstKind::Binary: {
+                file.fwrite("{} = {}", inst->name, to_string(inst->operation));
+            } break;
+            case InstKind::Cast:
+                file.fwrite("{} =", inst->name);
+                break;
+            case InstKind::Call:
+                file.fwrite("{} = {} {}", inst->name, to_string(inst->operation),
+                    static_cast<CallInst *>(inst)->function->name);
+                break;
+            case InstKind::Phi: {
+                auto *phi = static_cast<PhiInst *>(inst);
+                file.fwrite("{} =", inst->name);
+                if (!phi->incoming.empty()) {
+                    file.write(" [");
+                    for (size_t i = 0; i < size(phi->incoming); ++i) {
+                        file.fwrite(" {} {}", colored(phi->incoming[i].block->name),
+                            phi->incoming[i].value->name);
+                        if (i < size(phi->incoming) - 1) {
+                            file.write(",");
+                        }
+                    }
+                    file.write(" ]");
+                }
+            } break;
+            default:
+                file.fwriteln("skipping...");
+        }
+        if (inst->operation == Operation::Alloca) {
+            file.fwrite(" {}", to_string(static_cast<AllocaInst *>(inst)->inst_type));
+        }
+        for (size_t i = 0; i < size(inst->args); ++i) {
+            file.fwrite(" {}", inst->args[i]->name);
+            if (i < size(inst->args) - 1) {
+                file.write(",");
+            }
+        }
+        if (inst->kind == InstKind::Cast) {
+            file.fwrite(" to {}", to_string(static_cast<CastInst *>(inst)->cast));
+        }
+        file.write("\n");
+    }
+    if (!bb->successors.empty()) {
+        file.write("  # succs:");
+        for (size_t i = 0; i < size(bb->successors); ++i) {
+            file.fwrite(
+                " bb{} {}", bb->successors[i]->index_in_fn, colored(bb->successors[i]->name));
+            if (i < size(bb->successors) - 1) {
+                file.write(",");
+            }
+        }
+        file.write("\n");
+    }
+    file.write("\n");
+    file.commit();
+}
+
+void print(File &file, Function *fn)
+{
+    file.fwriteln("fn {}:", fn->name);
+    for (auto *bb : fn->blocks) {
+        print(file, bb);
+    }
+    file.write("\n");
+    file.commit();
+}
+
+void print(File &file, IRBuilder &irb)
+{
+    for (auto *fn : irb.fns) {
+        print(file, fn);
+    }
+    file.commit();
+}
+
+} // namespace new_ir

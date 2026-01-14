@@ -47,7 +47,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
     if (opts.new_ir) {
         new_ir::generate(cc, main);
         new_ir::consume_stats(stdout_file());
-        new_ir::free(cc);
+        new_ir::free(cc.new_ir_builder);
     } else {
         generate_ir(cc, main);
 
