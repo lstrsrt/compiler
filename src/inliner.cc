@@ -1,6 +1,7 @@
 #include "new-ir.hh"
 #include "parser.hh"
 
+#include <algorithm>
 #include <numeric>
 #include <ranges>
 
@@ -48,16 +49,6 @@ bool should_inline(AstFunction *fn)
     return false;
 }
 
-void replace_args(Inst *inst, const std::vector<Inst *> &args)
-{
-    if (!inst->args.empty() && inst->args[0]->kind == InstKind::Arg) {
-        inst->args[0] = args[static_cast<ArgInst *>(inst->args[0])->index];
-    }
-    if (size(inst->args) > 1 && inst->args[1]->kind == InstKind::Arg) {
-        inst->args[1] = args[static_cast<ArgInst *>(inst->args[1])->index];
-    }
-}
-
 BlockInsertionSet block_insertions;
 
 void move_insts(std::vector<Inst *> &dst, std::vector<Inst *> &src, ptrdiff_t from)
@@ -102,14 +93,9 @@ std::pair<BasicBlock *, BasicBlock *> split_call(Function *fn, BasicBlock *split
     return { start_block, merge_block };
 }
 
-void fix_inlined_insts(Function *fn, BasicBlock *new_bb, const std::vector<Inst *> &args,
-    Inst *result, InsertionSetMap &return_stores, BasicBlock *post_bb)
+void fix_inlined_insts(Function *fn, BasicBlock *new_bb, Inst *result,
+    InsertionSetMap &return_stores, BasicBlock *post_bb)
 {
-    for (auto *inst : new_bb->code) {
-        // Turn args into inputs.
-        replace_args(inst, args);
-    }
-
     auto *term = new_bb->code.back();
     if (term->operation == Operation::Return) {
         if (result) {
@@ -138,6 +124,8 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
         bb->code[i]->transform_to_nop();
     }
     assert(size(args) == size(call->function->params));
+    // NOTE: We saved in reverse order, fix it here.
+    std::ranges::reverse(args);
 
     // Split the current block into three:
     // entry (before call), new (for start of inlined fn), post (after call)
@@ -172,7 +160,7 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
 
     for (auto [_, new_block] : block_insertions.insertions) {
         inl_dbgln("fixing insts for block {}", new_block->name);
-        fix_inlined_insts(fn, new_block, args, result, return_stores, merge_block);
+        fix_inlined_insts(fn, new_block, result, return_stores, merge_block);
     }
 
     // NOTE: we use execute_range() later which inserts the entire set at once.
