@@ -1,8 +1,8 @@
 #include "verify.hh"
+#include "ast-fold.hh"
 #include "compiler.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
-#include "optimizer.hh"
 #include "parser.hh"
 #include "range.hh"
 

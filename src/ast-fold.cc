@@ -1,4 +1,4 @@
-#include "optimizer.hh"
+#include "ast-fold.hh"
 #include "diagnose.hh"
 #include "parser.hh"
 #include "verify.hh"
@@ -510,7 +510,7 @@ Ast *try_fold_constants(Compiler &cc, AstBinary *binary, Integer left_const, Int
                 break;
             }
             case Operation::RightShift:
-                if (!expected->is_unsigned()) {
+                if (expected->is_signed()) {
                     result.value = static_cast<int64_t>(left_const.value)
                         >> static_cast<int64_t>(right_const.value);
                 } else {
