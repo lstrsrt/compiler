@@ -66,3 +66,4 @@ To switch to a Debug build, run `xmake config -m debug` before `xmake`.
 To run: `./build/{debug,release}/compiler [args...]`.
 Pass `--help` for help.
 
+The `--exe` flag and tests require [nasm](https://www.nasm.us) and gcc to be installed.
