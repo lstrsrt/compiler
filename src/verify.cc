@@ -1601,6 +1601,45 @@ AstEnumMember *get_enum_member(Compiler &cc, AstEnumDecl *enum_decl, AstEnumMemb
         unresolved->name);
 }
 
+// NOTE: copy-pasted from maybe_cast_int()
+TypeError could_implicitly_cast_int(Type *wanted, Type *type, Ast *expr, ExprConstness constness)
+{
+    wanted = get_unaliased_type(wanted);
+    type = get_unaliased_type(type);
+
+    if (wanted == type) {
+        return TypeError::None;
+    }
+    if (!type->is_int() || !wanted->is_int()) {
+        return TypeError::Default;
+    }
+    if (type->pointer != wanted->pointer) {
+        return TypeError::PointerMismatch;
+    }
+    if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
+        return TypeError::SizeMismatch;
+    }
+
+    if (type->is_unsigned() != wanted->is_unsigned()) {
+        // The constness check makes something like x: u64 = 0 possible, but not x: u64 = y
+        // where y is a s64.
+        if (!expr_is_fully_constant(constness)) {
+            if (wanted->is_unsigned() || wanted->size <= type->size) {
+                return TypeError::SignednessMismatch;
+            }
+        }
+    } else if (type->size != wanted->size) {
+        if (!expr_is_fully_constant(constness)) {
+            if (wanted->size <= type->size) {
+                // Needs an explicit cast.
+                return TypeError::SizeMismatch;
+            }
+        }
+    }
+
+    return TypeError::None;
+}
+
 void verify_enum_member(Compiler &cc, Ast *&ast)
 {
     // TODO: some of this work can be done only once.
@@ -1617,7 +1656,6 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
     resolve_type(cc, enum_decl->scope, t);   // Maybe it is unresolved.
     auto *unaliased = get_unaliased_type(t); // Maybe it is also an alias.
 
-    // If this happens, we are using an enum and we need to get the expr from the declaration.
     auto *&expr = member->expr;
     auto *member_decl = get_enum_member(cc, enum_decl, member);
     if (!member_decl->expr) {
@@ -1629,10 +1667,18 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
         }
         member_decl->expr = new AstLiteral(unaliased, enum_decl->next_int, ast->location);
     } else {
-        // TODO: constant folder does not support enums so the const int assert will fail on complex
-        // expressions.
-        member_decl->expr
-            = try_constant_fold(cc, member_decl->expr, unaliased, TypeOverridable::No);
+        if (unaliased->is_int()) {
+            // HACK: make constant folding work by setting the enum nodes to their underlying
+            // exprs... real fix is to make try_constant_fold() support enums.
+            traverse_postorder(member_decl->expr, [](Ast *&node) {
+                if (node->operation == Operation::EnumMember) {
+                    auto *tmp = static_cast<AstEnumMember *>(node)->expr; // decl
+                    node = static_cast<AstEnumMember *>(tmp)->expr;       // decl's expr
+                }
+            });
+            member_decl->expr
+                = try_constant_fold(cc, member_decl->expr, unaliased, TypeOverridable::No);
+        }
     }
     expr = member_decl->expr;
 
@@ -1641,9 +1687,15 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
     if (!expr_is_fully_constant(constness)) {
         verification_error(member->expr, "enum initializer needs to be fully constant");
     }
+
     if (auto err = types_match(expr_type, t); err != TypeError::None) {
         // If it's not the underlying type, we might be assigning from another member.
         err = types_match(expr_type, enum_decl->enum_type);
+        if (err != TypeError::None && unaliased->is_int()) {
+            // Underlying might be of a different int type than our expr.
+            // Figure it out here.
+            err = could_implicitly_cast_int(unaliased, expr_type, expr, constness);
+        }
         if (err != TypeError::None) {
             verification_type_error(member->expr->location,
                 "enum initializer resolves to type {} instead of underlying type {}",
@@ -1654,6 +1706,10 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
         assert(expr_is_const_integral(expr, IgnoreCasts::Yes));
         enum_decl->next_int = get_int_literal(expr) + 1;
     }
+
+    // Force override the type to what the user specified.
+    // We know this is ok because the earlier checks would have failed otherwise.
+    expr->expr_type = unaliased;
 }
 
 void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
@@ -1784,6 +1840,8 @@ void verify_return(
             current_function->name, current_function->return_type->get_name());
     }
 
+    ExprConstness constness{};
+    get_expression_type(cc, expr, &constness);
     verify_expr(cc, expr, WarnDiscardedReturn::No, expected);
 }
 
@@ -1913,33 +1971,6 @@ void verify_function_decl(Compiler &cc, Ast *ast)
     cc.current_function = fn;
     verify_ast(cc, fn->body, fn);
     cc.current_function = last;
-}
-
-TypeError const_int_compatible_with_underlying(Type *type, Type *underlying, Ast *expr)
-{
-    underlying = get_unaliased_type(underlying);
-    type = get_unaliased_type(type);
-
-    if (underlying == type) {
-        return TypeError::None;
-    }
-    if (!type->is_int() || !underlying->is_int()) {
-        return TypeError::Default;
-    }
-    if (type->pointer != underlying->pointer) {
-        return TypeError::PointerMismatch;
-    }
-    // FIXME: enum(s64) with member 0xffff_ffff?
-    if (type->is_unsigned() != underlying->is_unsigned()) {
-        // TODO: add new implicit cast rules from maybe_cast_int
-        return TypeError::SignednessMismatch;
-    }
-    // FIXME: incorrect when type is signed and folded into negative?
-    if (get_int_literal(expr) > max_for_type(underlying)) {
-        return TypeError::SizeMismatch;
-    }
-
-    return TypeError::None;
 }
 
 void verify_enum_decl(Compiler &cc, Ast *ast)
