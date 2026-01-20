@@ -592,6 +592,7 @@ IRArg read_variable_recursive(IRFunction &ir_fn, uintptr_t var, BasicBlock *bloc
         incomplete_phis[block][var] = phi;
         // Operands will be filled in later during block sealing.
         val = IRArg::make_vreg(phi->target);
+        ssa_dbgln("read_variable inserting phi @ unsealed bb{}", block->index);
     } else if (reachable_preds.size() == 1) {
         // "If the block has a single predecessor, just query it recursively for a definition."
         val = read_variable(ir_fn, var, reachable_preds.back());
@@ -859,6 +860,8 @@ IRArg generate_ir_impl(Compiler &cc, Ast *ast)
         case AstType::String:
             string_map.push_back(static_cast<AstString *>(ast)->string);
             return IRArg::make_string(string_map.size(), static_cast<AstString *>(ast));
+        case AstType::Enum:
+            return generate_ir_impl(cc, static_cast<AstEnumMember *>(ast)->expr);
         case AstType::Identifier: {
             auto *var = static_cast<AstIdentifier *>(ast)->var;
             if (var->is_parameter()) {
