@@ -11,6 +11,8 @@
 #include <utility>
 #include <vector>
 
+#include <cpptrace/cpptrace.hpp>
+
 namespace fs = std::filesystem;
 namespace ch = std::chrono;
 using namespace std::string_view_literals;
@@ -61,15 +63,9 @@ struct Defer {
         }
     }
 
-    void disable()
-    {
-        disabled = true;
-    }
+    void disable() { disabled = true; }
 
-    void enable()
-    {
-        disabled = false;
-    }
+    void enable() { disabled = false; }
 
     Fn fn;
     bool disabled = false;
@@ -90,20 +86,11 @@ using std::to_underlying;
 #endif
 
 struct Timer {
-    Timer()
-    {
-        reset();
-    }
+    Timer() { reset(); }
 
-    void reset()
-    {
-        start = ch::system_clock::now();
-    }
+    void reset() { start = ch::system_clock::now(); }
 
-    auto elapsed() const
-    {
-        return ch::duration<double>(ch::system_clock::now() - start);
-    }
+    auto elapsed() const { return ch::duration<double>(ch::system_clock::now() - start); }
 
     ch::time_point<ch::system_clock> start;
 };
@@ -140,6 +127,20 @@ template<typename... Args>
     } else {
         std::println("{}", msg);
     }
+    exit(EXIT_FAILURE);
+}
+
+template<typename... Args>
+[[noreturn]] void internal_error(std::string_view msg, Args &&...args)
+{
+    std::print("{}internal error:{} ", colors::Red, colors::Default);
+    if constexpr (sizeof...(args)) {
+        std::println(
+            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+    } else {
+        std::println("{}", msg);
+    }
+    cpptrace::generate_trace().print();
     exit(EXIT_FAILURE);
 }
 

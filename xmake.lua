@@ -4,6 +4,8 @@ add_rules("mode.debug", "mode.release")
 add_requires("clang", {optional = true})
 add_requires("mold", {optional = true})
 
+add_requires("cpptrace")
+
 target("compiler")
     set_kind("binary")
     set_languages("cxx23")
@@ -18,6 +20,7 @@ target("compiler")
     if has_package("mold") then
         add_ldflags("-fuse-ld=mold")
     end
+    add_packages("cpptrace")
     add_files("src/*.cc")
     if is_mode("debug") then
         add_defines("_DEBUG")
