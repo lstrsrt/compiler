@@ -88,7 +88,7 @@ void warning_at(Compiler &cc, SourceLocation location, std::string_view fmt, aut
 
 void ast_warning(Compiler &cc, Ast *ast, std::string_view fmt, auto &&...args)
 {
-    warning_at(cc, ast->location, fmt, args...);
+    warning_at(cc, ast->location, fmt, std::forward<decltype((args))>(args)...);
 }
 
 void prepare_error(Compiler &cc, SourceLocation location, std::string_view fmt, auto &&...args)

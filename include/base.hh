@@ -131,7 +131,7 @@ template<typename... Args>
 }
 
 template<typename... Args>
-[[noreturn]] void internal_error(std::string_view msg, Args &&...args)
+[[noreturn]] void internal_error(std::string_view msg, const Args &...args)
 {
     std::print("{}internal error:{} ", colors::Red, colors::Default);
     if constexpr (sizeof...(args)) {

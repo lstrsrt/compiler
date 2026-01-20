@@ -709,21 +709,21 @@ void create_executable(const std::string &asm_file, const std::string &output_na
 #ifdef __linux__
     if (spawn_blocking_process(
             "/usr/bin/nasm", { "-felf64", "-o", output_name + ".o", asm_file })) {
-        die("nasm failure");
+        internal_error("nasm failure");
     }
     if (spawn_blocking_process("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
-        die("gcc failure");
+        internal_error("gcc failure");
     }
 #else
     if (spawn_blocking_process("\"C:\\Program Files\\NASM\\nasm.exe\"",
             { "-fwin64", "-o", output_name + ".obj", asm_file })) {
-        die("nasm failure");
+        internal_error("nasm failure");
     }
     if (spawn_blocking_process("\"C:\\Program Files\\Microsoft Visual "
                                "Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\lld-link.exe\"",
             { "/machine:x64", "/subsystem:console", "/out:output.exe", "output.obj", "kernel32.lib",
                 "legacy_stdio_definitions.lib", "msvcrt.lib" })) {
-        die("lld-link failure");
+        internal_error("lld-link failure");
     }
 #endif
 }

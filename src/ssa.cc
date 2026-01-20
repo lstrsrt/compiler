@@ -195,7 +195,7 @@ Inst *get_pre_terminator_inst(BasicBlock *bb)
         }
         return last;
     }
-    die("block should end on return or branch");
+    internal_error("block {} does not end on return or branch", bb->name);
 }
 
 void leave_block(Function *fn, BasicBlock *bb)
