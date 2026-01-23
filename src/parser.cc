@@ -1126,6 +1126,7 @@ Ast *parse_enum(Compiler &cc)
         auto name = token.string;
         auto location = token.location;
         consume(cc.lexer, token);
+        cc.lexer.ignore_newlines = false;
         token = lex(cc);
         Ast *expr = nullptr;
         if (token.kind == TokenKind::Equals) {
@@ -1133,7 +1134,6 @@ Ast *parse_enum(Compiler &cc)
             expr = parse_expr(cc);
         }
         try_add_enum_member(name, enum_decl, expr, location, members);
-        cc.lexer.ignore_newlines = false;
         token = lex(cc);
         if (token.kind == TokenKind::Comma) {
             consume(cc.lexer, token);
