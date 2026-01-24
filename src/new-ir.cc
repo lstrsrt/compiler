@@ -913,13 +913,13 @@ void generate(Compiler &cc, AstFunction *fn)
     if (opts.ssa) {
 #ifdef SSA_DEBUG
         ssa_dbgln("********************************* pre ssa:");
-        print(stdout_file(), cc.new_ir_builder);
+        print(stdout_file(), cc.new_ir_builder, SkipUnreachable::No);
         ssa_dbgln("*********************************");
 #endif
         ssa::enter(cc.new_ir_builder);
 #ifdef SSA_DEBUG
         ssa_dbgln("********************************* ssa:");
-        print(stdout_file(), cc.new_ir_builder);
+        print(stdout_file(), cc.new_ir_builder, SkipUnreachable::No);
         ssa_dbgln("*********************************");
 #endif
         ssa::leave(cc.new_ir_builder);
@@ -934,14 +934,14 @@ void generate(Compiler &cc, AstFunction *fn)
                 std::println("{}============= {}IR for `{}`{} ============={}", colors::Green,
                     colors::DefaultBold, demangled_name(fn->ast->name), colors::Green,
                     colors::Default);
-                print(stdout_file(), fn);
+                print(stdout_file(), fn, SkipUnreachable::Yes);
             }
         }
     }
 
 #if defined(_DEBUG) || defined(SSA_DEBUG)
     std::println("\n{}generated ir:{}", colors::Cyan, colors::Default);
-    new_ir::print(stdout_file(), cc.new_ir_builder);
+    print(stdout_file(), cc.new_ir_builder, SkipUnreachable::No);
 #endif
 }
 

@@ -46,8 +46,7 @@ void compiler_main(Compiler &cc, AstFunction *main)
 
     if (opts.new_ir) {
         new_ir::generate(cc, main);
-        new_ir::consume_stats(stdout_file());
-        new_ir::free(cc.new_ir_builder);
+        // new_ir::consume_stats(stdout_file());
     } else {
         generate_ir(cc, main);
 
@@ -165,7 +164,8 @@ void Compiler::cleanup([[maybe_unused]] AstFunction *root)
 #endif
     leave_scope();
     free_types();
-    free_ir(this->ir_builder);
+    free_ir(ir_builder);
+    new_ir::free(new_ir_builder);
     free_scopes();
     lexer.free_input();
 }

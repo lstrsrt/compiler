@@ -252,7 +252,7 @@ void leave(IRBuilder &irb)
 
 #ifdef SSA_DEBUG
     ssa_dbgln("********************************* pre opt:");
-    print(stdout_file(), irb);
+    print(stdout_file(), irb, SkipUnreachable::No);
     ssa_dbgln("*********************************");
 #endif
 

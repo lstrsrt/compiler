@@ -466,8 +466,40 @@ std::string to_string(InstType type)
 #undef __ENUMERATE_INST_TYPE
 }
 
-void print(File &file, BasicBlock *bb)
+std::string to_string(const Integer &i, InstType type)
 {
+    switch (type) {
+        case InstType::Ptr:
+            return std::format("{:x}", i.value);
+        case InstType::S1:
+            return std::format("{}", i.value != 0);
+        case InstType::S8:
+            return std::format("{}", static_cast<int8_t>(i.value));
+        case InstType::S16:
+            return std::format("{}", static_cast<int16_t>(i.value));
+        case InstType::S32:
+            return std::format("{}", static_cast<int32_t>(i.value));
+        case InstType::S64:
+            return std::format("{}", static_cast<int64_t>(i.value));
+        case InstType::U8:
+            return std::format("{}", static_cast<uint8_t>(i.value));
+        case InstType::U16:
+            return std::format("{}", static_cast<uint16_t>(i.value));
+        case InstType::U32:
+            return std::format("{}", static_cast<uint32_t>(i.value));
+        case InstType::U64:
+            return std::format("{}", i.value);
+        default:
+            internal_error("{} is not an integer type", to_string(type));
+    }
+}
+
+void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
+{
+    if (!bb->reachable && skip_unreachable == SkipUnreachable::Yes) {
+        return;
+    }
+
     file.fwriteln("  bb{} {} (terminal={}, reachable={}):", bb->index_in_fn, colored(bb->name),
         bb->terminal, bb->reachable);
     if (!bb->predecessors.empty()) {
@@ -491,8 +523,8 @@ void print(File &file, BasicBlock *bb)
                 file.fwrite("{} =", inst->name);
                 break;
             case InstKind::Const:
-                // TODO: to_string(Integer)
-                file.fwrite("{} = {}", inst->name, static_cast<ConstInst *>(inst)->constant.value);
+                file.fwrite("{} = {}", inst->name,
+                    to_string(static_cast<ConstInst *>(inst)->constant, inst->type));
                 break;
             case InstKind::Arg:
                 file.fwrite("{} = Arg {}", inst->name, static_cast<ArgInst *>(inst)->index);
@@ -569,20 +601,20 @@ void print(File &file, BasicBlock *bb)
     file.commit();
 }
 
-void print(File &file, Function *fn)
+void print(File &file, Function *fn, SkipUnreachable skip_unreachable)
 {
     file.fwriteln("fn {}:", fn->name);
     for (auto *bb : fn->blocks) {
-        print(file, bb);
+        print(file, bb, skip_unreachable);
     }
     file.write("\n");
     file.commit();
 }
 
-void print(File &file, IRBuilder &irb)
+void print(File &file, IRBuilder &irb, SkipUnreachable skip_unreachable)
 {
     for (auto *fn : irb.fns) {
-        print(file, fn);
+        print(file, fn, skip_unreachable);
     }
     file.commit();
 }

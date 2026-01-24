@@ -312,8 +312,14 @@ void dce_sweep(IRBuilder &);
 
 void free(IRBuilder &);
 
-void print(File &, IRBuilder &);
-void print(File &, Function *);
+enum class SkipUnreachable {
+    No,
+    Yes,
+};
+
+void print(File &, IRBuilder &, SkipUnreachable);
+void print(File &, BasicBlock *, SkipUnreachable);
+void print(File &, Function *, SkipUnreachable);
 void consume_stats(File &);
 
 } // namespace new_ir
