@@ -76,6 +76,7 @@ std::pair<BasicBlock *, BasicBlock *> split_call(Function *fn, BasicBlock *split
         }
     }
     split->successors.clear();
+    split->terminal = false;
 
     // This block might depend on data from later blocks.
     // TODO: this might not be true anymore now that we put it at the end
@@ -111,7 +112,6 @@ void fix_inlined_insts(Function *fn, BasicBlock *new_bb, Inst *result,
     }
 }
 
-// TODO: don't need to split for simple functions with only 1 block
 void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
 {
     // Kill PushArgs but save the operands.
@@ -128,7 +128,7 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
     std::ranges::reverse(args);
 
     // Split the current block into three:
-    // entry (before call), new (for start of inlined fn), post (after call)
+    // bb (code until call), start_block (for start of inlined code), merge_block (code after call)
     auto [start_block, merge_block] = split_call(fn, bb, static_cast<ptrdiff_t>(call->index_in_bb));
     irb.current_fn = fn;
     irb.current_fn->current_block = bb;
@@ -211,7 +211,6 @@ void inline_pass(IRBuilder &irb)
         irb.alloca_sets.pop();
     }
     replace_identities(irb);
-    dce_sweep(irb);
 }
 
 } // namespace new_ir
