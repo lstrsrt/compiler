@@ -131,7 +131,8 @@ void transform_block(Function *fn, BasicBlock *bb, std::vector<BasicBlock *> &un
                 continue;
             }
             auto *ssa = new SSAInst(alloca->inst_type, name_gen[fn].get("ssa"));
-            ssa_dbgln("transforming {} to ssa {}", alloca->name, ssa->name);
+            ssa->variable_name = alloca->variable_name;
+            ssa_dbgln("transforming {} to {}", alloca->name, ssa->name);
             inst->transform_to_identity(ssa, name_gen[fn].get("id"));
             ++stats.vars_to_ssa;
         } else if (inst->operation == Operation::Store) {
@@ -257,7 +258,6 @@ void leave(IRBuilder &irb)
 
     replace_identities(irb);
     elide_assignments(irb);
-    dce_sweep(irb);
 }
 
 } // namespace new_ir::ssa

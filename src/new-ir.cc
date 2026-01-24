@@ -252,6 +252,7 @@ Inst *make_alloca(Variable *var)
 {
     auto *inst = new AllocaInst(std::format("addr.{}", var->name.substr(0, 5)));
     inst->inst_type = to_inst_type(var->type);
+    inst->variable_name = var->name;
     inst->force_memory = var->force_stack;
     return inst;
 }

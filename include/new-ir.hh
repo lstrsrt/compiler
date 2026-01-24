@@ -126,6 +126,7 @@ struct StringInst : Inst {
 
 struct AllocaInst : Inst {
     InstType inst_type{};
+    std::string variable_name;
     bool force_memory = false;
 
     explicit AllocaInst(const std::string &_name)
@@ -145,7 +146,7 @@ struct VarInst : Inst {
 };
 
 struct SSAInst : Inst {
-    Variable *variable = nullptr; // TODO: remove me
+    std::string variable_name;
 
     explicit SSAInst(InstType _type, const std::string &_name)
         : Inst(Operation::None, InstKind::SSA, _type, _name)
