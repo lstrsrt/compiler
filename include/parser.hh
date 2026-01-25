@@ -105,6 +105,9 @@ enum_flags(AstFlags, uint64_t){
     PTR_ARITH = 1 << 1,
     // This is a function that directly calls itself.
     RECURSIVE = 1 << 2,
+    // This is a function that isn't main and has nested functions inside.
+    // NOTE: This is a hack for inlining.
+    HAS_NESTED_FNS = 1 << 3,
 };
 
 constexpr uint64_t KiB(uint64_t bytes)

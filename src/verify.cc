@@ -1968,6 +1968,9 @@ void verify_function_decl(Compiler &cc, Ast *ast)
         resolve_type(cc, fn->scope, param->var.type);
     }
     auto *last = cc.current_function;
+    if (last && last->scope) {
+        last->flags |= AstFlags::HAS_NESTED_FNS;
+    }
     cc.current_function = fn;
     verify_ast(cc, fn->body, fn);
     cc.current_function = last;

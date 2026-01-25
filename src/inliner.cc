@@ -35,7 +35,8 @@ bool should_inline(AstFunction *fn)
             // TODO: don't inline fns containing other fn decls
             if (fn->scope /* null means we're main() */
                 && !has_flag(fn->attributes, FunctionAttributes::BUILTIN_PRINT)
-                && !has_flag(fn->flags, AstFlags::RECURSIVE) && size(fn->body->stmts) < 20) {
+                && !has_flag(fn->flags, AstFlags::RECURSIVE)
+                && !has_flag(fn->flags, AstFlags::HAS_NESTED_FNS) && size(fn->body->stmts) < 20) {
                 fn->should_inline = InlineDecision::Inline;
                 return true;
             }
@@ -116,12 +117,14 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
 {
     // Kill PushArgs but save the operands.
     std::vector<Inst *> args;
-    for (auto i = call->index_in_bb - 1; i > 0; --i) {
-        if (bb->code[i]->operation != Operation::PushArg) {
-            break;
+    if (call->index_in_bb > 0) {
+        for (auto i = call->index_in_bb - 1; i > 0; --i) {
+            if (bb->code[i]->operation != Operation::PushArg) {
+                break;
+            }
+            args.push_back(bb->code[i]->args[0]);
+            bb->code[i]->transform_to_nop();
         }
-        args.push_back(bb->code[i]->args[0]);
-        bb->code[i]->transform_to_nop();
     }
     assert(size(args) == size(call->function->params));
     // NOTE: We saved in reverse order, fix it here.
@@ -196,6 +199,7 @@ void inline_pass(IRBuilder &irb)
                             "inlining {} into {}", demangled_name(call->function->name), fn->name);
                         inline_call(irb, fn, bb, call);
                         ++stats.inlined_calls;
+                        assert(!block_insertions.insertions.empty());
                         auto skip = std::distance(fn->blocks.begin(), it)
                             + size(block_insertions.insertions) - 1;
                         block_insertions.execute_range(fn);
