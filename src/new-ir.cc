@@ -7,6 +7,7 @@
 #include "verify.hh"
 
 #include <algorithm>
+#include <numeric>
 #include <ranges>
 #include <unordered_set>
 
@@ -241,6 +242,15 @@ Inst *make_load(Function *fn, Variable *var, Inst *inst)
     return load;
 }
 
+Inst *generate_store(IRBuilder &irb, Inst *alloca, Inst *value)
+{
+    auto *store = new Inst(
+        Operation::Store, InstKind::Binary, InstType::Ptr, name_gen[irb.current_fn].get("st"));
+    store->add_arg(alloca);
+    store->add_arg(value);
+    return irb.add(store);
+}
+
 ConstInst *make_const(AstLiteral *constant, const std::string &name)
 {
     auto *c = new ConstInst(to_inst_type(constant), name);
@@ -285,11 +295,7 @@ Inst *generate_var_decl(IRBuilder &irb, Ast *ast)
     auto *alloca = generate_alloca(irb, &var_decl->var);
     auto *expr = var_decl->init_expr ? generate(irb, var_decl->init_expr)
                                      : generate_undef(irb, var_decl->var.type);
-    auto *store = new Inst(
-        Operation::Store, InstKind::Binary, InstType::Ptr, name_gen[irb.current_fn].get("st"));
-    store->add_arg(alloca);
-    store->add_arg(expr);
-    return irb.add(store);
+    return generate_store(irb, alloca, expr);
 }
 
 void replace_identities(IRBuilder &irb)
@@ -415,11 +421,9 @@ Inst *generate_binary(IRBuilder &irb, Ast *ast)
     auto *binary = static_cast<AstBinary *>(ast);
 
     if (ast->operation == Operation::Assign) {
-        auto *store = new Inst(
-            Operation::Store, InstKind::Binary, InstType::Ptr, name_gen[irb.current_fn].get("st"));
-        store->add_arg(get_alloca(static_cast<AstIdentifier *>(binary->left)->var));
-        store->add_arg(generate(irb, binary->right));
-        return irb.add(store);
+        auto *alloca = get_alloca(static_cast<AstIdentifier *>(binary->left)->var);
+        auto *expr = generate(irb, binary->right);
+        return generate_store(irb, alloca, expr);
     }
 
     bool is_store = ast->operation == Operation::Store;
@@ -599,7 +603,8 @@ void generate_if(IRBuilder &irb, Ast *ast)
         // `if cond { ... return }
         // else     { ... return }`
         // so no merge block is necessary.
-        delete merge_block;
+        void free(BasicBlock *);
+        free(merge_block);
     }
 }
 
@@ -630,7 +635,7 @@ void generate_for(IRBuilder &irb, Ast *ast)
     fn->current_block = true_block;
     generate(irb, for_stmt->body);
     if (for_stmt->change) {
-        generate_binary(irb, for_stmt->change);
+        generate(irb, for_stmt->change);
     }
     if (cmp_block) {
         generate_jump(irb, cmp_block);
@@ -687,11 +692,9 @@ void generate_continue(IRBuilder &irb, Ast *)
 
 Inst *generate_identifier(IRBuilder &irb, Variable *var)
 {
-    auto it = alloca_map.find(var);
-    assert(it != alloca_map.end());
-    auto *load = make_load(irb.current_fn, var, it->second);
-    irb.add(load);
-    return load;
+    auto *alloca = get_alloca(var);
+    auto *load = make_load(irb.current_fn, var, alloca);
+    return irb.add(load);
 }
 
 Inst *generate_unary(IRBuilder &irb, Ast *ast)
@@ -999,14 +1002,19 @@ void free(Inst *inst)
     }
 }
 
+void free(BasicBlock *bb)
+{
+    for (auto *inst : bb->code) {
+        free(inst);
+    }
+    delete bb;
+}
+
 void free(IRBuilder &irb)
 {
     for (auto *fn : irb.fns) {
         for (auto *bb : fn->blocks) {
-            for (auto *inst : bb->code) {
-                free(inst);
-            }
-            delete bb;
+            free(bb);
         }
         delete fn;
     }
