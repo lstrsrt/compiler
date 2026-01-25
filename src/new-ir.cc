@@ -416,9 +416,59 @@ Inst *generate_const(IRBuilder &irb, Ast *ast)
     return c;
 }
 
+AstLiteral *false_bool()
+{
+    static AstLiteral s_false{ false, {} };
+    return &s_false;
+}
+
+AstLiteral *true_bool()
+{
+    static AstLiteral s_true{ true, {} };
+    return &s_true;
+}
+
+Inst *generate_cond_result(IRBuilder &irb, BasicBlock *true_block, BasicBlock *false_block)
+{
+    auto *fn = irb.current_fn;
+
+    auto *last = new BasicBlock(fn, "last");
+    auto *alloca = generate_alloca(irb, InstType::S1, "addr.cond");
+
+    add_existing_block(irb, fn, true_block);
+    fn->current_block = true_block;
+    generate_store(irb, alloca, generate(irb, true_bool()));
+    generate_jump(irb, last);
+
+    add_existing_block(irb, fn, false_block);
+    fn->current_block = false_block;
+    generate_store(irb, alloca, generate(irb, false_bool()));
+    generate_jump(irb, last);
+
+    add_existing_block(irb, fn, last);
+    fn->current_block = last;
+
+    return irb.add(make_load(fn, alloca));
+}
+
+void generate_logical_or(IRBuilder &, AstBinary *, BasicBlock *true_block, BasicBlock *false_block);
+void generate_logical_and(
+    IRBuilder &, AstBinary *, BasicBlock *true_block, BasicBlock *false_block);
+
 Inst *generate_binary(IRBuilder &irb, Ast *ast)
 {
     auto *binary = static_cast<AstBinary *>(ast);
+
+    if (ast->operation == Operation::LogicalAnd || ast->operation == Operation::LogicalOr) {
+        auto *true_block = new BasicBlock(irb.current_fn, "true");
+        auto *false_block = new BasicBlock(irb.current_fn, "false");
+        if (ast->operation == Operation::LogicalOr) {
+            generate_logical_or(irb, static_cast<AstBinary *>(ast), true_block, false_block);
+        } else {
+            generate_logical_and(irb, static_cast<AstBinary *>(ast), true_block, false_block);
+        }
+        return generate_cond_result(irb, true_block, false_block);
+    }
 
     if (ast->operation == Operation::Assign) {
         auto *alloca = get_alloca(static_cast<AstIdentifier *>(binary->left)->var);
@@ -470,9 +520,6 @@ Inst *generate_return(IRBuilder &irb, Ast *ast)
     irb.current_fn->current_block->terminal = true;
     return inst;
 }
-
-void generate_logical_or(
-    IRBuilder &irb, AstBinary *ast, BasicBlock *true_block, BasicBlock *false_block);
 
 void generate_logical_and(
     IRBuilder &irb, AstBinary *ast, BasicBlock *true_block, BasicBlock *false_block)
@@ -1020,6 +1067,12 @@ void free(IRBuilder &irb)
         delete fn;
     }
     irb.fns.clear();
+    irb.current_fn = nullptr;
+    irb.loop_cmp_block = nullptr;
+    irb.loop_merge_block = nullptr;
+    assert(irb.alloca_sets.empty());
+    irb.block_insertion_point = 0;
+    irb.block_insertion_set = nullptr;
 }
 
 } // namespace new_ir
