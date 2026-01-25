@@ -208,8 +208,9 @@ IR *generate_ir_logical(Compiler &cc, Ast *ast)
 
 void mangle_function_name(AstFunction *fn)
 {
+    static std::unordered_map<std::string, size_t> counter;
     auto &name = fn->name;
-    name += "_" + std::to_string(fn->params.size());
+    name += "_" + std::to_string(counter[name]++);
 }
 
 std::string demangled_name(const std::string &s)

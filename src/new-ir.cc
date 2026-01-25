@@ -752,8 +752,9 @@ Inst *generate_unary(IRBuilder &irb, Ast *ast)
 
 void mangle_function_name(AstFunction *fn)
 {
+    static std::unordered_map<std::string, size_t> counter;
     auto &name = fn->name;
-    name += "_" + std::to_string(size(fn->params));
+    name += "_" + std::to_string(counter[name]++);
 }
 
 std::string demangled_name(const std::string &s)
