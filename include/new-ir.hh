@@ -220,7 +220,7 @@ struct InsertionSetMap {
 template<class T>
 requires std::formattable<T, char>
 struct UniqueNameGenerator {
-    std::unordered_map<T, int> counter;
+    std::unordered_map<T, size_t> counter;
 
     std::string get(const T &key) { return std::format("{}{}", key, ++counter[key]); }
 };
@@ -235,6 +235,7 @@ struct BasicBlock {
     size_t index_in_fn = 0;
     bool reachable = false;
     bool terminal = false;
+    bool finished = false;
     bool sealed = true;
 
     explicit BasicBlock() = default;
@@ -248,7 +249,15 @@ struct BasicBlock {
     {
         successors.push_back(succ);
         succ->predecessors.push_back(this);
-        succ->reachable = reachable;
+        succ->reachable |= reachable;
+    }
+
+    void mark_finished() { finished = true; }
+
+    void mark_terminal()
+    {
+        terminal = true;
+        mark_finished();
     }
 };
 
@@ -279,8 +288,9 @@ struct BlockInsertionSet {
 struct IRBuilder {
     std::vector<Function *> fns;
     Function *current_fn = nullptr;
-    BasicBlock *loop_cmp_block = nullptr;
-    BasicBlock *loop_merge_block = nullptr;
+    // The block at the end of a loop iteration: either the change or the compare block.
+    std::stack<BasicBlock *> loop_iter_blocks;
+    std::stack<BasicBlock *> loop_merge_blocks;
     std::stack<InsertionSet> alloca_sets;
     BlockInsertionSet *block_insertion_set = nullptr;
     size_t block_insertion_point = 0;

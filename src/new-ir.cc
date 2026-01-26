@@ -517,7 +517,7 @@ Inst *generate_return(IRBuilder &irb, Ast *ast)
         inst->add_arg(generate(irb, ret->expr));
     }
     irb.add(inst);
-    irb.current_fn->current_block->terminal = true;
+    irb.current_fn->current_block->mark_terminal();
     return inst;
 }
 
@@ -615,6 +615,8 @@ BasicBlock *add_compare_block(IRBuilder &irb, BasicBlock *to)
     return bb;
 }
 
+void free(BasicBlock *);
+
 void generate_if(IRBuilder &irb, Ast *ast)
 {
     auto *if_stmt = static_cast<AstIf *>(ast);
@@ -629,20 +631,26 @@ void generate_if(IRBuilder &irb, Ast *ast)
     add_existing_block(irb, fn, true_block);
     fn->current_block = true_block;
     generate(irb, if_stmt->body);
-    if (!true_block->terminal) {
+
+    bool merge_needed = false;
+    if (!true_block->terminal && !true_block->finished) {
         generate_jump(irb, merge_block);
+        merge_needed = true;
     }
 
     if (else_block) {
         add_existing_block(irb, fn, else_block);
         fn->current_block = else_block;
         generate(irb, if_stmt->else_body);
-        if (!else_block->terminal) {
+        if (!else_block->terminal && !else_block->finished) {
             generate_jump(irb, merge_block);
+            merge_needed = true;
         }
+    } else {
+        merge_needed = true;
     }
 
-    if (!true_block->terminal || !else_block || !else_block->terminal) {
+    if (merge_needed) {
         add_existing_block(irb, fn, merge_block);
         fn->current_block = merge_block;
     } else {
@@ -650,7 +658,6 @@ void generate_if(IRBuilder &irb, Ast *ast)
         // `if cond { ... return }
         // else     { ... return }`
         // so no merge block is necessary.
-        void free(BasicBlock *);
         free(merge_block);
     }
 }
@@ -668,8 +675,7 @@ void generate_for(IRBuilder &irb, Ast *ast)
     cmp_block->sealed = false;
     auto *true_block = new BasicBlock(irb.current_fn, "true");
     auto *merge_block = new BasicBlock(irb.current_fn, "merge");
-    irb.loop_cmp_block = cmp_block;
-    irb.loop_merge_block = merge_block;
+    irb.loop_merge_blocks.push(merge_block);
 
     fn->current_block = cmp_block;
     if (for_stmt->cmp) {
@@ -678,20 +684,33 @@ void generate_for(IRBuilder &irb, Ast *ast)
         generate_jump(irb, true_block);
     }
 
+    BasicBlock *change_block = nullptr;
+    if (for_stmt->change) {
+        change_block = new BasicBlock(irb.current_fn, "chg");
+        irb.loop_iter_blocks.push(change_block);
+    } else {
+        irb.loop_iter_blocks.push(cmp_block);
+    }
+
     add_existing_block(irb, fn, true_block);
     fn->current_block = true_block;
     generate(irb, for_stmt->body);
-    if (for_stmt->change) {
+    if (change_block) {
+        if (!true_block->finished) {
+            generate_jump(irb, change_block);
+        }
+        add_existing_block(irb, irb.current_fn, change_block);
+        fn->current_block = change_block;
         generate(irb, for_stmt->change);
-    }
-    if (cmp_block) {
+        generate_jump(irb, cmp_block);
+    } else if (!true_block->terminal && !true_block->finished && cmp_block) {
         generate_jump(irb, cmp_block);
     }
 
     add_existing_block(irb, fn, merge_block);
     fn->current_block = merge_block;
-    irb.loop_cmp_block = nullptr;
-    irb.loop_merge_block = nullptr;
+    irb.loop_iter_blocks.pop();
+    irb.loop_merge_blocks.pop();
 }
 
 void generate_while(IRBuilder &irb, Ast *ast)
@@ -701,40 +720,44 @@ void generate_while(IRBuilder &irb, Ast *ast)
 
     auto *cmp_block = add_compare_block(irb, fn->current_block);
     cmp_block->sealed = false;
-    irb.loop_cmp_block = cmp_block;
+    irb.loop_iter_blocks.push(cmp_block);
     auto *true_block = new BasicBlock(irb.current_fn, "then");
     auto *merge_block = new BasicBlock(irb.current_fn, "merge");
-    irb.loop_merge_block = merge_block;
+    irb.loop_merge_blocks.push(merge_block);
     fn->current_block = cmp_block;
     generate_condition(irb, while_stmt->expr, true_block, merge_block);
 
     add_existing_block(irb, fn, true_block);
     fn->current_block = true_block;
     generate(irb, while_stmt->body);
-    if (!true_block->terminal) {
+    if (!true_block->terminal && !true_block->finished) {
         generate_jump(irb, cmp_block);
     }
 
     add_existing_block(irb, fn, merge_block);
     fn->current_block = merge_block;
-    irb.loop_cmp_block = nullptr;
-    irb.loop_merge_block = nullptr;
+    irb.loop_iter_blocks.pop();
+    irb.loop_merge_blocks.pop();
 }
 
 void generate_break(IRBuilder &irb, Ast *)
 {
-    assert(irb.loop_merge_block && "not in loop");
-    auto *fn = irb.current_fn;
-    generate_jump(irb, irb.loop_merge_block);
-    fn->current_block = add_block(irb, "brk");
+    assert(!irb.loop_merge_blocks.empty() && "not in loop");
+    auto *bb = irb.current_fn->current_block;
+    if (!bb->terminal && !bb->finished) {
+        generate_jump(irb, irb.loop_merge_blocks.top());
+        bb->mark_finished();
+    }
 }
 
 void generate_continue(IRBuilder &irb, Ast *)
 {
-    assert(irb.loop_cmp_block && "not in loop");
-    auto *fn = irb.current_fn;
-    generate_jump(irb, irb.loop_cmp_block);
-    fn->current_block = add_block(irb, "cont");
+    assert(!irb.loop_iter_blocks.empty() && "not in loop");
+    auto *bb = irb.current_fn->current_block;
+    if (!bb->terminal && !bb->finished) {
+        generate_jump(irb, irb.loop_iter_blocks.top());
+        bb->mark_finished();
+    }
 }
 
 Inst *generate_identifier(IRBuilder &irb, Variable *var)
@@ -851,7 +874,7 @@ void generate_function(IRBuilder &irb, AstFunction *fn)
 
 Inst *generate(IRBuilder &irb, Ast *ast)
 {
-    if (irb.current_fn->current_block->terminal && ast->operation != Operation::FunctionDecl) {
+    if (irb.current_fn->current_block->finished && ast->operation != Operation::FunctionDecl) {
         return nullptr;
     }
 
@@ -904,7 +927,7 @@ Inst *generate(IRBuilder &irb, Ast *ast)
 void insert_return(IRBuilder &irb, Function *fn, Type *type, uint64_t return_value)
 {
     irb.current_fn = fn;
-    fn->current_block->terminal = true;
+    fn->current_block->mark_terminal();
     // TODO: assert we don't have a terminator already
     // TODO: update successor block reachability?
     auto inst_type = to_inst_type(type);
@@ -973,6 +996,7 @@ void generate(Compiler &cc, AstFunction *fn)
         print(stdout_file(), cc.new_ir_builder, SkipUnreachable::No);
         ssa_dbgln("*********************************");
 #endif
+        replace_identities(cc.new_ir_builder);
         ssa::leave(cc.new_ir_builder);
     }
 
@@ -1068,8 +1092,8 @@ void free(IRBuilder &irb)
     }
     irb.fns.clear();
     irb.current_fn = nullptr;
-    irb.loop_cmp_block = nullptr;
-    irb.loop_merge_block = nullptr;
+    assert(irb.loop_iter_blocks.empty());
+    assert(irb.loop_merge_blocks.empty());
     assert(irb.alloca_sets.empty());
     irb.block_insertion_point = 0;
     irb.block_insertion_set = nullptr;
