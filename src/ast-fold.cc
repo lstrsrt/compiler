@@ -30,12 +30,29 @@ Ast *partial_fold_commutative(
 
     for (auto *ast : operands) {
         if (ast->type == AstType::Integer) {
-            if (operation == Operation::Add) {
-                accumulator += get_int_literal(ast);
-                constants.push_back(ast);
-            } else if (operation == Operation::Multiply) {
-                accumulator *= get_int_literal(ast);
-                constants.push_back(ast);
+            switch (operation) {
+                case Operation::Add:
+                    accumulator += get_int_literal(ast);
+                    constants.push_back(ast);
+                    break;
+                case Operation::Multiply:
+                    accumulator *= get_int_literal(ast);
+                    constants.push_back(ast);
+                    break;
+                case Operation::And:
+                    accumulator &= get_int_literal(ast);
+                    constants.push_back(ast);
+                    break;
+                case Operation::Or:
+                    accumulator |= get_int_literal(ast);
+                    constants.push_back(ast);
+                    break;
+                case Operation::Xor:
+                    accumulator ^= get_int_literal(ast);
+                    constants.push_back(ast);
+                    break;
+                default:
+                    break;
             }
         } else {
             non_constants.push_back(ast);
@@ -633,9 +650,10 @@ Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *left, Ast *right, T
                 // -x - -x  --> 0
                 return new AstLiteral(expected, 0, binary->location);
             }
-            // -x - -y  --> -x + y
-            binary->operation = Operation::Add;
+            // -x - -y  --> -x + y  --> y - x
+            binary->left = static_cast<AstNegate *>(left)->operand;
             binary->right = static_cast<AstNegate *>(right)->operand;
+            std::swap(binary->left, binary->right);
         } else if (right_negate && !left_negate) {
             // x - -x  --> x + x
             binary->operation = Operation::Add;
