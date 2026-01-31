@@ -7,7 +7,6 @@
 #include "verify.hh"
 
 #include <algorithm>
-#include <numeric>
 #include <ranges>
 #include <unordered_set>
 
@@ -18,6 +17,10 @@
 #endif
 
 namespace new_ir {
+
+namespace dom {
+void compute_dominator_tree(const std::vector<BasicBlock *> &);
+}
 
 static std::unordered_map<Variable *, Inst *> alloca_map;
 
@@ -998,6 +1001,12 @@ void generate(Compiler &cc, AstFunction *fn)
 #endif
         replace_identities(cc.new_ir_builder);
         ssa::leave(cc.new_ir_builder);
+    }
+
+    dce_sweep(cc.new_ir_builder);
+
+    for (auto *fn : cc.new_ir_builder.fns) {
+        dom::compute_dominator_tree(fn->blocks);
     }
 
     if (opts.testing) {
