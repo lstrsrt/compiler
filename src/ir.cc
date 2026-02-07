@@ -467,18 +467,22 @@ BasicBlock *add_fallthrough_block(IRFunction *ir_fn, BasicBlock *to)
 
 void generate_ir_break(Compiler &cc, Ast *)
 {
-    assert(cc.ir_builder.loop_merge_block && "not in loop");
-    auto *ir_fn = cc.ir_builder.current_function;
-    generate_ir_branch(cc, cc.ir_builder.loop_merge_block);
-    ir_fn->current_block = add_block(ir_fn);
+    assert(!cc.ir_builder.loop_merge_blocks.empty() && "not in loop");
+    auto *bb = cc.ir_builder.current_function->current_block;
+    if (!bb->terminal && !bb->finished) {
+        generate_ir_branch(cc, cc.ir_builder.loop_merge_blocks.top());
+        bb->mark_finished();
+    }
 }
 
 void generate_ir_continue(Compiler &cc, Ast *)
 {
-    assert(cc.ir_builder.loop_cmp_block && "not in loop");
-    auto *ir_fn = cc.ir_builder.current_function;
-    generate_ir_branch(cc, cc.ir_builder.loop_cmp_block);
-    ir_fn->current_block = add_block(ir_fn);
+    assert(!cc.ir_builder.loop_cmp_blocks.empty() && "not in loop");
+    auto *bb = cc.ir_builder.current_function->current_block;
+    if (!bb->terminal && !bb->finished) {
+        generate_ir_branch(cc, cc.ir_builder.loop_cmp_blocks.top());
+        bb->mark_finished();
+    }
 }
 
 namespace ssa {
@@ -767,8 +771,7 @@ void generate_ir_for(Compiler &cc, Ast *ast)
     cmp_block->sealed = false;
     auto *true_block = new_block();
     auto *after_block = new_block();
-    cc.ir_builder.loop_merge_block = after_block;
-    cc.ir_builder.loop_cmp_block = cmp_block;
+    cc.ir_builder.loop_merge_blocks.push(after_block);
 
     ir_fn->current_block = cmp_block;
     if (for_stmt->cmp) {
@@ -777,20 +780,33 @@ void generate_ir_for(Compiler &cc, Ast *ast)
         generate_ir_branch(cc, true_block);
     }
 
+    BasicBlock *change_block = nullptr;
+    if (for_stmt->change) {
+        change_block = new_block();
+        cc.ir_builder.loop_cmp_blocks.push(change_block);
+    } else {
+        cc.ir_builder.loop_cmp_blocks.push(cmp_block);
+    }
+
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
     generate_ir_impl(cc, for_stmt->body);
-    if (for_stmt->change) {
-        generate_ir_binary(cc, for_stmt->change);
-    }
-    if (cmp_block) {
+    if (change_block) {
+        if (!true_block->finished) {
+            generate_ir_branch(cc, change_block);
+        }
+        add_block(ir_fn, change_block);
+        ir_fn->current_block = change_block;
+        generate_ir_impl(cc, for_stmt->change);
+        generate_ir_branch(cc, cmp_block);
+    } else if (!true_block->terminal && !true_block->finished && cmp_block) {
         generate_ir_branch(cc, cmp_block);
     }
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
-    cc.ir_builder.loop_cmp_block = nullptr;
-    cc.ir_builder.loop_merge_block = nullptr;
+    cc.ir_builder.loop_cmp_blocks.pop();
+    cc.ir_builder.loop_merge_blocks.pop();
 }
 
 void generate_ir_while(Compiler &cc, Ast *ast)
@@ -800,12 +816,12 @@ void generate_ir_while(Compiler &cc, Ast *ast)
 
     auto *cmp_block = add_fallthrough_block(ir_fn, get_current_block(ir_fn));
     cmp_block->sealed = false;
-    cc.ir_builder.loop_cmp_block = cmp_block;
+    cc.ir_builder.loop_cmp_blocks.push(cmp_block);
     auto *true_block = new_block();
     auto *after_block = new_block();
-    cc.ir_builder.loop_merge_block = after_block;
+    cc.ir_builder.loop_merge_blocks.push(after_block);
     ir_fn->current_block = cmp_block;
-    generate_ir_condition(cc, while_stmt->expr, true_block, after_block);
+    generate_ir_condition(cc, while_stmt->cmp, true_block, after_block);
 
     add_block(ir_fn, true_block);
     ir_fn->current_block = true_block;
@@ -814,8 +830,8 @@ void generate_ir_while(Compiler &cc, Ast *ast)
 
     add_block(ir_fn, after_block);
     ir_fn->current_block = after_block;
-    cc.ir_builder.loop_cmp_block = nullptr;
-    cc.ir_builder.loop_merge_block = nullptr;
+    cc.ir_builder.loop_cmp_blocks.pop();
+    cc.ir_builder.loop_merge_blocks.pop();
 }
 
 IR *generate_ir_assign_constant(IRArg temp, AstLiteral *constant)
@@ -853,6 +869,10 @@ IRArg generate_ir_cond_result(
 IRArg generate_ir_impl(Compiler &cc, Ast *ast)
 {
     auto *ir_fn = cc.ir_builder.current_function;
+    if (ir_fn->current_block->finished) {
+        return {};
+    }
+
     switch (ast->type) {
         case AstType::Integer:
             [[fallthrough]];
@@ -1100,6 +1120,6 @@ void free_ir(IRBuilder &irb)
     }
     irb.functions.clear();
     irb.current_function = nullptr;
-    irb.loop_merge_block = nullptr;
-    irb.loop_cmp_block = nullptr;
+    assert(irb.loop_merge_blocks.empty());
+    assert(irb.loop_cmp_blocks.empty());
 }
