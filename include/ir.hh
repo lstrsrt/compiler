@@ -216,7 +216,16 @@ struct BasicBlock {
     std::vector<BasicBlock *> predecessors;
     bool reachable = false;
     bool terminal = false;
+    bool finished = false;
     bool sealed = true;
+
+    void mark_finished() { finished = true; }
+
+    void mark_terminal()
+    {
+        terminal = true;
+        mark_finished();
+    }
 };
 
 struct IRFunction {
@@ -232,8 +241,8 @@ inline std::vector<std::string> string_map;
 struct IRBuilder {
     std::vector<IRFunction *> functions;
     IRFunction *current_function;
-    BasicBlock *loop_cmp_block = nullptr;
-    BasicBlock *loop_merge_block = nullptr;
+    std::stack<BasicBlock *> loop_cmp_blocks;
+    std::stack<BasicBlock *> loop_merge_blocks;
 };
 
 void generate_ir(Compiler &, AstFunction *);
