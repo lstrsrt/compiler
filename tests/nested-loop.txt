@@ -1,0 +1,9 @@
+x := 0
+while true {
+    for i in 1..=10 {
+    }
+    if x >= 100 {
+        continue
+    }
+    x += 5
+}
