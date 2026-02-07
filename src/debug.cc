@@ -291,7 +291,7 @@ void print_ast(File &file, Ast *ast, std::string indent)
                     print_ast(file, if_stmt->else_body, indent);
                 }
             } else if (ast->operation == Operation::While) {
-                print_ast(file, static_cast<AstWhile *>(ast)->expr, indent);
+                print_ast(file, static_cast<AstWhile *>(ast)->cmp, indent);
                 print_ast(file, static_cast<AstWhile *>(ast)->body, indent);
             } else if (ast->operation == Operation::For) {
                 print_ast(file, static_cast<AstFor *>(ast)->var_decl, indent);

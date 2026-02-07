@@ -9,6 +9,7 @@
 #include "base.hh"
 #include "lexer.hh"
 
+#include <stack>
 #include <unordered_map>
 
 //
@@ -530,32 +531,36 @@ struct AstIf : Ast {
     }
 };
 
-struct AstWhile : Ast {
-    Ast *expr;
-    AstBlock *body = nullptr;
+struct AstLoop : Ast {
+    Ast *body = nullptr;
+    Ast *cmp;
 
-    explicit AstWhile(Ast *_expr, SourceLocation _location)
-        : Ast(AstType::Statement, Operation::While, _location)
-        , expr(_expr)
+    explicit AstLoop(Operation _operation, Ast *_cmp, const SourceLocation &_location)
+        : Ast(AstType::Statement, _operation, _location)
+        , cmp(_cmp)
     {
     }
 };
 
-struct AstFor : Ast {
+struct AstWhile : AstLoop {
+    explicit AstWhile(Ast *_expr, const SourceLocation &_location)
+        : AstLoop(Operation::While, _expr, _location)
+    {
+    }
+};
+
+struct AstFor : AstLoop {
     AstVariableDecl *var_decl;
     Ast *ident;
-    Ast *body = nullptr;
     Ast *end;
-    Ast *cmp;
     Ast *change;
 
     explicit AstFor(AstVariableDecl *_var_decl, AstIdentifier *_ident, Ast *_end, Ast *_cmp,
         Ast *_change, const SourceLocation &_location)
-        : Ast(AstType::Statement, Operation::For, _location)
+        : AstLoop(Operation::For, _cmp, _location)
         , var_decl(_var_decl)
         , ident(_ident)
         , end(_end)
-        , cmp(_cmp)
         , change(_change)
     {
     }
@@ -569,8 +574,11 @@ struct AstBreak : Ast {
 };
 
 struct AstContinue : Ast {
-    explicit AstContinue(SourceLocation _location)
+    AstLoop *loop;
+
+    explicit AstContinue(AstLoop *_loop, SourceLocation _location)
         : Ast(AstType::Statement, Operation::Continue, _location)
+        , loop(_loop)
     {
     }
 };
@@ -775,5 +783,5 @@ void diagnose_redeclaration_or_shadowing(Compiler &, Scope *, std::string_view n
 struct ParseState {
     bool in_call = false;
     AstEnumDecl *current_enum = nullptr;
-    Ast *current_loop = nullptr;
+    std::stack<AstLoop *> current_loop;
 };

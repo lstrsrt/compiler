@@ -728,7 +728,7 @@ void generate_while(IRBuilder &irb, Ast *ast)
     auto *merge_block = new BasicBlock(irb.current_fn, "merge");
     irb.loop_merge_blocks.push(merge_block);
     fn->current_block = cmp_block;
-    generate_condition(irb, while_stmt->expr, true_block, merge_block);
+    generate_condition(irb, while_stmt->cmp, true_block, merge_block);
 
     add_existing_block(irb, fn, true_block);
     fn->current_block = true_block;

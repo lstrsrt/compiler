@@ -1874,7 +1874,6 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
     if (for_stmt->end) {
         verify_expr(cc, for_stmt->end, WarnDiscardedReturn::No, var->type);
     }
-    verify_expr(cc, for_stmt->change, WarnDiscardedReturn::No);
 
     auto *start = for_stmt->var_decl->init_expr;
     auto *end = static_cast<AstBinary *>(for_stmt->cmp)->right;
@@ -1886,6 +1885,8 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
             verification_error(for_stmt->cmp, "invalid range");
         }
     }
+
+    verify_expr(cc, for_stmt->change, WarnDiscardedReturn::No);
 
     verify_ast(cc, for_stmt->body, current_function);
 }
@@ -1924,12 +1925,12 @@ void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     auto *while_stmt = static_cast<AstWhile *>(ast);
     // See verify_if for explanation
-    convert_expr_to_boolean(cc, while_stmt->expr);
-    if (while_stmt->expr->operation == Operation::LogicalOr
-        || while_stmt->expr->operation == Operation::LogicalAnd) {
-        verify_logical_chain(cc, while_stmt->expr);
+    convert_expr_to_boolean(cc, while_stmt->cmp);
+    if (while_stmt->cmp->operation == Operation::LogicalOr
+        || while_stmt->cmp->operation == Operation::LogicalAnd) {
+        verify_logical_chain(cc, while_stmt->cmp);
     }
-    verify_expr(cc, while_stmt->expr, WarnDiscardedReturn::No, bool_type());
+    verify_expr(cc, while_stmt->cmp, WarnDiscardedReturn::No, bool_type());
     verify_ast(cc, while_stmt->body, current_function);
 }
 

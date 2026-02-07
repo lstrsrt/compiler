@@ -817,8 +817,6 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
 
 AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
 {
-    AutoScope auto_scope(current_function);
-
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
     if (!expr) {
@@ -830,10 +828,10 @@ AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
     }
 
     auto *while_stmt = new AstWhile(expr, loc);
-    auto_scope.enter_new(current_function);
-    cc.parse_state.current_loop = while_stmt;
+    // auto_scope.enter_new(current_function);
+    cc.parse_state.current_loop.push(while_stmt);
     while_stmt->body = parse_block(cc, current_function);
-    cc.parse_state.current_loop = nullptr;
+    cc.parse_state.current_loop.pop();
 
     return while_stmt;
 }
@@ -881,9 +879,9 @@ AstFor *parse_for_in(Compiler &cc, AstFunction *current_function, Token &token, 
 
     auto *for_stmt = new AstFor(var_decl, ident, end, cmp, change, location);
 
-    cc.parse_state.current_loop = for_stmt;
+    cc.parse_state.current_loop.push(for_stmt);
     for_stmt->body = parse_block(cc, current_function);
-    cc.parse_state.current_loop = nullptr;
+    cc.parse_state.current_loop.pop();
     return for_stmt;
 }
 
@@ -926,9 +924,9 @@ AstFor *parse_for(Compiler &cc, AstFunction *current_function, const SourceLocat
 
     auto *for_stmt = new AstFor(var_decl, ident, nullptr, cond, change, location);
 
-    cc.parse_state.current_loop = for_stmt;
+    cc.parse_state.current_loop.push(for_stmt);
     for_stmt->body = parse_block(cc, current_function);
-    cc.parse_state.current_loop = nullptr;
+    cc.parse_state.current_loop.pop();
     return for_stmt;
 }
 
@@ -1211,14 +1209,14 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             return nullptr;
         }
         if (token.kind == TokenKind::Continue) {
-            if (!cc.parse_state.current_loop) {
+            if (cc.parse_state.current_loop.empty()) {
                 parser_error(token.location, "`continue` must be inside loop");
             }
             consume(cc.lexer, token);
-            return new AstContinue(token.location);
+            return new AstContinue(cc.parse_state.current_loop.top(), token.location);
         }
         if (token.kind == TokenKind::Break) {
-            if (!cc.parse_state.current_loop) {
+            if (cc.parse_state.current_loop.empty()) {
                 parser_error(token.location, "`break` must be inside loop");
             }
             consume(cc.lexer, token);
