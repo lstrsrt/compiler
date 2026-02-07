@@ -2028,7 +2028,11 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 verify_while(cc, ast, current_function);
                 break;
             case Operation::Break:
+                break;
             case Operation::Continue:
+                if (static_cast<AstContinue *>(ast)->loop->body->scope == ast->scope) {
+                    diag::warning_at(cc, ast->location, "redundant `continue`");
+                }
                 break;
             default:
                 TODO();
