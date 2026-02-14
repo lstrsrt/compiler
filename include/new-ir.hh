@@ -90,6 +90,40 @@ struct Inst {
         ++stats.insts_added;
     }
 
+    Inst *real_arg(size_t index) const
+    {
+        if (args[index]->kind == InstKind::Identity) {
+            auto *real = args[index]->args[0];
+            while (real->kind == InstKind::Identity) {
+                real = real->args[0];
+            }
+            return real;
+        }
+        assert(size(args) > index);
+        return args[index];
+    }
+
+    Operation real_operation() const
+    {
+        if (kind == InstKind::Identity) {
+            return args[0]->real_operation();
+        }
+        return operation;
+    }
+
+    InstKind real_kind() const
+    {
+        if (kind == InstKind::Identity) {
+            return args[0]->real_kind();
+        }
+        return kind;
+    }
+
+    bool is_terminator() const
+    {
+        return real_operation() == Operation::Branch || real_operation() == Operation::Return;
+    }
+
     void add_arg(Inst *arg) { args.push_back(arg); }
 
     void transform_to_nop();
