@@ -7,19 +7,52 @@
                  "\t-h, --help: print this message");
     std::println("OPTIONS:\n"
                  "\t--check-only: do not compile input, only check validity\n"
-                 "\t--test: run in test mode\n"
+                 "\t--test: run in test mode. <filename> can also be a directory.\n"
                  "\t--new-ir: use new ir (no codegen supported, implies --check-only)\n"
                  "\t--exe: compile to executable instead of generating assembler\n"
-                 "         (requires nasm and gcc to be installed)\n"
+                 "\t  (requires nasm and gcc to be installed)\n"
                  "\t-o: set output filename (default: output)\n"
                  "\t--[no-]ssa: toggle ssa optimizations (default: on)\n"
                  "\t--[no-]inline: toggle inlining pass (default: off)");
     exit(errc);
 }
 
+struct UnknownArg {
+    std::string string;
+    bool list_arg = false;
+};
+
+struct UnknownArgsHandler {
+    explicit UnknownArgsHandler(ArgumentParser &ap)
+        : arguments(ap.arguments)
+    {
+    }
+
+    void add_unknown_arg(size_t index) { unknown.emplace_back(arguments[index], false); }
+
+    void add_unknown_list_arg(const std::string &s) { unknown.push_back({ s, true }); }
+
+    void handle()
+    {
+        if (unknown.empty()) {
+            return;
+        }
+
+        for (const auto &s : unknown) {
+            const auto *list = s.list_arg ? "list " : "";
+            print_error("unknown {}argument '{}{}{}'", list, colors::DefaultBold, s.string,
+                colors::Default);
+        }
+        exit(EXIT_FAILURE);
+    }
+
+    std::span<char *> arguments;
+    std::vector<UnknownArg> unknown;
+};
+
 void process_cmdline(ArgumentParser &ap)
 {
-    std::vector<size_t> unknown_args;
+    UnknownArgsHandler unknown_args(ap);
 
     for (size_t i = 1; i < ap.arguments.size(); ++i) {
         switch (hash(ap.arguments[i])) {
@@ -62,18 +95,12 @@ void process_cmdline(ArgumentParser &ap)
                 break;
             default:
                 if (i < ap.arguments.size() - 1) {
-                    unknown_args.push_back(i);
+                    unknown_args.add_unknown_arg(i);
                 }
         }
     }
 
-    if (!unknown_args.empty()) {
-        for (auto i : unknown_args) {
-            print_error(
-                "unknown argument '{}{}{}'", colors::DefaultBold, ap.arguments[i], colors::Default);
-        }
-        exit(EXIT_FAILURE);
-    }
+    unknown_args.handle();
 
     if (opts.testing && !opts.output_name.empty()) {
         die("--test and -o are incompatible");
