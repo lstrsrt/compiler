@@ -449,25 +449,9 @@ void print_ir(File &file, const IRFunction &ir_fn)
     file.commit();
 }
 
-namespace new_ir {
-
-std::string to_string(InstType type)
+std::string to_string(const Integer &i, new_ir::InstType type)
 {
-    using enum InstType;
-
-#define __ENUMERATE_INST_TYPE(type) \
-    case type:                      \
-        return #type;
-
-    switch (type) {
-        ENUMERATE_INST_TYPES()
-    }
-
-#undef __ENUMERATE_INST_TYPE
-}
-
-std::string to_string(const Integer &i, InstType type)
-{
+    using namespace new_ir;
     switch (type) {
         case InstType::Ptr:
             return std::format("{:x}", i.value);
@@ -493,6 +477,23 @@ std::string to_string(const Integer &i, InstType type)
             internal_error("{} is not an integer type", to_string(type));
     }
 }
+
+std::string to_string(new_ir::InstType type)
+{
+    using enum new_ir::InstType;
+
+#define __ENUMERATE_INST_TYPE(type) \
+    case type:                      \
+        return #type;
+
+    switch (type) {
+        ENUMERATE_INST_TYPES()
+    }
+
+#undef __ENUMERATE_INST_TYPE
+}
+
+namespace new_ir {
 
 void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
 {
@@ -530,7 +531,8 @@ void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
                 file.fwrite("{} = Arg {}", inst->name, static_cast<ArgInst *>(inst)->index);
                 break;
             case InstKind::String:
-                file.fwrite("{} = \"{}\"", inst->name, *static_cast<StringInst *>(inst)->string);
+                file.fwrite("{} = \"{}\"", inst->name,
+                    escape_string(*static_cast<StringInst *>(inst)->string));
                 break;
             case InstKind::Undef:
                 file.fwrite("{} = undef", inst->name);
@@ -576,7 +578,12 @@ void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
             file.fwrite(" {}", to_string(static_cast<AllocaInst *>(inst)->inst_type));
         }
         for (size_t i = 0; i < size(inst->args); ++i) {
-            file.fwrite(" {}", inst->args[i]->name);
+            auto *arg = inst->args[i];
+            file.fwrite(" {}", arg->name);
+            if (arg->real_kind() == InstKind::Const) {
+                auto *r = inst->real_arg(i);
+                file.fwrite(" ({})", to_string(static_cast<ConstInst *>(r)->constant, r->type));
+            }
             if (i < size(inst->args) - 1) {
                 file.write(",");
             }

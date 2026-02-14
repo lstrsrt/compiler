@@ -13,6 +13,7 @@ std::string to_string(AstType);
 std::string to_string(Operation);
 std::string to_string(IRArgType);
 std::string to_string(new_ir::InstType);
+std::string to_string(const Integer &, new_ir::InstType);
 std::string type_kind_to_string(TypeFlags);
 std::string type_flags_to_string(TypeFlags); // Including the kind
 std::string to_string(ErrorType);
