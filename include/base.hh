@@ -133,6 +133,7 @@ template<typename... Args>
 template<typename... Args>
 [[noreturn]] void internal_error(std::string_view msg, const Args &...args)
 {
+    cpptrace::generate_trace().print();
     std::print("{}internal error:{} ", colors::Red, colors::Default);
     if constexpr (sizeof...(args)) {
         std::println(
@@ -140,7 +141,6 @@ template<typename... Args>
     } else {
         std::println("{}", msg);
     }
-    cpptrace::generate_trace().print();
     exit(EXIT_FAILURE);
 }
 
