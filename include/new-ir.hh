@@ -346,7 +346,9 @@ Inst *generate(IRBuilder &, Ast *);
 Inst *generate_jump(IRBuilder &, BasicBlock *);
 Inst *generate_alloca(IRBuilder &, Variable *);
 Inst *generate_alloca(IRBuilder &, InstType, const std::string &);
-Inst *make_load(Function *, Inst *);
+Inst *generate_store(IRBuilder &, Inst *ptr, Inst *value);
+Inst *make_store(Function *, Inst *ptr, Inst *value);
+Inst *make_load(Function *, Inst *ptr);
 
 std::string demangled_name(const std::string &);
 

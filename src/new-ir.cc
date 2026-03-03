@@ -229,11 +229,11 @@ InstType to_inst_type(Type *t)
     TODO();
 }
 
-Inst *make_load(Function *fn, Inst *inst)
+Inst *make_load(Function *fn, Inst *ptr)
 {
     auto *load
         = new Inst(Operation::Load, InstKind::Unary, InstType::Ptr, name_gen[fn].get("ld.tmp"));
-    load->add_arg(inst);
+    load->add_arg(ptr);
     return load;
 }
 
@@ -245,13 +245,18 @@ Inst *make_load(Function *fn, Variable *var, Inst *inst)
     return load;
 }
 
-Inst *generate_store(IRBuilder &irb, Inst *alloca, Inst *value)
+Inst *make_store(Function *fn, Inst *ptr, Inst *value)
 {
-    auto *store = new Inst(
-        Operation::Store, InstKind::Binary, InstType::Ptr, name_gen[irb.current_fn].get("st"));
-    store->add_arg(alloca);
+    auto *store
+        = new Inst(Operation::Store, InstKind::Binary, InstType::Ptr, name_gen[fn].get("st"));
+    store->add_arg(ptr);
     store->add_arg(value);
-    return irb.add(store);
+    return store;
+}
+
+Inst *generate_store(IRBuilder &irb, Inst *ptr, Inst *value)
+{
+    return irb.add(make_store(irb.current_fn, ptr, value));
 }
 
 ConstInst *make_const(AstLiteral *constant, const std::string &name)
@@ -806,9 +811,7 @@ Inst *generate_unary(IRBuilder &irb, Ast *ast)
     if (ast->operation == Operation::AddressOf) {
         // AddressOf only exists on the frontend, it's actually just a pointer Store.
         assert(unary->operand->type == AstType::Identifier);
-        auto it = alloca_map.find(static_cast<AstIdentifier *>(unary->operand)->var);
-        assert(it != alloca_map.end());
-        return it->second;
+        return get_alloca(static_cast<AstIdentifier *>(unary->operand)->var);
     }
 
     if (ast->operation == Operation::Dereference) {

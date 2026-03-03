@@ -101,10 +101,7 @@ void fix_inlined_insts(Function *fn, BasicBlock *new_bb, Inst *result,
     auto *term = new_bb->code.back();
     if (term->operation == Operation::Return) {
         if (result) {
-            auto *store = new Inst(
-                Operation::Store, InstKind::Binary, result->type, name_gen[fn].get("st"));
-            store->add_arg(result);
-            store->add_arg(term->args[0]);
+            auto *store = make_store(fn, result, term->args[0]);
             return_stores[new_bb].insert_before(term, store);
         }
         term->transform_to_jump(new_bb, post_bb, name_gen[fn].get("j"));
@@ -145,11 +142,7 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
 
     for (auto *decl : call->function->params) {
         auto *alloca = generate_alloca(irb, &decl->var);
-        auto *store
-            = new Inst(Operation::Store, InstKind::Binary, InstType::Ptr, name_gen[fn].get("st"));
-        store->add_arg(alloca);
-        store->add_arg(args[decl->var.param_index]);
-        irb.add(store);
+        generate_store(irb, alloca, args[decl->var.param_index]);
     }
 
     // Emit the function.
