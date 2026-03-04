@@ -50,7 +50,7 @@ bool should_inline(AstFunction *fn)
     return false;
 }
 
-BlockInsertionSet block_insertions;
+static BlockInsertionSet block_insertions;
 
 void move_insts(std::vector<Inst *> &dst, std::vector<Inst *> &src, ptrdiff_t from)
 {
@@ -65,6 +65,7 @@ std::pair<BasicBlock *, BasicBlock *> split_call(Function *fn, BasicBlock *split
 
     auto *merge_block = new BasicBlock(fn, "inl.merge");
     merge_block->terminal = split->terminal;
+    merge_block->finished = split->finished;
 
     // TODO: helper function
     merge_block->successors = split->successors;
