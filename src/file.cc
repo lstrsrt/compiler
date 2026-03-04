@@ -1,6 +1,5 @@
 #include "file.hh"
-
-#include <random>
+#include "utils.hh"
 
 #ifdef __linux__
 #include <fcntl.h>
@@ -286,14 +285,12 @@ File File::from_handle(File::Handle handle, OpenFlags access, Owning owning)
 
 File File::make_temporary(const std::string &extension, OpenFlags flags)
 {
-    std::mt19937 rng{ std::random_device{}() };
     std::string out = "compiler-";
     constexpr const auto &chars = "0123456789"
                                   "abcdefghijklmnopqrstuvwxyz"
                                   "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    std::uniform_int_distribution<size_t> dist(0, std::size(chars) - 2);
     for (size_t i = 0; i <= 6; ++i) {
-        out += chars[dist(rng)];
+        out += chars[random<size_t>(0, size(chars) - 2)];
     }
     out = (fs::temp_directory_path() / (out + extension)).string();
     File ret;

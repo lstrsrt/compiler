@@ -1,8 +1,8 @@
+#include "utils.hh"
 #include "base.hh"
 
 #include <algorithm>
 #include <array>
-#include <random>
 #include <unordered_map>
 
 std::array<int, 3> hsv_to_rgb(double h, double s, double v)
@@ -65,15 +65,12 @@ std::array<int, 3> hsv_to_rgb(double h, double s, double v)
 
 std::string random_color()
 {
-    static std::mt19937 rng{ std::random_device{}() };
     // if we don't have truecolor:
     // std::uniform_int_distribution<> dist{ 20, 225 };
     // return std::format("\e[38;5;{}m", dist(rng));
-    std::uniform_int_distribution<> dist_h{ 0, 360 };
-    std::uniform_int_distribution<> dist_sv{ 50, 100 };
-    auto h = dist_h(rng);
-    auto s = dist_sv(rng) / 100.0;
-    auto v = dist_sv(rng) / 100.0;
+    auto h = random(0, 360);
+    auto s = random(50, 100) / 100.0;
+    auto v = random(50, 100) / 100.0;
     auto [r, g, b] = hsv_to_rgb(h, s, v);
     return std::format("\e[38;2;{};{};{}m", r, g, b);
 }

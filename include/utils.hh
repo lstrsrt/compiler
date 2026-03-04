@@ -1,6 +1,15 @@
 #pragma once
 
+#include <random>
 #include <string>
+
+template<class T = int>
+inline auto random(T min, T max)
+{
+    static std::random_device rd{};
+    static std::mt19937 engine{};
+    return std::uniform_int_distribution<T>{ min, max }(engine);
+}
 
 // Get a string with a random color.
 // The same string will always return the same color.
