@@ -665,6 +665,7 @@ Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *left, Ast *right, T
 
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)
 {
+    const auto operation = binary->operation;
     // Figure out which parts of the expression are constant.
     auto *left = try_constant_fold(cc, binary->left, expected, overridable);
     auto *right = try_constant_fold(cc, binary->right, expected, overridable);
@@ -693,10 +694,21 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         right_const = static_cast<AstLiteral *>(right)->u.any;
     }
 
-    if (binary->operation == Operation::Divide || binary->operation == Operation::Modulo) {
+    if (operation == Operation::Divide || operation == Operation::Modulo) {
         if (right_is_const && right_const.value == 0) {
             diag::ast_warning(cc, binary->right, "trying to divide by 0");
             return binary;
+        }
+    }
+
+    if (is_logical_operation(operation)) {
+        auto *variable_ast = left_is_const ? right : left;
+        auto constant = left_is_const ? left_const : right_const;
+        // x - y LOGICAL_OP 0  --> x LOGICAL_OP y
+        // x - y LOGICAL_OP 0  --> x LOGICAL_OP y
+        if (constant.value == 0 && variable_ast->operation == Operation::Subtract) {
+            binary->left = static_cast<AstBinary *>(variable_ast)->left;
+            binary->right = static_cast<AstBinary *>(variable_ast)->right;
         }
     }
 
@@ -705,7 +717,7 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         return try_fold_constants(cc, binary, left_const, right_const, expected, overridable);
     }
 
-    if (is_commutative_operation(binary->operation)) {
+    if (is_commutative_operation(operation)) {
         // Only one side is a constant, and the operation is commutative.
         auto *constant_ast = left_is_const ? left : right;
         auto *variable_ast = left_is_const ? right : left;
