@@ -311,7 +311,7 @@ void replace_identities(IRBuilder &irb)
     for (auto *fn : irb.fns) {
         std::vector<Inst *> identities;
         for (auto *bb : fn->blocks) {
-            if (bb->code.empty() || !bb->reachable) {
+            if (bb->code.empty()) {
                 continue;
             }
             for (auto *inst : bb->code) {
@@ -322,8 +322,18 @@ void replace_identities(IRBuilder &irb)
                     // Loop because we can have nested identities
                     while (arg->kind == InstKind::Identity) {
                         identities.push_back(arg);
-                        // dbgln("replacing id {} with {}", arg->name, arg->args[0]->name);
+                        dbgln("replacing id {} with {}", arg->name, arg->args[0]->name);
                         arg = arg->args[0];
+                    }
+                }
+                if (inst->operation == Operation::Phi) {
+                    auto *phi = static_cast<PhiInst *>(inst);
+                    for (auto &[_, value] : phi->incoming) {
+                        while (value->kind == InstKind::Identity) {
+                            identities.push_back(value);
+                            dbgln("replacing id {} with {}", value->name, value->args[0]->name);
+                            value = value->args[0];
+                        }
                     }
                 }
             }
