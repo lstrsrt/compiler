@@ -7,7 +7,7 @@ template<class T = int>
 inline auto random(T min, T max)
 {
     static std::random_device rd{};
-    static std::mt19937 engine{};
+    static std::mt19937 engine{ rd() };
     return std::uniform_int_distribution<T>{ min, max }(engine);
 }
 
