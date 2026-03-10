@@ -4,11 +4,10 @@
 #include "diagnose.hh"
 #include "lexer.hh"
 
-#define parser_ast_error(ast, msg, ...) \
-    diag::error_at(cc, ast->location, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
-
 #define parser_error(loc, msg, ...) \
     diag::error_at(cc, loc, ErrorType::Parser, msg __VA_OPT__(, __VA_ARGS__))
+
+#define parser_ast_error(ast, msg, ...) parser_error(ast->location, msg __VA_OPT__(, __VA_ARGS__))
 
 enum class Associativity {
     Right,
@@ -828,7 +827,6 @@ AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
     }
 
     auto *while_stmt = new AstWhile(expr, loc);
-    // auto_scope.enter_new(current_function);
     cc.parse_state.current_loop.push(while_stmt);
     while_stmt->body = parse_block(cc, current_function);
     cc.parse_state.current_loop.pop();

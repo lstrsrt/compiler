@@ -1188,6 +1188,13 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 
     auto op = binary->operation;
 
+    if (is_logical_operation(op)) {
+        void convert_expr_to_boolean(Compiler & cc, Ast * &expr, Type * type);
+        ExprConstness c{};
+        auto *expr = static_cast<Ast *>(binary);
+        convert_expr_to_boolean(cc, expr, get_binary_expression_type(cc, binary, c));
+    }
+
     if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
         if (is_arithmetic_operation(op)) {
             if (check_pointer_arithmetic(
@@ -1465,11 +1472,6 @@ void match_type_or_cast(
 
     auto err = types_match(type, expected);
     if (err == TypeError::None) {
-        return;
-    }
-
-    if (expected->is_bool()) {
-        convert_expr_to_boolean(cc, ast, type);
         return;
     }
 
