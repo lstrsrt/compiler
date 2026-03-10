@@ -678,7 +678,6 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         }
     }
 
-    left = binary->left, right = binary->right;
     bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
     bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
     if (!left_is_const && !right_is_const) {
