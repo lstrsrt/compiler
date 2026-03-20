@@ -332,6 +332,27 @@ void print_ast(File &file, Ast *ast, std::string indent)
     file.commit();
 }
 
+void write_graphviz_file(File &file, IRFunction *fn)
+{
+    file.write("digraph {\n");
+    file.fwriteln("    graph [label=\"{}\" labelloc=t]", fn->ast->name);
+    file.write("    forcelabels=true\n\n");
+    for (auto *bb : fn->basic_blocks) {
+        if (bb->successors.empty()) {
+            file.fwriteln("    \"{}\"", bb->index);
+            continue;
+        }
+        for (auto *succ : bb->successors) {
+            file.fwrite(R"(    "{}" -> "{}")", bb->index, succ->index);
+            if (succ->terminal) {
+                file.write(" [weight=0]");
+            }
+            file.write("\n");
+        }
+    }
+    file.write("}");
+}
+
 std::string to_string(IRArgType type)
 {
     using enum IRArgType;
@@ -494,6 +515,30 @@ std::string to_string(new_ir::InstType type)
 }
 
 namespace new_ir {
+
+void write_graphviz_file(File &file, Function *fn)
+{
+    file.write("digraph {\n");
+    file.fwriteln("    graph [label=\"{}\" labelloc=t]", fn->name);
+    file.write("    forcelabels=true\n\n");
+    for (auto *bb : fn->blocks) {
+        if (!bb->reachable) {
+            continue;
+        }
+        if (bb->successors.empty()) {
+            file.fwriteln("    \"{}\"", bb->name);
+            continue;
+        }
+        for (auto *succ : bb->successors) {
+            file.fwrite(R"(    "{}" -> "{}")", bb->name, succ->name);
+            if (succ->terminal) {
+                file.write(" [weight=0]");
+            }
+            file.write("\n");
+        }
+    }
+    file.write("}");
+}
 
 void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
 {
