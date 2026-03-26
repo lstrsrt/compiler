@@ -39,12 +39,11 @@ static int open_flags_to_native(OpenFlags flags)
     return posix;
 #else
     int win32 = 0;
-    if (has_flag(flags, READ)) {
-        win32 |= GENERIC_READ;
-    }
     if (has_flag(flags, WRITE)) {
         // Write-only mappings don't exist on Windows, unfortunately.
         win32 |= GENERIC_READ | GENERIC_WRITE;
+    } else if (has_flag(flags, READ)) {
+        win32 |= GENERIC_READ;
     }
     return win32;
 #endif
@@ -138,7 +137,7 @@ static bool write_file(File::Handle handle, std::string_view str)
 #else
     DWORD written;
     return WriteFile(handle, str.data(), static_cast<DWORD>(size(str)), &written, nullptr)
-        && std::cmp_greater_equal(written, size(str));
+        && std::cmp_equal(written, size(str));
 #endif
 }
 
@@ -197,8 +196,6 @@ bool make_file_mappable(File::Handle handle, size_t size, OpenFlags flags)
 {
     using enum OpenFlags;
     // If the file is empty, we need to extend it so it becomes mappable for reading.
-    // FIXME: If READ is not set, don't do this so there won't be garbage chars at the end. This
-    // means the file won't be mapped but it will still be writable.
     bool need_to_extend = size == 0 && has_flags(flags, READ, WRITE);
     if (need_to_extend) {
         if (!truncate_file(handle, 1024, Seek::No)) {
@@ -389,13 +386,12 @@ bool File::commit()
     if (!has_flag(flags, OpenFlags::WRITE)) {
         return false;
     }
-    if (buffered == Buffered::No) {
-        return true;
+    if (buffered == Buffered::Yes) {
+        if (!write_file(file_handle, write_buffer)) {
+            return false;
+        }
+        write_buffer.clear();
     }
-    if (!write_file(file_handle, write_buffer)) {
-        return false;
-    }
-    write_buffer.clear();
     return true;
 }
 
@@ -415,7 +411,7 @@ bool File::close(Commit commit)
     file_handle = InvalidHandle;
 
     map = nullptr;
-    write_buffer = {};
+    write_buffer.clear();
     flags = {};
     valid = false;
 
