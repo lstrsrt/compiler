@@ -2,6 +2,8 @@
 #include "new-ir.hh"
 #include "parser.hh"
 
+#include <ranges>
+
 namespace new_ir::ssa {
 
 struct IncompletePhi {

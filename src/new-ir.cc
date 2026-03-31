@@ -91,8 +91,13 @@ void InsertionSet::execute_range(BasicBlock *bb)
 
     const auto first = insertions.front().pos;
 
+#ifdef __cpp_lib_containers_ranges
     bb->code.insert_range(bb->code.begin() + static_cast<ptrdiff_t>(first),
         insertions | std::views::transform(&Insertion::inst));
+#else
+    auto view = insertions | std::views::transform(&Insertion::inst);
+    bb->code.insert(bb->code.begin() + static_cast<ptrdiff_t>(first), view.begin(), view.end());
+#endif
 
     for (size_t i = first; i < size(bb->code); ++i) {
         bb->code[i]->index_in_bb = i;
@@ -147,8 +152,13 @@ void BlockInsertionSet::execute_range(Function *fn)
 
     const auto first = insertions.front().pos;
 
+#ifdef __cpp_lib_containers_ranges
     fn->blocks.insert_range(fn->blocks.begin() + static_cast<ptrdiff_t>(first),
         insertions | std::views::transform(&BlockInsertion::block));
+#else
+    auto view = insertions | std::views::transform(&BlockInsertion::block);
+    fn->blocks.insert(fn->blocks.begin() + static_cast<ptrdiff_t>(first), view.begin(), view.end());
+#endif
 
     for (size_t i = first; i < size(fn->blocks); ++i) {
         fn->blocks[i]->index_in_fn = i;

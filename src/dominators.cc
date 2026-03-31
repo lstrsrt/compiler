@@ -1,5 +1,6 @@
 #include "new-ir.hh"
 
+#include <algorithm>
 #include <numeric>
 
 namespace new_ir::dom {
