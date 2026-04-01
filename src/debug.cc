@@ -42,6 +42,8 @@ std::string type_kind_to_string(TypeFlags flags)
             return "Boolean";
         case TypeFlags::String:
             return "String";
+        case TypeFlags::Record:
+            return "Record";
         default:
             TODO();
     }
@@ -306,6 +308,11 @@ void print_ast(File &file, Ast *ast, std::string indent)
                 for (auto *member : decl->members->vector) {
                     file.fwrite("{}{} = ", indent, static_cast<AstEnumMember *>(member)->name);
                     print_node(file, member, "");
+                }
+            } else if (ast->operation == Operation::RecordDecl) {
+                auto *decl = static_cast<AstRecordDecl *>(ast);
+                for (auto *field : decl->fields.vector) {
+                    print_node(file, field, indent);
                 }
             } else {
                 TODO();

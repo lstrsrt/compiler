@@ -1142,6 +1142,54 @@ Ast *parse_enum(Compiler &cc)
     return nullptr;
 }
 
+Ast *parse_record(Compiler &cc, AstFunction *current_function)
+{
+    auto token = parse_identifier(cc);
+    auto name = token.string;
+    auto location = token.location;
+    auto *record = new AstRecordDecl(name, location);
+
+    consume_expected(cc, TokenKind::LBrace, lex(cc));
+    auto *outer_scope = current_scope;
+    AutoScope auto_scope(current_function);
+
+    auto &fields = record->fields.vector;
+    auto &fields_map = record->fields.map;
+    for (;;) {
+        token = lex(cc);
+        if (token.kind == TokenKind::RBrace) {
+            consume(cc.lexer, token);
+            outer_scope->add_record(cc, record);
+            return record;
+        }
+        cc.lexer.ignore_newlines = false;
+        auto *field = parse_var_decl(cc, AllowInitExpr::No);
+        if (!field) {
+            parser_error(token.location, "invalid field declaration");
+        }
+        if (fields_map.contains(field->var.name)) [[unlikely]] {
+            diag::prepare_error(cc, field->location,
+                "field `{}` cannot be redeclared in record `{}`.\n"
+                "here is the existing declaration: ",
+                field->var.name, record->name);
+            diag::print_line(cc.lexer.string, location);
+            parser_error(field->location, "and this is the new declaration: ");
+        } else {
+            current_scope->add_variable(cc, field);
+            fields_map[field->var.name] = field;
+        }
+        fields.push_back(field);
+        token = lex(cc);
+        if (token.kind == TokenKind::Comma) {
+            consume(cc.lexer, token);
+            cc.lexer.ignore_newlines = true;
+            continue;
+        }
+        consume_newline_or_eof(cc, token);
+        cc.lexer.ignore_newlines = true;
+    }
+}
+
 Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {
     bool has_side_effects(Ast *);
@@ -1226,6 +1274,10 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
         if (token.kind == TokenKind::Enum) {
             consume(cc.lexer, token);
             return parse_enum(cc);
+        }
+        if (token.kind == TokenKind::Record) {
+            consume(cc.lexer, token);
+            return parse_record(cc, current_function);
         }
         // `true`, `false`, `null` are handled by parse_expr
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
@@ -1381,6 +1433,15 @@ void Scope::add_enum(Compiler &cc, AstEnumDecl *enum_decl)
     diagnose_redeclaration_or_shadowing(
         cc, this, enum_decl->name, "type", enum_decl->location, ErrorOnShadowing::No);
     enums[enum_decl->name] = enum_decl;
+}
+
+void Scope::add_record(Compiler &cc, AstRecordDecl *record_decl)
+{
+    diagnose_redeclaration_or_shadowing(
+        cc, this, record_decl->name, "record", record_decl->location, ErrorOnShadowing::Yes);
+    types[record_decl->name] = new Type{
+        .name = record_decl->name, .flags = TypeFlags::Record, .location = record_decl->location
+    };
 }
 
 void free_ast([[maybe_unused]] std::vector<Ast *> &ast_vec)

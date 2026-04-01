@@ -294,6 +294,7 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
         { "null", Null },
         { "as", As },
         { "enum", Enum },
+        { "record", Record },
     };
     if (auto it = keyword_map.find(str); it != keyword_map.end()) {
         return it->second;

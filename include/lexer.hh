@@ -113,7 +113,8 @@ constexpr char to_upper(char c)
     __ENUMERATE_KEYWORD_TOKEN(Break, "break")       \
     __ENUMERATE_KEYWORD_TOKEN(Null, "null")         \
     __ENUMERATE_KEYWORD_TOKEN(As, "as")             \
-    __ENUMERATE_KEYWORD_TOKEN(Enum, "enum")
+    __ENUMERATE_KEYWORD_TOKEN(Enum, "enum")         \
+    __ENUMERATE_KEYWORD_TOKEN(Record, "record")
 
 enum class TokenKind : uint32_t {
     //

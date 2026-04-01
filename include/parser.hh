@@ -69,6 +69,7 @@ enum class AstType {
     __ENUMERATE_OPERATION(FunctionDecl)  \
     __ENUMERATE_OPERATION(EnumDecl)      \
     __ENUMERATE_OPERATION(EnumMember)    \
+    __ENUMERATE_OPERATION(RecordDecl)    \
     __ENUMERATE_OPERATION(If)            \
     __ENUMERATE_OPERATION(While)         \
     __ENUMERATE_OPERATION(For)           \
@@ -257,7 +258,7 @@ enum_flags(TypeFlags, int){
     String,
     // Float,
     // Char, // should this be considered separate from Integer?
-    // Struct,
+    Record,
     kind_mask = 0b1111,
 
     //
@@ -675,6 +676,23 @@ struct AstEnumMember : Ast {
     }
 };
 
+struct RecordFields {
+    std::vector<AstVariableDecl *> vector;
+    std::unordered_map<std::string, AstVariableDecl *> map;
+};
+
+struct AstRecordDecl : Ast {
+    std::string name;
+    RecordFields fields;
+    size_t size = 0;
+
+    explicit AstRecordDecl(std::string_view _name, SourceLocation _location)
+        : Ast(AstType::Statement, Operation::RecordDecl, _location)
+        , name(_name)
+    {
+    }
+};
+
 Ast *parse_stmt(Compiler &, AstFunction *);
 
 AstFunction *print_builtin();
@@ -700,6 +718,7 @@ struct Scope {
     void add_function(Compiler &, Ast *, std::string_view unmangled_name);
     void add_alias(Compiler &, Type *, std::string_view alias, SourceLocation);
     void add_enum(Compiler &, AstEnumDecl *);
+    void add_record(Compiler &, AstRecordDecl *);
 };
 
 inline std::vector<Scope *> g_scopes;

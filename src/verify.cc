@@ -2003,6 +2003,16 @@ void verify_enum_decl(Compiler &cc, Ast *ast)
     }
 }
 
+void verify_record_decl(Compiler &cc, Ast *ast)
+{
+    auto *record_decl = static_cast<AstRecordDecl *>(ast);
+
+    for (auto *&field : record_decl->fields.vector) {
+        verify_var_decl(cc, field);
+        record_decl->size += field->var.type->byte_size();
+    }
+}
+
 void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
 {
     if (ast->type == AstType::Statement) {
@@ -2015,6 +2025,9 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 break;
             case Operation::EnumDecl:
                 verify_enum_decl(cc, ast);
+                break;
+            case Operation::RecordDecl:
+                verify_record_decl(cc, ast);
                 break;
             case Operation::If:
                 verify_if(cc, static_cast<AstIf *>(ast), current_function);
