@@ -3,6 +3,7 @@
 #include "compiler.hh"
 #include "debug.hh"
 #include "diagnose.hh"
+#include "dominators.hh"
 #include "parser.hh"
 #include "verify.hh"
 
@@ -17,10 +18,6 @@
 #endif
 
 namespace new_ir {
-
-namespace dom {
-void compute_dominator_tree(const std::vector<BasicBlock *> &);
-}
 
 static std::unordered_map<Variable *, Inst *> alloca_map;
 
@@ -1031,7 +1028,8 @@ void generate(Compiler &cc, AstFunction *fn)
     dce_sweep(cc.new_ir_builder);
 
     for (auto *fn : cc.new_ir_builder.fns) {
-        dom::compute_dominator_tree(fn->blocks);
+        dom::SemiNCAState state{};
+        dom::compute_dominator_tree(state, fn->blocks);
     }
 
     if (opts.testing) {

@@ -1,22 +1,11 @@
+#include "dominators.hh"
 #include "new-ir.hh"
 
-#include <algorithm>
 #include <numeric>
 
 namespace new_ir::dom {
 
 // TODO: worth doing incremental updates?
-
-struct SemiNCAState {
-    std::vector<std::vector<int>> succ_edges;
-    std::vector<std::vector<int>> pred_edges;
-    std::vector<int> df_order;
-    std::vector<int> rev_df_order;
-    std::vector<int> compress;
-    std::vector<int> best;
-    std::vector<int> sdom;
-    std::vector<int> idom;
-};
 
 void build_df_tree(SemiNCAState &snca, int pred, int &i)
 {
@@ -51,9 +40,8 @@ int compress_path(SemiNCAState &snca, int v, int last_linked)
     return ancestor;
 }
 
-void compute_dominator_tree(const std::vector<BasicBlock *> &blocks)
+void compute_dominator_tree(SemiNCAState &state, const std::vector<BasicBlock *> &blocks)
 {
-    SemiNCAState state;
     const auto n = static_cast<int>(size(blocks));
 
     state.succ_edges.resize(n);
@@ -106,10 +94,6 @@ void compute_dominator_tree(const std::vector<BasicBlock *> &blocks)
         while (state.df_order[state.idom[v]] > state.df_order[state.sdom[v]]) {
             state.idom[v] = state.idom[state.idom[v]];
         }
-    }
-
-    for (int i = 0; i < n; ++i) {
-        dbgln("{} idom: {}", i, state.idom[i]);
     }
 }
 
