@@ -5,8 +5,6 @@
 #include <numeric>
 #include <ranges>
 
-// #define INLINE_DEBUG
-
 #ifdef INLINE_DEBUG
 #define inl_dbgln(x, ...) std::println(x __VA_OPT__(, __VA_ARGS__))
 #else

@@ -1003,6 +1003,11 @@ void generate(Compiler &cc, AstFunction *fn)
     }
 
     if (opts.inliner) {
+#ifdef INLINE_DEBUG
+        dbgln("********************************* pre inline:");
+        print(stdout_file(), cc.new_ir_builder, SkipUnreachable::No);
+        dbgln("*********************************");
+#endif
         void inline_pass(IRBuilder &);
         inline_pass(cc.new_ir_builder);
     }
@@ -1043,9 +1048,9 @@ void generate(Compiler &cc, AstFunction *fn)
         }
     }
 
-#if defined(_DEBUG) || defined(SSA_DEBUG)
+#if defined(_DEBUG) || defined(IR_DEBUG) || defined(SSA_DEBUG)
     std::println("\n{}generated ir:{}", colors::Cyan, colors::Default);
-    print(stdout_file(), cc.new_ir_builder, SkipUnreachable::No);
+    print(stdout_file(), cc.new_ir_builder, SkipUnreachable::Yes);
 #endif
 }
 

@@ -14,7 +14,12 @@
 #undef SSA_DEBUG
 #endif
 
-// #define SSA_DEBUG
+// #define IR_DEBUG
+
+#ifdef IR_DEBUG
+#define SSA_DEBUG
+#define INLINE_DEBUG
+#endif
 
 #ifdef SSA_DEBUG
 #define ssa_dbgln(x, ...) std::println(x __VA_OPT__(, __VA_ARGS__))
