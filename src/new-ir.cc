@@ -278,11 +278,8 @@ ConstInst *make_const(AstLiteral *constant, const std::string &name)
 
 Inst *make_alloca(Variable *var)
 {
-    auto *inst = new AllocaInst(std::format("addr.{}", var->name.substr(0, 5)));
-    inst->inst_type = to_inst_type(var->type);
-    inst->variable_name = var->name;
-    inst->force_memory = var->force_stack;
-    return inst;
+    return new AllocaInst(std::format("addr.{}", var->name.substr(0, 5)), to_inst_type(var->type),
+        var->name, var->type, var->force_stack);
 }
 
 Inst *generate_alloca(IRBuilder &irb, Variable *var)
@@ -461,7 +458,7 @@ Inst *generate_cond_result(IRBuilder &irb, BasicBlock *true_block, BasicBlock *f
     auto *fn = irb.current_fn;
 
     auto *last = new BasicBlock(fn, "last");
-    auto *alloca = generate_alloca(irb, InstType::S1, "addr.cond");
+    auto *alloca = generate_alloca(irb, bool_type(), "addr.cond");
 
     add_existing_block(irb, fn, true_block);
     fn->current_block = true_block;

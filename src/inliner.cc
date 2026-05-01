@@ -15,10 +15,9 @@
 
 namespace new_ir {
 
-Inst *generate_alloca(IRBuilder &irb, InstType inst_type, const std::string &name)
+Inst *generate_alloca(IRBuilder &irb, Type *type, const std::string &name)
 {
-    auto *inst = new AllocaInst(name);
-    inst->inst_type = inst_type;
+    auto *inst = new AllocaInst(name, to_inst_type(type), name, type);
     irb.alloca_sets.top().insert_before(irb.current_fn->last_alloca, inst);
     ++irb.current_fn->last_alloca;
     return inst;
@@ -139,7 +138,7 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
     // Allocate the return value and arguments.
     auto *result = call->function->returns_void()
         ? nullptr
-        : generate_alloca(irb, to_inst_type(call->function->return_type), "addr.fret");
+        : generate_alloca(irb, call->function->return_type, "addr.fret");
 
     for (auto *decl : call->function->params) {
         auto *alloca = generate_alloca(irb, &decl->var);

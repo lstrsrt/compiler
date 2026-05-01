@@ -65,7 +65,8 @@ enum class InstKind {
     __ENUMERATE_INST_TYPE(U32)     \
     __ENUMERATE_INST_TYPE(U64)     \
     __ENUMERATE_INST_TYPE(String)  \
-    __ENUMERATE_INST_TYPE(Ptr)
+    __ENUMERATE_INST_TYPE(Ptr)     \
+    __ENUMERATE_INST_TYPE(Record)
 
 enum class InstType {
 #define __ENUMERATE_INST_TYPE(type) type,
@@ -159,12 +160,18 @@ struct StringInst : Inst {
 };
 
 struct AllocaInst : Inst {
-    InstType inst_type{};
+    InstType inst_type;
     std::string variable_name;
-    bool force_memory = false;
+    Type *variable_type;
+    bool force_memory;
 
-    explicit AllocaInst(const std::string &_name)
+    explicit AllocaInst(const std::string &_name, InstType _inst_type, std::string _variable_name,
+        Type *_variable_type, bool _force_memory = false)
         : Inst(Operation::Alloca, InstKind::Unary, InstType::Ptr, _name)
+        , inst_type(_inst_type)
+        , variable_name(std::move(_variable_name))
+        , variable_type(_variable_type)
+        , force_memory(_force_memory)
     {
     }
 };
@@ -345,7 +352,8 @@ void generate(Compiler &, AstFunction *);
 Inst *generate(IRBuilder &, Ast *);
 Inst *generate_jump(IRBuilder &, BasicBlock *);
 Inst *generate_alloca(IRBuilder &, Variable *);
-Inst *generate_alloca(IRBuilder &, InstType, const std::string &);
+Inst *generate_alloca(IRBuilder &, Type *, const std::string &name);
+// Inst *generate_alloca(IRBuilder &, InstType, const std::string &);
 Inst *generate_store(IRBuilder &, Inst *ptr, Inst *value);
 Inst *make_store(Function *, Inst *ptr, Inst *value);
 Inst *make_load(Function *, Inst *ptr);

@@ -627,7 +627,13 @@ void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
                 file.fwriteln("skipping...");
         }
         if (inst->operation == Operation::Alloca) {
-            file.fwrite(" {}", to_string(static_cast<AllocaInst *>(inst)->inst_type));
+            auto *alloca = static_cast<AllocaInst *>(inst);
+            if (alloca->inst_type == InstType::Record) {
+                file.fwrite(" {} ({} bytes)", alloca->variable_type->get_name(),
+                    alloca->variable_type->byte_size());
+            } else {
+                file.fwrite(" {}", to_string(alloca->inst_type));
+            }
         }
         for (size_t i = 0; i < size(inst->args); ++i) {
             auto *arg = inst->args[i];
