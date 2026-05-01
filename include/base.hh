@@ -127,7 +127,11 @@ template<typename... Args>
     } else {
         std::println("{}", msg);
     }
+#ifdef _DEBUG
+    trap();
+#else
     exit(EXIT_FAILURE);
+#endif
 }
 
 template<typename... Args>
@@ -141,7 +145,11 @@ template<typename... Args>
     } else {
         std::println("{}", msg);
     }
+#ifdef _DEBUG
+    trap();
+#else
     exit(EXIT_FAILURE);
+#endif
 }
 
 template<typename... Args>
