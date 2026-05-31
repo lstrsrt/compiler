@@ -273,6 +273,14 @@ enum_flags(TypeFlags, int){
     UNSIGNED = 1 << 8,
 };
 
+constexpr size_t byte_size(size_t bits)
+{
+    if (bits == 1) {
+        return 1;
+    }
+    return bits / 8;
+}
+
 struct Type {
     std::string name;
     TypeFlags flags{};
@@ -283,10 +291,62 @@ struct Type {
     // type (which may also be an alias or pointer)
     Type *real = nullptr;
 
-    // Used by AstEnum, and in the future also AstRecord.
-    Ast *decl = nullptr;
+    union {
+        struct AstEnumDecl *enum_decl = nullptr;
+        struct AstRecordDecl *record_decl;
+    };
 
     SourceLocation location{};
+
+    explicit Type(std::string_view _name, TypeFlags _flags, uint8_t _size, SourceLocation _location)
+        : name(_name)
+        , flags(_flags)
+        , size(_size)
+        , location(_location)
+    {
+    }
+
+    static constexpr Type *make_pointer(std::string_view _name, TypeFlags _flags, uint8_t _pointer,
+        Type *_real, SourceLocation _location)
+    {
+        auto *type = new Type(_name, _flags, 64, _location);
+        type->pointer = _pointer;
+        type->real = _real;
+        return type;
+    }
+
+    static constexpr Type *make_unresolved(
+        const std::string &_name, SourceLocation _location, uint8_t _pointer = 0)
+    {
+        auto *type = new Type(_name, TypeFlags::UNRESOLVED, 0, _location);
+        type->pointer = _pointer;
+        return type;
+    }
+
+    static constexpr Type *make_alias(
+        const std::string &_name, Type *_real, SourceLocation _location)
+    {
+        auto *type = new Type(_name, TypeFlags::ALIAS, 0, _location);
+        type->real = _real;
+        return type;
+    }
+
+    static constexpr Type *make_enum_decl(
+        std::string_view _name, Type *_real, AstEnumDecl *_enum_decl, SourceLocation _location)
+    {
+        auto *type = new Type(_name, TypeFlags::ENUM, 0, _location);
+        type->real = _real;
+        type->enum_decl = _enum_decl;
+        return type;
+    }
+
+    static constexpr Type *make_record_decl(
+        std::string_view _name, AstRecordDecl *_record_decl, SourceLocation _location)
+    {
+        auto *type = new Type(_name, TypeFlags::Record, 0, _location);
+        type->record_decl = _record_decl;
+        return type;
+    }
 
     TypeFlags get_kind() const { return flags & TypeFlags::kind_mask; }
 
@@ -302,13 +362,7 @@ struct Type {
 
     TypeFlags get_flags() const { return flags & ~TypeFlags::kind_mask; }
 
-    size_t byte_size() const
-    {
-        if (size == 1) {
-            return 1;
-        }
-        return size / 8;
-    }
+    size_t byte_size() const { return ::byte_size(size); }
 
     bool has_flag(TypeFlags flag) const { return ::has_flag(flags, flag); }
 
@@ -317,6 +371,8 @@ struct Type {
     bool is_signed() const { return !is_unsigned(); }
 
     bool is_pointer() const { return pointer > 0; }
+
+    bool is_record() const { return get_kind() == TypeFlags::Record; }
 
     std::string get_name() const
     {
@@ -676,13 +732,24 @@ struct AstEnumMember : Ast {
     }
 };
 
+struct RecordField {
+    AstVariableDecl *var_decl;
+    size_t offset = 0;
+
+    explicit RecordField(AstVariableDecl *_var_decl)
+        : var_decl(_var_decl)
+    {
+    }
+};
+
 struct RecordFields {
-    std::vector<AstVariableDecl *> vector;
-    std::unordered_map<std::string, AstVariableDecl *> map;
+    std::vector<RecordField *> vector;
+    std::unordered_map<std::string, RecordField *> map;
 };
 
 struct AstRecordDecl : Ast {
     std::string name;
+    Type *record_type = nullptr;
     RecordFields fields;
     size_t size = 0;
 
@@ -691,6 +758,8 @@ struct AstRecordDecl : Ast {
         , name(_name)
     {
     }
+
+    size_t byte_size() const { return ::byte_size(size); }
 };
 
 Ast *parse_stmt(Compiler &, AstFunction *);

@@ -1,6 +1,7 @@
 #include "verify.hh"
 #include "ast-fold.hh"
 #include "compiler.hh"
+#include "debug.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
 #include "parser.hh"
@@ -18,77 +19,64 @@
 
 Type *void_type()
 {
-    static Type s_type{ .name = "void", .flags = TypeFlags::Void | TypeFlags::BUILTIN, .size = 0 };
+    static Type s_type("void", TypeFlags::Void | TypeFlags::BUILTIN, 0, {});
     return &s_type;
 }
 
 Type *u8_type()
 {
-    static Type s_type{ .name = "u8",
-        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
-        .size = 8 };
+    static Type s_type("u8", TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN, 8, {});
     return &s_type;
 }
 
 Type *u16_type()
 {
-    static Type s_type{ .name = "u16",
-        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
-        .size = 16 };
+    static Type s_type(
+        "u16", TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN, 16, {});
     return &s_type;
 }
 
 Type *u32_type()
 {
-    static Type s_type{ .name = "u32",
-        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
-        .size = 32 };
+    static Type s_type(
+        "u32", TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN, 32, {});
     return &s_type;
 }
 
 Type *u64_type()
 {
-    static Type s_type{ .name = "u64",
-        .flags = TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN,
-        .size = 64 };
+    static Type s_type(
+        "u64", TypeFlags::Integer | TypeFlags::UNSIGNED | TypeFlags::BUILTIN, 64, {});
     return &s_type;
 }
 
 Type *s8_type()
 {
-    static Type s_type{ .name = "s8", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 8 };
+    static Type s_type("s8", TypeFlags::Integer | TypeFlags::BUILTIN, 8, {});
     return &s_type;
 }
 
 Type *s16_type()
 {
-    static Type s_type{
-        .name = "s16", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 16
-    };
+    static Type s_type("s16", TypeFlags::Integer | TypeFlags::BUILTIN, 16, {});
     return &s_type;
 }
 
 Type *s32_type()
 {
-    static Type s_type{
-        .name = "s32", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 32
-    };
+    static Type s_type("s32", TypeFlags::Integer | TypeFlags::BUILTIN, 32, {});
     return &s_type;
 }
 
 Type *s64_type()
 {
-    static Type s_type{
-        .name = "s64", .flags = TypeFlags::Integer | TypeFlags::BUILTIN, .size = 64
-    };
+    static Type s_type("s64", TypeFlags::Integer | TypeFlags::BUILTIN, 64, {});
     return &s_type;
 }
 
 Type *bool_type()
 {
-    static Type s_type{
-        .name = "bool", .flags = TypeFlags::Boolean | TypeFlags::BUILTIN, .size = 1
-    };
+    static Type s_type("bool", TypeFlags::Boolean | TypeFlags::BUILTIN, 1, {});
     return &s_type;
 }
 
@@ -96,27 +84,21 @@ Type *string_type()
 {
     // TODO - this is null terminated for now.
     // in the future, use an explicit length member instead.
-    static Type s_type{
-        .name = "string", .flags = TypeFlags::String | TypeFlags::BUILTIN, .size = 64
-    };
+    static Type s_type("string", TypeFlags::String | TypeFlags::BUILTIN, 64, {});
     return &s_type;
 }
 
 Type *null_type()
 {
-    static Type s_null{ .name = "null",
-        .flags = TypeFlags::Integer | TypeFlags::BUILTIN,
-        .size = 64,
-        .pointer = 1,
-        .real = u8_type(),
-        .location = {} };
-    return &s_null;
+    static auto *s_null
+        = Type::make_pointer("null", TypeFlags::Integer | TypeFlags::BUILTIN, 1, u8_type(), {});
+    return s_null;
 }
 
 Type *unresolved_type()
 {
-    static Type s_type{ .name = {}, .flags = TypeFlags::UNRESOLVED };
-    return &s_type;
+    static auto *s_type = Type::make_unresolved("", {});
+    return s_type;
 }
 
 Type *get_unaliased_type(Type *type)
@@ -1172,17 +1154,6 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
 
 void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 {
-    ExprConstness lhs_constness{};
-    ExprConstness rhs_constness{};
-    auto *lhs_type = get_expression_type(cc, binary->left, &lhs_constness);
-    auto *rhs_type = get_expression_type(cc, binary->right, &rhs_constness);
-
-    // TODO: figure out a diag api that does not need this stuff
-    auto *lt = lhs_type;
-    auto *rt = rhs_type;
-    lhs_type = get_unaliased_type(lhs_type);
-    rhs_type = get_unaliased_type(rhs_type);
-
     auto op = binary->operation;
 
     if (is_logical_operation(op)) {
@@ -1193,6 +1164,17 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
     }
 
     if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
+        ExprConstness lhs_constness{};
+        ExprConstness rhs_constness{};
+        auto *lhs_type = get_expression_type(cc, binary->left, &lhs_constness);
+        auto *rhs_type = get_expression_type(cc, binary->right, &rhs_constness);
+
+        // TODO: figure out a diag api that does not need this stuff
+        auto *lt = lhs_type;
+        auto *rt = rhs_type;
+        lhs_type = get_unaliased_type(lhs_type);
+        rhs_type = get_unaliased_type(rhs_type);
+
         if (is_arithmetic_operation(op)) {
             if (check_pointer_arithmetic(
                     cc, binary, lhs_type, lhs_constness, rhs_type, rhs_constness)) {
@@ -1440,6 +1422,9 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
     } else if (!type->is_int()) {
         if (auto err = types_match(type, bool_type()); err != TypeError::None) {
             type_error(cc, expr, bool_type(), type, err);
+        }
+        if (type->is_bool()) {
+            return;
         }
     }
 
@@ -1807,6 +1792,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
     // Why? Because if this variable is assigned to another auto inferred variable,
     // it's going to get its type from the table via find_variable().
     var_decl->scope->variables[var.name]->var.type = var.type;
+    var_decl->expr_type = var.type;
 }
 
 void verify_ast(Compiler &, Ast *, AstFunction *);
@@ -2004,9 +1990,14 @@ void verify_record_decl(Compiler &cc, Ast *ast)
     auto *record_decl = static_cast<AstRecordDecl *>(ast);
 
     for (auto *&field : record_decl->fields.vector) {
-        verify_var_decl(cc, field);
-        record_decl->size += field->var.type->byte_size();
+        verify_var_decl(cc, field->var_decl);
+        // TODO: let's hope the complete record size is not relevant before the end of this loop...
+        field->offset = record_decl->size;
+        record_decl->size += field->var_decl->var.type->size;
     }
+
+    record_decl->size = align_up(record_decl->size, 4z * 8);
+    record_decl->record_type->size = record_decl->size;
 }
 
 void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)

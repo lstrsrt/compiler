@@ -177,11 +177,13 @@ static void print_enum_decl(File &file, AstEnumDecl *decl)
     file.commit();
 }
 
-static void print_node(File &file, Ast *ast, std::string_view indent)
+static void print_node(File &file, Ast *ast, std::string_view indent, bool newline = true)
 {
+    const auto *nl = newline ? "\n" : "";
+
     if (ast->operation == Operation::EnumMember) {
         if (!static_cast<AstEnumMember *>(ast)->expr) {
-            file.fwrite("{}<unevaluated>\n", indent);
+            file.fwrite("{}<unevaluated>{}", indent, nl);
         } else {
             print_node(file, static_cast<AstEnumMember *>(ast)->expr, indent);
         }
@@ -203,17 +205,17 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
         } else {
             file.fwrite("[{}]", to_string(ast->type));
         }
-        file.write("\n");
+        file.fwrite("{}", nl);
         return;
     }
 
     file.fwrite("{}[{}", indent, to_string(ast->operation));
     if (ast->operation == Operation::Call) {
         auto *call = static_cast<AstCall *>(ast);
-        file.fwriteln(" {} ({} args)]", call->name, call->args.size());
+        file.fwrite(" {} ({} args)]{}", call->name, call->args.size(), nl);
     } else if (ast->operation == Operation::FunctionDecl) {
         auto *function = static_cast<AstFunction *>(ast);
-        file.fwriteln(" {} -> {}]", function->name, function->return_type->get_name());
+        file.fwrite(" {} -> {}]{}", function->name, function->return_type->get_name(), nl);
         for (auto *p : function->params) {
             file.fwrite("{}[Param: ", indent);
             print_var_decl(file, p);
@@ -225,9 +227,9 @@ static void print_node(File &file, Ast *ast, std::string_view indent)
         file.write(" ");
         print_enum_decl(file, static_cast<AstEnumDecl *>(ast));
     } else if (ast->operation == Operation::Cast) {
-        file.fwriteln(" {}]", static_cast<AstCast *>(ast)->cast_type->get_name());
+        file.fwrite(" {}]{}", static_cast<AstCast *>(ast)->cast_type->get_name(), nl);
     } else {
-        file.write("]\n");
+        file.fwrite("]{}", nl);
     }
     file.commit();
 }
@@ -312,7 +314,8 @@ void print_ast(File &file, Ast *ast, std::string indent)
             } else if (ast->operation == Operation::RecordDecl) {
                 auto *decl = static_cast<AstRecordDecl *>(ast);
                 for (auto *field : decl->fields.vector) {
-                    print_node(file, field, indent);
+                    file.fwrite("{}[Offset {}: ", indent, byte_size(field->offset));
+                    print_var_decl(file, field->var_decl);
                 }
             } else {
                 TODO();
@@ -624,7 +627,7 @@ void print(File &file, BasicBlock *bb, SkipUnreachable skip_unreachable)
                 }
             } break;
             default:
-                file.fwriteln("skipping...");
+                TODO();
         }
         if (inst->operation == Operation::Alloca) {
             auto *alloca = static_cast<AllocaInst *>(inst);

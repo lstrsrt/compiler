@@ -10,8 +10,8 @@
 #define parser_ast_error(ast, msg, ...) parser_error(ast->location, msg __VA_OPT__(, __VA_ARGS__))
 
 enum class Associativity {
-    Right,
-    Left,
+    Right = 0,
+    Left = 1,
 };
 
 using Precedence = int;
@@ -317,12 +317,13 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
         }
 
         if (next_token.kind == TokenKind::DoubleColon) {
+            // Enum
             consume(cc.lexer, next_token);
             auto *type = find_type(current_scope, token.string);
             auto ident = parse_identifier(cc);
             if (type) {
                 // Enum was already declared.
-                auto *enum_decl = static_cast<AstEnumDecl *>(type->decl);
+                auto *enum_decl = type->enum_decl;
                 if (auto it = enum_decl->members->map.find(std::string(ident.string));
                     it != enum_decl->members->map.end()) {
                     return it->second;
@@ -344,6 +345,7 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
                 enum_decl->name, token.string);
         }
 
+        // Variable
         auto *var_decl = find_variable(current_scope, std::string(token.string));
         if (var_decl && var_decl->scope->function != current_scope->function) {
             undo_lex(cc.lexer, undo);
@@ -597,14 +599,7 @@ Type *make_pointer(Compiler &cc, Type *real)
     if (real->pointer == std::numeric_limits<decltype(Type::pointer)>::max()) {
         parser_error(real->location, "exceeded indirection limit");
     }
-    auto *ptr = new Type;
-    ptr->name = real->name;
-    ptr->location = real->location;
-    ptr->flags = {};
-    ptr->pointer = real->pointer + 1;
-    ptr->size = 64;
-    ptr->real = real;
-    return ptr;
+    return Type::make_pointer(real->name, {}, real->pointer + 1, real, real->location);
 }
 
 Type *parse_type(Compiler &cc)
@@ -631,10 +626,8 @@ Type *parse_type(Compiler &cc)
         return ret;
     }
     // TODO: unnecessary string creation?
-    return new Type{ .name = std::string(token.string),
-        .flags = TypeFlags::UNRESOLVED,
-        .pointer = static_cast<uint8_t>(pointer),
-        .location = token.location };
+    return Type::make_unresolved(
+        std::string(token.string), token.location, static_cast<uint8_t>(pointer));
 }
 
 // A missing closing brace is a common syntax error, so this is a special diagnostic.
@@ -1071,9 +1064,9 @@ Ast *parse_enum(Compiler &cc)
         auto [it, success] = members->map.try_emplace(std::string(name), member);
         if (!success) {
             diag::prepare_error(cc, new_location,
-                "enumerator `{}` cannot be redeclared.\n"
+                "enumerant `{}` cannot be redeclared in enum `{}`.\n"
                 "here is the existing declaration: ",
-                name);
+                enum_decl->name, name);
             diag::print_line(cc.lexer.string, it->second->location);
             parser_error(new_location, "and this is the new declaration: ");
         }
@@ -1097,13 +1090,10 @@ Ast *parse_enum(Compiler &cc)
     consume_newline_or_eof(cc, lex(cc));
     cc.lexer.ignore_newlines = true;
     auto *enum_decl = new AstEnumDecl(name, location);
-    enum_decl->enum_type = new Type{ .name = enum_decl->name,
-        // size and type kind are not set at this point
-        // because underlying can be unresolved!
-        .flags = TypeFlags::ENUM,
-        .real = underlying,
-        .decl = enum_decl,
-        .location = enum_decl->location };
+    // size and type kind flags are not set at this point
+    // because underlying can be unresolved!
+    enum_decl->enum_type
+        = Type::make_enum_decl(enum_decl->name, underlying, enum_decl, enum_decl->location);
     auto *members = enum_decl->members;
     cc.parse_state.current_enum = enum_decl;
 
@@ -1148,6 +1138,7 @@ Ast *parse_record(Compiler &cc, AstFunction *current_function)
     auto name = token.string;
     auto location = token.location;
     auto *record = new AstRecordDecl(name, location);
+    record->record_type = Type::make_record_decl(name, record, location);
 
     consume_expected(cc, TokenKind::LBrace, lex(cc));
     auto *outer_scope = current_scope;
@@ -1163,21 +1154,21 @@ Ast *parse_record(Compiler &cc, AstFunction *current_function)
             return record;
         }
         cc.lexer.ignore_newlines = false;
-        auto *field = parse_var_decl(cc, AllowInitExpr::No);
-        if (!field) {
+        auto *decl = parse_var_decl(cc, AllowInitExpr::No);
+        if (!decl) {
             parser_error(token.location, "invalid field declaration");
         }
-        if (fields_map.contains(field->var.name)) [[unlikely]] {
-            diag::prepare_error(cc, field->location,
+        if (fields_map.contains(decl->var.name)) [[unlikely]] {
+            diag::prepare_error(cc, decl->location,
                 "field `{}` cannot be redeclared in record `{}`.\n"
                 "here is the existing declaration: ",
-                field->var.name, record->name);
-            diag::print_line(cc.lexer.string, location);
-            parser_error(field->location, "and this is the new declaration: ");
-        } else {
-            current_scope->add_variable(cc, field);
-            fields_map[field->var.name] = field;
+                decl->var.name, record->name);
+            diag::print_line(cc.lexer.string, fields_map[decl->var.name]->var_decl->location);
+            parser_error(decl->location, "and this is the new declaration: ");
         }
+        current_scope->add_variable(cc, decl);
+        auto *field = new RecordField(decl);
+        fields_map[decl->var.name] = field;
         fields.push_back(field);
         token = lex(cc);
         if (token.kind == TokenKind::Comma) {
@@ -1423,9 +1414,7 @@ void Scope::add_alias(Compiler &cc, Type *type, std::string_view alias, SourceLo
 {
     // TODO: unnecessary string creation?
     diagnose_redeclaration_or_shadowing(cc, this, alias, "type", location, ErrorOnShadowing::No);
-    types[alias] = new Type{
-        .name = std::string(alias), .flags = TypeFlags::ALIAS, .real = type, .location = location
-    };
+    types[alias] = Type::make_alias(std::string(alias), type, location);
 }
 
 void Scope::add_enum(Compiler &cc, AstEnumDecl *enum_decl)
@@ -1439,9 +1428,7 @@ void Scope::add_record(Compiler &cc, AstRecordDecl *record_decl)
 {
     diagnose_redeclaration_or_shadowing(
         cc, this, record_decl->name, "record", record_decl->location, ErrorOnShadowing::Yes);
-    types[record_decl->name] = new Type{
-        .name = record_decl->name, .flags = TypeFlags::Record, .location = record_decl->location
-    };
+    types[record_decl->name] = record_decl->record_type;
 }
 
 void free_ast([[maybe_unused]] std::vector<Ast *> &ast_vec)
