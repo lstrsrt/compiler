@@ -588,7 +588,7 @@ enum_flags(FunctionAttributes, int){
     DUMP_AST = 1 << 0,
     DUMP_IR = 1 << 1,
     DUMP_ASM = 1 << 2,
-    FORCE_USE = 1 << 3,
+    MAY_DISCARD = 1 << 3,
     BUILTIN_PRINT = 1 << 4,
 };
 

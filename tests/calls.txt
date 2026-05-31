@@ -4,7 +4,7 @@ fn zero_args() {
 fn one_arg(x: u32) {
 }
 
-fn two_args(x: u32, y: u32) -> u32 {
+fn two_args(x: u32, y: u32) -> u32 #{may_discard} {
     return x
 }
 

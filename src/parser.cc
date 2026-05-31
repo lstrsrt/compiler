@@ -1038,12 +1038,12 @@ FunctionAttributes parse_fn_attributes(Compiler &cc, bool is_main)
                 consume(cc.lexer, token);
                 attrs |= parse_fn_dump_attributes(cc);
                 break;
-            case hash("force_use"):
+            case hash("may_discard"):
                 if (is_main) {
-                    parser_error(token.location, "force_use is invalid for main function");
+                    parser_error(token.location, "may_discard is invalid for main function");
                 }
                 consume(cc.lexer, token);
-                attrs |= FunctionAttributes::FORCE_USE;
+                attrs |= FunctionAttributes::MAY_DISCARD;
                 break;
             default:
                 if (!is_main || !parse_main_attribute(cc, token, string_hash)) {

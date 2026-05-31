@@ -530,12 +530,12 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
     }
 }
 
-enum class WarnDiscardedReturn {
+enum class AllowDiscardedReturn {
     No,
     Yes
 };
 
-void verify_expr(Compiler &, Ast *&, WarnDiscardedReturn, Type *expected = nullptr);
+void verify_expr(Compiler &, Ast *&, AllowDiscardedReturn, Type *expected = nullptr);
 
 uint64_t max_for_type(Type *t)
 {
@@ -646,7 +646,7 @@ void verify_arg(Compiler &cc, Ast *&ast, Type *expected)
                 ident, "variable `{}` is not declared in this scope", ident->var->name);
         }
     }
-    verify_expr(cc, ast, WarnDiscardedReturn::No, expected);
+    verify_expr(cc, ast, AllowDiscardedReturn::No, expected);
 }
 
 void verify_print(Compiler &cc, Ast *ast)
@@ -656,7 +656,7 @@ void verify_print(Compiler &cc, Ast *ast)
         verification_error(print, "print needs at least one argument");
     }
     auto *fmt = print->args[0];
-    verify_expr(cc, fmt, WarnDiscardedReturn::No, string_type());
+    verify_expr(cc, fmt, AllowDiscardedReturn::No, string_type());
 
     // Handle fmt string
     auto &str = static_cast<AstString *>(fmt)->string;
@@ -712,7 +712,7 @@ void verify_print(Compiler &cc, Ast *ast)
     }
 }
 
-void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+void verify_call(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
 {
     auto *call = static_cast<AstCall *>(ast);
     auto *fn = get_callee(cc, call);
@@ -783,15 +783,12 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
             arg = static_cast<AstBinary *>(arg)->right;
         }
     }
-    if (warn_discarded == WarnDiscardedReturn::Yes && !fn->returns_void()) {
-        if (has_flag(fn->attributes, FunctionAttributes::FORCE_USE)) {
+    if (allow_discarded == AllowDiscardedReturn::Yes && !fn->returns_void()) {
+        if (!has_flag(fn->attributes, FunctionAttributes::MAY_DISCARD)) {
             verification_error(call,
-                "discarded return value for non-void function call `{}` (function marked with "
-                "force_use attribute)",
+                "discarded return value for non-void function call `{}` (function not marked with "
+                "may_discard attribute)",
                 fn->name);
-        } else {
-            diag::ast_warning(
-                cc, call, "discarded return value for non-void function call `{}`", fn->name);
         }
     }
     if (fn == cc.current_function) {
@@ -802,7 +799,7 @@ void verify_call(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
     }
 }
 
-void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
+void verify_addressof(Compiler &cc, Ast *&ast, Type *, AllowDiscardedReturn allow_discarded)
 {
     auto *unary = static_cast<AstAddressOf *>(ast);
     if (unary->operand->type != AstType::Identifier) {
@@ -816,10 +813,10 @@ void verify_addressof(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_
     }
     static_cast<AstIdentifier *>(unary->operand)->var->force_stack = true;
 
-    verify_expr(cc, unary->operand, warn_discarded);
+    verify_expr(cc, unary->operand, allow_discarded);
 }
 
-void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn warn_discarded)
+void verify_dereference(Compiler &cc, Ast *&ast, Type *, AllowDiscardedReturn allow_discarded)
 {
     auto *unary = static_cast<AstDereference *>(ast);
     // TODO: this is not ideal
@@ -835,10 +832,10 @@ void verify_dereference(Compiler &cc, Ast *&ast, Type *, WarnDiscardedReturn war
         verification_error(unary, "cannot dereference non-pointer of type {}", to_string(type));
     }
 
-    verify_expr(cc, unary->operand, warn_discarded);
+    verify_expr(cc, unary->operand, allow_discarded);
 }
 
-void verify_negate(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_negate(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn allow_discarded)
 {
     auto *unary = static_cast<AstNegate *>(ast);
 
@@ -853,7 +850,7 @@ void verify_negate(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn 
         negation_error();
     }
 
-    verify_expr(cc, unary->operand, warn_discarded, expected);
+    verify_expr(cc, unary->operand, allow_discarded, expected);
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness);
@@ -867,7 +864,7 @@ bool is_unsigned_or_convertible(Type *type, ExprConstness constness)
     return type->is_int() && (expr_is_fully_constant(constness) || type->is_unsigned());
 }
 
-void verify_not(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn warn_discarded)
+void verify_not(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn allow_discarded)
 {
     auto *unary = static_cast<AstNot *>(ast);
     expected = get_unaliased_type(expected);
@@ -878,7 +875,7 @@ void verify_not(Compiler &cc, Ast *&ast, Type *expected, WarnDiscardedReturn war
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness);
-    verify_expr(cc, unary->operand, warn_discarded, expected);
+    verify_expr(cc, unary->operand, allow_discarded, expected);
 
     if (!type->is_int() || !is_unsigned_or_convertible(type, constness)) {
         verification_type_error(
@@ -1256,16 +1253,15 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 }
 
 void verify_binary(
-    Compiler &cc, AstBinary *binary, Type *expected, WarnDiscardedReturn warn_discarded)
+    Compiler &cc, AstBinary *binary, Type *expected, AllowDiscardedReturn allow_discarded)
 {
-    // TODO: operator overloading
     verify_binary_operation(cc, binary, expected);
     if (!expected && binary->operation == Operation::Assign) {
         ExprConstness c{};
         expected = get_expression_type(cc, binary->left, &c);
     }
-    verify_expr(cc, binary->left, warn_discarded, expected);
-    verify_expr(cc, binary->right, warn_discarded, expected);
+    verify_expr(cc, binary->left, allow_discarded, expected);
+    verify_expr(cc, binary->right, allow_discarded, expected);
 }
 
 TypeError types_match(Type *t1, Type *t2)
@@ -1380,7 +1376,7 @@ void get_comparison_types(Compiler &cc, AstBinary *&cmp, ComparisonTypes &c)
     cmp->expr_type = c.type;
 }
 
-void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
 {
     auto *cmp = static_cast<AstBinary *>(ast);
     ComparisonTypes c;
@@ -1391,8 +1387,8 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
 
-    verify_expr(cc, cmp->left, warn_discarded, expected);
-    verify_expr(cc, cmp->right, warn_discarded, expected);
+    verify_expr(cc, cmp->left, allow_discarded, expected);
+    verify_expr(cc, cmp->right, allow_discarded, expected);
 
     // verify_expr can insert casts etc so get type again
     get_comparison_types(cc, cmp, c);
@@ -1421,7 +1417,7 @@ void verify_comparison(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discard
     }
 }
 
-void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+void verify_logical_not(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
 {
     // Canonicalize into a binary Equals
     ExprConstness constness{};
@@ -1429,7 +1425,7 @@ void verify_logical_not(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discar
     ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
         new AstLiteral(type, 0, ast->location), ast->location);
     ast->expr_type = type;
-    verify_comparison(cc, ast, warn_discarded);
+    verify_comparison(cc, ast, allow_discarded);
 }
 
 void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
@@ -1497,7 +1493,7 @@ void remove_cast(Ast *&ast)
     ast = operand;
 }
 
-void verify_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
+void verify_cast(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
 {
     // Current behavior notes
     //
@@ -1517,7 +1513,7 @@ void verify_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
     auto err = types_match(cast_type, type);
     if (err == TypeError::None) {
         remove_cast(ast);
-        verify_expr(cc, ast /* this is the operand now */, warn_discarded, type);
+        verify_expr(cc, ast /* this is the operand now */, allow_discarded, type);
         return;
     }
 
@@ -1556,34 +1552,34 @@ void verify_cast(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded)
     // ^ ^ ^ ^ ^
     // This is false now that pointer arithmetic checking inserts a cast to s64.
     // Pass `type` so we don't crash in constant folding.
-    verify_expr(cc, cast->operand, warn_discarded, type);
+    verify_expr(cc, cast->operand, allow_discarded, type);
 }
 
-void verify_unary(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
+void verify_unary(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded, Type *expected)
 {
     switch (ast->operation) {
         case Operation::Call:
-            verify_call(cc, ast, warn_discarded);
+            verify_call(cc, ast, allow_discarded);
             break;
         case Operation::AddressOf:
-            verify_addressof(cc, ast, expected, warn_discarded);
+            verify_addressof(cc, ast, expected, allow_discarded);
             break;
         case Operation::Dereference:
-            verify_dereference(cc, ast, expected, warn_discarded);
+            verify_dereference(cc, ast, expected, allow_discarded);
             break;
         case Operation::Negate:
-            verify_negate(cc, ast, expected, warn_discarded);
+            verify_negate(cc, ast, expected, allow_discarded);
             break;
         case Operation::Not:
-            verify_not(cc, ast, expected, warn_discarded);
+            verify_not(cc, ast, expected, allow_discarded);
             break;
         case Operation::LogicalNot:
-            verify_logical_not(cc, ast, warn_discarded);
+            verify_logical_not(cc, ast, allow_discarded);
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             ast = apply_de_morgan_laws(ast);
             break;
         case Operation::Cast:
-            verify_cast(cc, ast, warn_discarded);
+            verify_cast(cc, ast, allow_discarded);
             break;
         case Operation::Load:
             // synthetic operation
@@ -1714,7 +1710,7 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
     expr->expr_type = unaliased;
 }
 
-void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Type *expected)
+void verify_expr(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded, Type *expected)
 {
     Type *type;
     switch (ast->type) {
@@ -1728,7 +1724,7 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
             verify_enum_member(cc, ast);
             break;
         case AstType::Unary:
-            verify_unary(cc, ast, warn_discarded, expected);
+            verify_unary(cc, ast, allow_discarded, expected);
             break;
         case AstType::Binary: {
             auto *binary = static_cast<AstBinary *>(ast);
@@ -1740,10 +1736,10 @@ void verify_expr(Compiler &cc, Ast *&ast, WarnDiscardedReturn warn_discarded, Ty
                 case Operation::Less:
                     [[fallthrough]];
                 case Operation::LessEquals:
-                    verify_comparison(cc, ast, warn_discarded);
+                    verify_comparison(cc, ast, allow_discarded);
                     break;
                 default:
-                    verify_binary(cc, binary, expected, warn_discarded);
+                    verify_binary(cc, binary, expected, allow_discarded);
                     break;
             }
             ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
@@ -1780,7 +1776,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
             || var_decl->init_expr->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, var_decl->init_expr);
         }
-        verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
+        verify_expr(cc, var_decl->init_expr, AllowDiscardedReturn::No, var.type);
     } else if (var_decl->init_expr) {
         // x: T = y
         resolve_type(cc, var_decl->scope, var.type);
@@ -1791,7 +1787,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
             || var_decl->init_expr->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, var_decl->init_expr);
         }
-        verify_expr(cc, var_decl->init_expr, WarnDiscardedReturn::No, var.type);
+        verify_expr(cc, var_decl->init_expr, AllowDiscardedReturn::No, var.type);
     } else {
         // x: T
         // var.type is already set and there is nothing to verify.
@@ -1824,7 +1820,7 @@ void verify_return(
         if (expr) {
             if (expr->operation == Operation::Call) {
                 auto *call = static_cast<AstCall *>(expr);
-                verify_call(cc, expr, WarnDiscardedReturn::No);
+                verify_call(cc, expr, AllowDiscardedReturn::No);
                 if (get_callee(cc, call)->returns_void()) {
                     // Returning f() (where f returns void) is allowed
                     return;
@@ -1844,7 +1840,7 @@ void verify_return(
 
     ExprConstness constness{};
     get_expression_type(cc, expr, &constness);
-    verify_expr(cc, expr, WarnDiscardedReturn::No, expected);
+    verify_expr(cc, expr, AllowDiscardedReturn::No, expected);
 }
 
 void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
@@ -1856,7 +1852,7 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
         // The conversion has to happen on the uppermost level instead: "(x + 123) != 0".
         auto *&ast = if_stmt->expr;
         convert_expr_to_boolean(cc, ast);
-        verify_expr(cc, ast, WarnDiscardedReturn::No, bool_type());
+        verify_expr(cc, ast, AllowDiscardedReturn::No, bool_type());
         if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, ast);
         }
@@ -1872,9 +1868,9 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
     auto *for_stmt = static_cast<AstFor *>(ast);
     auto *var = &for_stmt->var_decl->var;
 
-    verify_expr(cc, for_stmt->cmp, WarnDiscardedReturn::No, bool_type());
+    verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::No, bool_type());
     if (for_stmt->end) {
-        verify_expr(cc, for_stmt->end, WarnDiscardedReturn::No, var->type);
+        verify_expr(cc, for_stmt->end, AllowDiscardedReturn::No, var->type);
     }
 
     auto *start = for_stmt->var_decl->init_expr;
@@ -1888,7 +1884,7 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
         }
     }
 
-    verify_expr(cc, for_stmt->change, WarnDiscardedReturn::No);
+    verify_expr(cc, for_stmt->change, AllowDiscardedReturn::No);
 
     verify_ast(cc, for_stmt->body, current_function);
 }
@@ -1913,11 +1909,11 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
     }
 
     if (for_stmt->cmp) {
-        verify_expr(cc, for_stmt->cmp, WarnDiscardedReturn::No, bool_type());
+        verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::No, bool_type());
     }
 
     if (for_stmt->change) {
-        verify_expr(cc, for_stmt->change, WarnDiscardedReturn::No);
+        verify_expr(cc, for_stmt->change, AllowDiscardedReturn::No);
     }
 
     verify_ast(cc, for_stmt->body, current_function);
@@ -1932,7 +1928,7 @@ void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
         || while_stmt->cmp->operation == Operation::LogicalAnd) {
         verify_logical_chain(cc, while_stmt->cmp);
     }
-    verify_expr(cc, while_stmt->cmp, WarnDiscardedReturn::No, bool_type());
+    verify_expr(cc, while_stmt->cmp, AllowDiscardedReturn::No, bool_type());
     verify_ast(cc, while_stmt->body, current_function);
 }
 
@@ -1956,8 +1952,8 @@ void verify_assign(Compiler &cc, Ast *ast)
         || binary->right->operation == Operation::LogicalAnd) {
         verify_logical_chain(cc, binary->right);
     }
-    verify_expr(cc, binary->left, WarnDiscardedReturn::No);
-    verify_expr(cc, binary->right, WarnDiscardedReturn::No, expected);
+    verify_expr(cc, binary->left, AllowDiscardedReturn::No);
+    verify_expr(cc, binary->right, AllowDiscardedReturn::No, expected);
     if (exprs_identical(binary->left, binary->right, CheckSideEffects::Yes)) {
         diag::ast_warning(cc, binary, "self-assignment has no effect");
     }
@@ -2060,11 +2056,11 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
         if (ast->operation == Operation::Assign) {
             verify_assign(cc, ast);
         } else if (ast->operation == Operation::Call) {
-            verify_call(cc, ast, WarnDiscardedReturn::Yes);
+            verify_call(cc, ast, AllowDiscardedReturn::Yes);
         } else {
             ExprConstness constness{};
             verify_expr(
-                cc, ast, WarnDiscardedReturn::Yes, get_expression_type(cc, ast, &constness));
+                cc, ast, AllowDiscardedReturn::Yes, get_expression_type(cc, ast, &constness));
         }
     }
 }

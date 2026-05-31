@@ -1,5 +1,5 @@
 #{error(verify)}
-fn f(x: s32) -> s32 #{force_use} {
+fn f(x: s32) -> s32 {
     return x
 }
 f(1)
