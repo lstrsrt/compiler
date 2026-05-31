@@ -129,9 +129,8 @@ template<typename... Args>
     }
 #ifdef _DEBUG
     trap();
-#else
-    exit(EXIT_FAILURE);
 #endif
+    exit(EXIT_FAILURE);
 }
 
 template<typename... Args>
@@ -147,9 +146,8 @@ template<typename... Args>
     }
 #ifdef _DEBUG
     trap();
-#else
-    exit(EXIT_FAILURE);
 #endif
+    exit(EXIT_FAILURE);
 }
 
 template<typename... Args>
