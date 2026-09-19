@@ -311,9 +311,8 @@ enum class Utf8Result {
     End,
 };
 
-Utf8Result lex_utf8_char(Compiler &cc, size_t offset)
+Utf8Result lex_utf8_char(const Lexer &lexer, size_t offset)
 {
-    auto &lexer = cc.lexer;
     const char c = lexer.get(offset);
     if (is_ascii(static_cast<unsigned char>(c))) [[likely]] {
         return Utf8Result::OneByte;
@@ -344,7 +343,7 @@ Utf8Result lex_utf8_char(Compiler &cc, size_t offset)
 
 Utf8Result lex_utf8_identifier_char(Compiler &cc, size_t offset)
 {
-    const auto ret = lex_utf8_char(cc, offset);
+    const auto ret = lex_utf8_char(cc.lexer, offset);
     if (ret == Utf8Result::OneByte && !is_valid_char_in_identifier(cc.lexer.get(offset))) {
         return Utf8Result::End;
     }
@@ -357,9 +356,10 @@ Token lex_string(Compiler &cc)
     auto loc = lexer.location();
     auto *str = new std::string;
     bool new_line = false;
-    for (size_t i = 1; !new_line && !lexer.out_of_bounds(i); ++i) {
+    bool multi_line = lexer.get(1) == '"' && lexer.get(2) == '"';
+    for (size_t i = multi_line ? 3 : 1; (multi_line || !new_line) && !lexer.out_of_bounds(i); ++i) {
         char c = lexer.get(i);
-        switch (lex_utf8_char(cc, i)) {
+        switch (lex_utf8_char(lexer, i)) {
             case Utf8Result::Invalid:
                 diag::warning_at(cc, loc, "invalid character `{}`", diag::make_printable(c));
                 break;
@@ -414,7 +414,10 @@ Token lex_string(Compiler &cc)
                     ++i;
                     continue;
                 } else if (c == '"') {
-                    return Token::make_string(str, i + 1, SourceLocation::with_lexer(lexer, i + 1));
+                    if (!multi_line || (lexer.get(i + 1) == '"' && lexer.get(i + 2) == '"')) {
+                        const auto len = multi_line ? i + 3 : i + 1;
+                        return Token::make_string(str, len, SourceLocation::with_lexer(lexer, len));
+                    }
                 } else if (c == '\r' || c == '\n') {
                     new_line = true;
                 } else {
@@ -625,7 +628,7 @@ Token lex_utf8_identifier(Compiler &cc)
             switch (lex_utf8_identifier_char(cc, cp)) {
                 case Utf8Result::Invalid:
                     diag::lexer_error(
-                        cc, "unknown character `{}`", diag::make_printable(lexer.get(cp)));
+                        cc, "invalid character `{}`", diag::make_printable(lexer.get(cp)));
                     break;
                 case Utf8Result::OneByte:
                     cp++;
@@ -649,8 +652,11 @@ Token lex_utf8_identifier(Compiler &cc)
         }
         return i;
     }();
+    if (!count) {
+        diag::lexer_error(cc, SourceLocation::with_lexer(lexer, 1), "invalid identifier");
+    }
     if (count > MaxIdentifierLength) {
-        diag::error_at(cc, SourceLocation::with_lexer(lexer, cp), ErrorType::Lexer,
+        diag::lexer_error(cc, SourceLocation::with_lexer(lexer, cp),
             "identifier is {} chars long, which exceeds the maximum allowed length of {}", count,
             MaxIdentifierLength);
     }

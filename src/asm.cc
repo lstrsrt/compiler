@@ -641,9 +641,14 @@ void emit_asm_function(Compiler &cc, IRFunction &ir_fn)
 
 std::string string_to_nasm(const std::string &s)
 {
+    if (s.empty()) {
+        return "``";
+    }
+
     std::string ret;
     bool did_escape = false;
     bool in_string = false;
+
     for (char i : s) {
         if (is_control_char(i)) {
             if (in_string) {
