@@ -647,7 +647,7 @@ std::string string_to_nasm(const std::string &s)
     for (char i : s) {
         if (is_control_char(i)) {
             if (in_string) {
-                ret += "\", ";
+                ret += "`, ";
                 in_string = false;
             } else if (did_escape) {
                 ret += ", ";
@@ -656,17 +656,17 @@ std::string string_to_nasm(const std::string &s)
             did_escape = true;
         } else {
             if (did_escape) {
-                ret += ", \"";
+                ret += ", `";
                 did_escape = false;
             } else if (!in_string) {
-                ret += "\"";
+                ret += "`";
             }
             ret += i;
             in_string = true;
         }
     }
     if (!did_escape) {
-        ret += "\"";
+        ret += "`";
     }
     return ret;
 }
