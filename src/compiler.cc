@@ -44,6 +44,10 @@ void compiler_main(Compiler &cc, AstFunction *main)
 #endif
     }
 
+    if (cc.test_mode.compare_type == CompareType::Ast) {
+        cc.test_mode.compare_file
+            = write_comparison_file(".ast", main, [](File &f, Ast *a) { print_ast(f, a); });
+    }
     if (opts.new_ir) {
         new_ir::generate(cc, main);
         // new_ir::consume_stats(stdout_file());
