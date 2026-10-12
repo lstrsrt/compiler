@@ -16,8 +16,8 @@
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <Windows.h>
-#include <stdio.h>
 #include <process.h>
+#include <stdio.h>
 #endif
 
 struct TestData {
@@ -113,7 +113,7 @@ bool files_are_equal(const std::string &path1, const std::string &path2)
         return false;
     }
 
-    auto s1 = file2.view();
+    auto s1 = file1.view();
     auto s2 = file2.view();
     bool equals = std::equal(s1.begin(), s1.end(), s2.begin());
     return equals;
