@@ -150,7 +150,8 @@ struct SourceLocation {
     uint32_t line;
     uint32_t column;
     uint32_t end;      // End column.
-    uint32_t position; // This is the actual offset in the file, equivalent to Lexer::position.
+    uint32_t position; // This is the actual offset in the file, equivalent to
+                       // Lexer::position.
 
     static SourceLocation with_lexer(Lexer &, uint32_t end_offset);
 };
@@ -258,9 +259,9 @@ struct Lexer {
 
     struct UndoState {
         struct {
-            size_t cache_size = 0;
             uint32_t position = 0;
             uint32_t column = 0;
+            std::optional<Token> cached;
         } _private;
     };
 
@@ -273,6 +274,7 @@ struct Lexer {
     uint32_t line = 1;
     uint32_t column = 0;
     std::stack<SourceLocation> last_lbrace;
+    std::optional<Token> cached_token;
     bool ignore_newlines = true;
 };
 
