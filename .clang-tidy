@@ -14,6 +14,7 @@ Checks: >
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-macro-usage,
   -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access,
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-type-static-cast-downcast,
   -cppcoreguidelines-pro-type-union-access,
@@ -21,6 +22,7 @@ Checks: >
   -misc-non-private-member-variables-in-classes,
   -misc-no-recursion,
   -misc-include-cleaner,
+  -misc-static-assert,
   -misc-use-internal-linkage,
   -misc-use-anonymous-namespace,
   -modernize-use-trailing-return-type,
@@ -32,6 +34,7 @@ Checks: >
   -readability-implicit-bool-conversion,
   -readability-magic-numbers,
   -readability-named-parameter,
+  -readability-trailing-comma,
   -bugprone-easily-swappable-parameters,
   -bugprone-suspicious-include,
   -bugprone-switch-missing-default-case

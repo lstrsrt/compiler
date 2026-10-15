@@ -30,3 +30,4 @@ PointerAlignment: Right
 SeparateDefinitionBlocks: Always
 SpaceAfterTemplateKeyword: false
 SpaceBeforeCpp11BracedList: false
+SpaceInEmptyBraces: Block
