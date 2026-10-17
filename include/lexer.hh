@@ -235,6 +235,11 @@ struct Token {
     size_t real_length{};
 };
 
+enum class InputMode {
+    File,
+    String
+};
+
 struct Lexer {
     char get(size_t offset = 0) const
     {
@@ -265,9 +270,11 @@ struct Lexer {
         } _private;
     };
 
-    void set_input(const std::string &filename);
+    void set_input_from_string(const std::string &string);
+    void set_input_from_file(const std::string &filename);
     void free_input();
 
+    InputMode input_mode;
     File input;
     std::string_view string;
     uint32_t position = 0;

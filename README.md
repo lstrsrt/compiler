@@ -67,3 +67,14 @@ To run: `./build/{debug,release}/compiler [args...]`.
 Pass `--help` for help.
 
 The `--exe` flag and tests require [nasm](https://www.nasm.us) and gcc to be installed.
+
+## Fuzzing
+
+To fuzz the compiler, download AFL++ and build the fuzz configuration:
+`xmake config -m fuzz && xmake`.
+Then put some input files for the fuzzer to use into a `seeds` folder and run
+
+`afl-fuzz -i seeds -o fuzz-results -x lang.dict -- ./build/afl/compiler`.
+
+For now `--check-only --new-ir --no-ssa` is forced on due to stability issues.
+Later this will be changed, and ASAN and UBSAN support will be added.

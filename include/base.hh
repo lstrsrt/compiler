@@ -95,6 +95,8 @@ struct Timer {
     ch::time_point<ch::system_clock> start;
 };
 
+struct FuzzerException { };
+
 constexpr size_t align_up(size_t value, size_t alignment)
 {
     return (value + (alignment - 1)) & ~(alignment - 1);
@@ -102,10 +104,13 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 [[noreturn]] inline void todo(const char *func, const char *file, int line)
 {
+#ifdef FUZZING
+    throw FuzzerException();
+#endif
     std::println("\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
     // This produces a SIGILL (ud2), not a SIGTRAP because it's impossible to continue after here.
-    __builtin_trap();
+    asm volatile("ud2");
 #endif
     exit(EXIT_FAILURE);
 }

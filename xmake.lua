@@ -14,11 +14,13 @@ target("compiler")
     add_cxxflags("-Wimplicit-fallthrough")
     add_includedirs("include/", "vendor/")
     set_rundir(os.projectdir())
-    if (has_package("clang")) then
-        set_toolchains("clang")
-    end
-    if has_package("mold") then
-        add_ldflags("-fuse-ld=mold")
+    if not is_mode("fuzz") then
+        if (has_package("clang")) then
+            set_toolchains("clang")
+        end
+        if has_package("mold") then
+            add_ldflags("-fuse-ld=mold")
+        end
     end
     add_packages("cpptrace")
     add_files("src/*.cc")
@@ -28,11 +30,24 @@ target("compiler")
         if is_plat("windows") then
             set_runtimes("MDd")
         end
-    else -- release
+    elseif is_mode("release") then
         add_defines("NDEBUG")
         add_cxxflags("-march=native")
         set_optimize("faster")
         set_symbols("debug")
         set_strip("none")
         set_targetdir("build/release")
+    elseif is_mode("fuzz") then
+        set_targetdir("build/afl")
+        set_optimize("faster")
+        set_symbols("debug")
     end
+
+if is_mode("fuzz") then
+    add_defines("FUZZING")
+    set_optimize("fast")
+    set_toolset("cc", "clang@afl-clang-fast")
+    set_toolset("cxx", "clang++@afl-clang-fast++")
+    set_toolset("ld", "clang++@afl-clang-fast++")
+    set_toolset("sh", "clang++@afl-clang-fast++")
+end

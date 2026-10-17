@@ -5,8 +5,7 @@
 #include "parser.hh"
 
 #include <algorithm>
-#include <numeric>
-#include <ranges>
+#include <utility>
 
 #ifdef __linux__
 #include <linux/limits.h>
@@ -16,7 +15,9 @@
 #define WIN32_LEAN_AND_MEAN
 #define VC_EXTRALEAN
 #include <Windows.h>
+#include <numeric>
 #include <process.h>
+#include <ranges>
 #include <stdio.h>
 #endif
 
@@ -133,25 +134,18 @@ bool extensions_match(const fs::path &a, const fs::path &b)
     return a.extension() == b.extension();
 }
 
-bool run_compare_test(Compiler &cc)
+bool run_compare_test()
 {
-    if (cc.test_mode.compare_type == CompareType::None) {
+    if (test_mode.compare_type == CompareType::None) {
         return true;
     }
 
-    auto cmp_file = fs::path(cc.test_mode.compare_file);
-    auto ref_file = fs::path(cc.test_mode.reference_file);
+    auto cmp_file = fs::path(test_mode.compare_file);
+    auto ref_file = fs::path(test_mode.reference_file);
     if (!fs::exists(ref_file)) {
-        // Maybe it's in the input path?
-        auto alt = fs::path(cc.lexer.input.filename).replace_filename(ref_file);
-        if (!fs::exists(alt)) {
-            std::println("{}testing error{}: reference file '{}' not found.\n"
-                         "place the reference file in the working directory or in the directory of "
-                         "the file being compiled.",
-                colors::Red, colors::Default, ref_file.string());
-        } else {
-            ref_file = alt;
-        }
+        std::println("{}testing error{}: reference file '{}' not found.\n"
+                     "place the reference file in the working directory.",
+            colors::Red, colors::Default, ref_file.string());
     }
     if (!extensions_match(cmp_file, ref_file)) {
         std::println("{}test warning{}: extensions for files '{}' and '{}' don't match",
@@ -172,6 +166,7 @@ bool run_compare_test(Compiler &cc)
 void run_test(TestData &td, const fs::path &file)
 {
     using namespace colors;
+    Defer reset{ [] { test_mode = {}; } };
 
     const auto report_single_test_result = [&]() {
         if (td.total_tests == 1) {
@@ -185,37 +180,22 @@ void run_test(TestData &td, const fs::path &file)
         switch_to_tmp(td);
     }
 
-    Compiler cc;
     bool compiled = false;
-    cc.lexer.set_input(file.string());
-
-#ifdef AST_USE_ARENA
-    arena::ArenaAllocator<void> allocator(ast_arena());
-    StmtVec stmts(allocator);
-    VariableDecls params(allocator);
-#else
-    StmtVec stmts;
-    VariableDecls params;
-#endif
-    auto *main = new AstFunction("main", s32_type(), params, new AstBlock(stmts), {});
-
     try {
         ++td.current_test;
-        compiler_main(cc, main);
-        cc.cleanup(main);
+        invoke_compiler(file.string(), InputMode::File);
         compiled = true;
     } catch (TestingException &te) {
-        if (cc.test_mode.test_type == TestType::Error) {
-            if (te.type != cc.test_mode.error_type) {
+        if (test_mode.test_type == TestType::Error) {
+            if (te.type != test_mode.error_type) {
                 std::println("{}testing error{}: non-matching exception {} (expected {})", Red,
-                    Default, to_string(te.type), to_string(cc.test_mode.error_type));
+                    Default, to_string(te.type), to_string(test_mode.error_type));
             } else {
                 ++td.passed_tests;
             }
         } else {
             std::println("{}testing error{}: failed compilation", Red, Default);
         }
-        cc.cleanup(main);
     } catch (std::exception &e) {
         std::println("unexpected exception: {}", e.what());
     }
@@ -224,23 +204,25 @@ void run_test(TestData &td, const fs::path &file)
         return report_single_test_result();
     }
 
-    if (cc.test_mode.test_type == TestType::CanCompile) {
-        if (run_compare_test(cc)) {
+    // The new IR has no backend yet, so we can't check return values.
+    if (test_mode.test_type == TestType::CanCompile
+        || (opts.new_ir && test_mode.test_type == TestType::ReturnsValue)) {
+        if (run_compare_test()) {
             ++td.passed_tests;
         }
-    } else if (cc.test_mode.test_type == TestType::Error) {
+    } else if (test_mode.test_type == TestType::Error) {
         std::println("{}testing error{}: should have failed compilation", Red, Default);
-    } else if (cc.test_mode.test_type == TestType::ReturnsValue) {
-        bool ok = run_compare_test(cc);
+    } else if (test_mode.test_type == TestType::ReturnsValue) {
+        bool ok = run_compare_test();
         create_executable(opts.output_name, opts.output_exe_name);
         int status = spawn_blocking_process(fs::current_path() / opts.output_exe_name, {});
-        if (status == static_cast<int>(cc.test_mode.return_value)) {
+        if (std::cmp_equal(status, test_mode.return_value)) {
             if (ok) {
                 ++td.passed_tests;
             }
         } else {
             std::println("{}testing error{}: non-matching return value {} (expected {})", Red,
-                Default, status, cc.test_mode.return_value);
+                Default, status, test_mode.return_value);
         }
     }
 

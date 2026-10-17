@@ -36,13 +36,14 @@ enum class CompareType {
 void run_tests(const fs::path &, bool root = true);
 void run_single_test(const fs::path &);
 
-struct TestingException : std::runtime_error {
+struct TestingException {
     TestingException(const char *const msg, ErrorType _type) noexcept
-        : std::runtime_error(msg)
+        : message(msg)
         , type(_type)
     {
     }
 
+    std::string message;
     ErrorType type;
 };
 
@@ -54,6 +55,8 @@ struct TestMode {
     std::string compare_file;
     uint64_t return_value = 0;
 };
+
+inline TestMode test_mode;
 
 template<class T>
 std::string write_comparison_file(

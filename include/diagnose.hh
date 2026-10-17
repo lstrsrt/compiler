@@ -35,9 +35,13 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
         cc.lexer.input.filename, location.line, location.column + 1);
 }
 
-[[noreturn]] void error_at(
-    Compiler &cc, SourceLocation location, ErrorType type, std::string_view fmt, auto &&...args)
+[[noreturn]] void error_at([[maybe_unused]] Compiler &cc, [[maybe_unused]] SourceLocation location,
+    [[maybe_unused]] ErrorType type, [[maybe_unused]] std::string_view fmt,
+    [[maybe_unused]] auto &&...args)
 {
+#ifdef FUZZING
+    throw FuzzerException();
+#else
     const auto msg
         = std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...));
     if (!opts.testing) {
@@ -46,14 +50,16 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
         }
         std::println("{}", msg);
         print_line(cc.lexer.string, location);
-#if _DEBUG
-        __builtin_trap();
+#ifdef _DEBUG
+        asm volatile("ud2");
+        std::unreachable();
 #else
         exit(EXIT_FAILURE);
 #endif
     } else {
         throw TestingException(msg.c_str(), type);
     }
+#endif
 }
 
 [[noreturn]] void lexer_error(

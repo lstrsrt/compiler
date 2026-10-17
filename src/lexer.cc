@@ -752,7 +752,12 @@ void undo_lex(Lexer &lexer, Lexer::UndoState undo_state)
     lexer.cached_token = undo_state._private.cached;
 }
 
-void Lexer::set_input(const std::string &filename)
+void Lexer::set_input_from_string(const std::string &string)
+{
+    this->string = string;
+}
+
+void Lexer::set_input_from_file(const std::string &filename)
 {
     if (!input.open(filename, OpenFlags::Open | OpenFlags::READ)) {
         die("unable to open or read input file '{}'", filename);
@@ -763,5 +768,7 @@ void Lexer::set_input(const std::string &filename)
 void Lexer::free_input()
 {
     cached_token = {};
-    input.close();
+    if (input_mode == InputMode::File) {
+        input.close();
+    }
 }

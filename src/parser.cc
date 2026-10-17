@@ -932,13 +932,13 @@ void parse_error_attribute(Compiler &cc)
     consume_expected(cc, TokenKind::LParen, lex(cc));
     auto token = lex(cc);
     if (auto it = error_attr_map.find(token.string); it != error_attr_map.end()) {
-        cc.test_mode.error_type = it->second;
+        test_mode.error_type = it->second;
     } else {
         parser_error(token.location, "unknown attribute");
     }
     consume(cc.lexer, token);
     consume_expected(cc, TokenKind::RParen, lex(cc));
-    cc.test_mode.test_type = TestType::Error;
+    test_mode.test_type = TestType::Error;
 }
 
 FunctionAttributes parse_fn_dump_attributes(Compiler &cc)
@@ -980,12 +980,12 @@ bool parse_main_attribute(Compiler &cc, Token &token, hash_t string_hash)
             consume(cc.lexer, token);
             consume_expected(cc, TokenKind::LParen, lex(cc));
             token = lex(cc);
-            if (is_group(token.kind, TokenKind::GroupNumber)) {
-                try_convert_string_to_u64(
-                    cc, token.location, token.string, cc.test_mode.return_value);
+            if (!is_group(token.kind, TokenKind::GroupNumber)) {
+                parser_error(token.location, "expected number");
             }
+            try_convert_string_to_u64(cc, token.location, token.string, test_mode.return_value);
             consume(cc.lexer, token);
-            cc.test_mode.test_type = TestType::ReturnsValue;
+            test_mode.test_type = TestType::ReturnsValue;
             consume_expected(cc, TokenKind::RParen, lex(cc));
             return true;
         case hash("compare"): {
@@ -998,7 +998,7 @@ bool parse_main_attribute(Compiler &cc, Token &token, hash_t string_hash)
             };
             auto token = lex(cc);
             if (auto it = cmp_attr_map.find(token.string); it != cmp_attr_map.end()) {
-                cc.test_mode.compare_type = it->second;
+                test_mode.compare_type = it->second;
             } else {
                 parser_error(token.location, "unknown compare type. supported: ast|ir|asm");
             }
@@ -1008,7 +1008,12 @@ bool parse_main_attribute(Compiler &cc, Token &token, hash_t string_hash)
             if (!is_group(token.kind, TokenKind::GroupString)) {
                 parser_error(token.location, "expected filename");
             }
-            cc.test_mode.reference_file = *token.real_string;
+            if (cc.lexer.input_mode == InputMode::File) {
+                test_mode.reference_file
+                    = fs::path(cc.lexer.input.filename).replace_filename(*token.real_string);
+            } else {
+                test_mode.reference_file = *token.real_string;
+            }
             consume_string(cc.lexer, token);
             consume_expected(cc, TokenKind::RParen, lex(cc));
             return true;

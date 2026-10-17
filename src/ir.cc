@@ -955,8 +955,8 @@ void generate_ir(Compiler &cc, AstFunction *main)
     main->call_count = 1;
     generate_ir_impl(cc, main->body);
     // TODO: pre or post optimize_ir?
-    if (cc.test_mode.compare_type == CompareType::IR) {
-        cc.test_mode.compare_file = write_comparison_file(
+    if (test_mode.compare_type == CompareType::IR) {
+        test_mode.compare_file = write_comparison_file(
             ".ir", cc.ir_builder.current_function, [](File &f, IRFunction *i) { print_ir(f, *i); });
     }
 }

@@ -698,8 +698,8 @@ void emit_asm(Compiler &cc)
         emit_impl("str_{}: db {}, 0\n", i, string_to_nasm(string_map[i]));
     }
 
-    if (cc.test_mode.compare_type == CompareType::Asm) {
-        cc.test_mode.compare_file = write_comparison_file(
+    if (test_mode.compare_type == CompareType::Asm) {
+        test_mode.compare_file = write_comparison_file(
             ".asm", nullptr, [](File &f, void *) { f.write(write_buffer); });
     }
 

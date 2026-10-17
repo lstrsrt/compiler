@@ -1,8 +1,32 @@
 #include "compiler.hh"
 #include "frontend.hh"
+#include "testing.hh"
 
-int main(int argc, char **argv)
+#ifdef FUZZING
+#include <unistd.h>
+__AFL_FUZZ_INIT();
+#endif
+
+int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
 {
+#ifdef FUZZING
+#ifdef __AFL_HAVE_MANUAL_CONTROL
+    __AFL_INIT();
+#endif
+    opts.check_only = true;
+    opts.new_ir = true;
+    opts.ssa = false;
+    unsigned char *buf = __AFL_FUZZ_TESTCASE_BUF;
+    while (__AFL_LOOP(10000)) {
+        size_t len = __AFL_FUZZ_TESTCASE_LEN;
+        std::string src{ reinterpret_cast<const char *>(buf), len };
+        try {
+            invoke_compiler(src, InputMode::String);
+        } catch (FuzzerException &) {
+            // this is ok
+        }
+    }
+#else
     if (argc < 2) {
         usage(EXIT_FAILURE);
     }
@@ -25,7 +49,6 @@ int main(int argc, char **argv)
             die("input '{}' is not a file or directory");
         }
     } else {
-        Compiler cc;
         auto *maybe_file = arg_parser.arguments.back();
         if (!fs::exists(maybe_file)) {
             die("input '{}' not found", maybe_file);
@@ -33,18 +56,7 @@ int main(int argc, char **argv)
         if (!fs::is_regular_file(maybe_file)) {
             die("input '{}' is not a file", maybe_file);
         }
-        cc.lexer.set_input(maybe_file);
-        // Top level scope is main
-        // TODO: give main argc and argv
-#ifdef AST_USE_ARENA
-        StmtVec stmts(ast_vec_allocator());
-        VariableDecls params(ast_vec_allocator());
-#else
-        StmtVec stmts;
-        VariableDecls params;
-#endif
-        auto *main = new AstFunction("main", s32_type(), params, new AstBlock(stmts), {});
-        compiler_main(cc, main);
-        cc.cleanup(main);
+        invoke_compiler(maybe_file, InputMode::File);
     }
+#endif
 }

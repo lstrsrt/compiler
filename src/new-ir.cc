@@ -1032,6 +1032,10 @@ void generate(Compiler &cc, AstFunction *fn)
         dom::compute_dominator_tree(state, fn->blocks);
     }
 
+#ifdef FUZZING
+    name_gen.clear();
+    alloca_map.clear();
+#else
     if (opts.testing) {
         name_gen.clear();
         alloca_map.clear();
@@ -1045,10 +1049,13 @@ void generate(Compiler &cc, AstFunction *fn)
             }
         }
     }
+#endif
 
 #if defined(_DEBUG) || defined(IR_DEBUG) || defined(SSA_DEBUG)
-    std::println("\n{}generated ir:{}", colors::Cyan, colors::Default);
-    print(stdout_file(), cc.new_ir_builder, SkipUnreachable::Yes);
+    if (!opts.testing) {
+        std::println("\n{}generated ir:{}", colors::Cyan, colors::Default);
+        print(stdout_file(), cc.new_ir_builder, SkipUnreachable::Yes);
+    }
 #endif
 }
 
