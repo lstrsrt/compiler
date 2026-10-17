@@ -9,4 +9,6 @@ compile_commands.json
 /*.asm
 /*.py
 /*.txt
+/*.png
+/*.dot
 output*
