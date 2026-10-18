@@ -74,6 +74,7 @@ Ast *partial_fold_commutative(
     auto *ret = non_constants[0];
     for (size_t i = 1; i < non_constants.size(); ++i) {
         ret = new AstBinary(operation, ret, non_constants[i], ret->location);
+        ret->expr_type = binary->expr_type;
     }
     return ret;
 }
@@ -168,6 +169,7 @@ Ast *try_fold_logical_chain(
     auto *ret = chain[0];
     for (size_t i = 1; i < chain.size(); ++i) {
         ret = new AstBinary(operation, ret, chain[i], ret->location);
+        ret->expr_type = binary->expr_type;
     }
     return ret;
 }
@@ -611,7 +613,7 @@ bool is_commutative_operation(Operation op)
 
 bool exprs_identical(Ast *, Ast *, CheckSideEffects);
 
-Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *left, Ast *right, Type *expected)
+Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *&left, Ast *&right, Type *expected)
 {
     if (has_side_effects(left) || has_side_effects(right)) {
         return binary;
@@ -666,17 +668,19 @@ Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *left, Ast *right, T
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)
 {
     const auto operation = binary->operation;
-    // Figure out which parts of the expression are constant.
-    auto *left = try_constant_fold(cc, binary->left, expected, overridable);
-    auto *right = try_constant_fold(cc, binary->right, expected, overridable);
 
     // We can do some simplifications on binary ops with negation.
-    if (left->operation == Operation::Negate || right->operation == Operation::Negate) {
-        auto *ret = try_simplify_binary_with_negate(binary, left, right, expected);
+    if (binary->left->operation == Operation::Negate
+        || binary->right->operation == Operation::Negate) {
+        auto *ret = try_simplify_binary_with_negate(binary, binary->left, binary->right, expected);
         if (ret->type != AstType::Binary) {
             return ret;
         }
     }
+
+    // Figure out which parts of the expression are constant.
+    auto *left = try_constant_fold(cc, binary->left, expected, overridable);
+    auto *right = try_constant_fold(cc, binary->right, expected, overridable);
 
     bool left_is_const = left->type == AstType::Integer || left->type == AstType::Boolean;
     bool right_is_const = right->type == AstType::Integer || right->type == AstType::Boolean;
