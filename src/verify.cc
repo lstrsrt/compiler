@@ -1,7 +1,6 @@
 #include "verify.hh"
 #include "ast-fold.hh"
 #include "compiler.hh"
-#include "debug.hh"
 #include "diagnose.hh"
 #include "lexer.hh"
 #include "parser.hh"
@@ -201,6 +200,7 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
 }
 
 enum_flags(ExprConstness, uint8_t){
+    Unknown = 0,
     SAW_CONSTANT = 1 << 0,
     SAW_NON_CONSTANT = 1 << 1,
 };
@@ -272,6 +272,64 @@ void traverse_postorder(Ast *&ast, auto &&callback)
     callback(ast);
 }
 
+bool is_arithmetic_operation(Operation);
+bool is_bitwise_operation(Operation);
+
+struct BinaryOperand {
+    Ast *ast;
+    Type *type;
+    ExprConstness constness;
+};
+
+Type *merge_binary_operand_types(Compiler &cc, const std::vector<BinaryOperand> &operands)
+{
+    bool seen_non_const = false;
+    Type *ret = nullptr;
+
+    for (const auto &[ast, current, expr_constness] : operands) {
+        if (!ret) {
+            // First time, just set it to whatever we got.
+            ret = current;
+            seen_non_const = expr_has_no_constants(expr_constness);
+        } else if (!seen_non_const && expr_has_no_constants(expr_constness)) {
+            // If we got a non-constant, override the type unless it has already been overwritten.
+            seen_non_const = true;
+            ret = current;
+        } else if (type_is_const_int(current, expr_constness) && ret->is_pointer()) {
+            // Pointer arithmetic (const offset).
+            continue;
+        } else if (type_is_const_int(current, expr_constness) && ret->is_int()) {
+            ret = get_common_integer_type(current, ret);
+        } else if (types_match(ret, current) != TypeError::None) {
+            if (current == s64_type() && ret->is_pointer()) {
+                // Pointer arithmetic (non const).
+                continue;
+            }
+            verification_type_error(ast->location,
+                "incompatible types {} and {} in binary operation", to_string(ret),
+                to_string(current));
+        }
+    }
+    return ret;
+}
+
+// The AST is not actually overwritten because we want to verify the individual operands later.
+// `overridable` needs to always be Yes so the optimizer can properly determine `type`.
+//
+// All binary operands are integers.
+void fold_for_type_promotion(Compiler &cc, AstBinary *binary, Type *&type)
+{
+    if (has_flag(binary->flags, AstFlags::FOLDED)
+        || has_flag(binary->flags, AstFlags::TYPECHECK_FOLDED)) {
+        return;
+    }
+    // try_constant_fold() already recurses into the whole tree, so fold only the root. Subtrees
+    // are marked so verifying them later doesn't redo the same trial fold.
+    try_constant_fold(cc, binary, type, TypeOverridable::Yes);
+    Ast *root = binary;
+    traverse_postorder(root, [](Ast *ast) { ast->flags |= AstFlags::TYPECHECK_FOLDED; });
+}
+
 Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constness)
 {
     auto *binary = static_cast<AstBinary *>(ast);
@@ -293,49 +351,45 @@ Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constnes
             break;
     }
 
-    bool seen_non_const = false;
-    Type *current = nullptr;
-    Type *ret = nullptr;
-    std::vector<Ast *> operands;
-    flatten_binary(binary, operands);
+    std::vector<Ast *> flattened;
+    flatten_binary(binary, flattened);
 
-    for (auto *ast : operands) {
-        ExprConstness expr_constness{};
-        current = get_expression_type(cc, ast, &expr_constness);
-        constness |= expr_constness;
-        if (!ret) {
-            // First time, just set it to whatever we got.
-            ret = current;
-            seen_non_const = expr_has_no_constants(expr_constness);
-        } else if (!seen_non_const && expr_has_no_constants(expr_constness)) {
-            // If we got a non-constant, override the type unless it has already been overwritten.
-            seen_non_const = true;
-            ret = current;
-        } else if (type_is_const_int(current, expr_constness)) {
-            ret = get_common_integer_type(current, ret);
-        } else if (types_match(ret, current) != TypeError::None) {
-            if (current == s64_type() && ret->is_pointer()) {
-                // Pointer arithmetic.
-                continue;
+    std::vector<BinaryOperand> operands;
+    operands.reserve(flattened.size());
+    for (auto *ast : flattened) {
+        ExprConstness constness{};
+        auto *type = get_expression_type(cc, ast, &constness);
+        operands.emplace_back(ast, type, constness);
+    }
+
+    for (const auto &operand : operands) {
+        constness |= operand.constness;
+    }
+
+    const auto op = binary->operation;
+    if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
+        const bool allows_pointers = op == Operation::Add || op == Operation::Subtract;
+
+        for (const auto &operand : operands) {
+            auto *type = get_unaliased_type(operand.type);
+            if (type->get_kind() == TypeFlags::Void) {
+                verification_error(operand.ast, "void value used in binary operation");
             }
-            verification_type_error(ast->location,
-                "incompatible types {} and {} in binary operation", to_string(ret),
-                to_string(current));
+            if (type->is_pointer() ? !allows_pointers : !type->is_int()) {
+                verification_type_error(operand.ast->location,
+                    "invalid operand of type {} in binary operation", to_string(operand.type));
+            }
         }
     }
 
-    if (!expr_has_no_constants(constness) && !(ast->flags & AstFlags::FOLDED)) {
-        // Fold here to detect if a constant expr overflows the detected type, and warn/promote if
-        // needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead of a u32 with an
-        // overflowing add.
-        //
-        // The AST is not actually overwritten because we want to verify the individual operands
-        // later. `overridable` needs to always be Yes so the optimizer can properly determine
-        // `ret`.
-        traverse_postorder(
-            ast, [&](Ast *ast) { try_constant_fold(cc, ast, ret, TypeOverridable::Yes); });
+    auto *ret = merge_binary_operand_types(cc, operands);
+    if (get_unaliased_type(ret)->is_int() && !ret->is_pointer()
+        && !expr_has_no_constants(constness)) {
+        // Fold a copy of the expression to detect if a constant expr overflows the detected type,
+        // and promote it if needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead
+        // of a u32 with an overflowing add.
+        fold_for_type_promotion(cc, binary, ret);
     }
-
     return ret;
 }
 
@@ -383,6 +437,11 @@ Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                 (void)get_expression_type(cc, member->expr, constness);
                 if (!member->enum_decl) {
                     member->enum_decl = find_enum(member->scope, member->enum_name);
+                }
+                if (!member->enum_decl) {
+                    // TODO: this should be on the (non-existant) enum name
+                    verification_error(
+                        ast, "type `{}` is not declared in this scope", member->enum_name);
                 }
                 return member->enum_decl->enum_type;
             }
@@ -518,6 +577,7 @@ enum class AllowDiscardedReturn {
 };
 
 void verify_expr(Compiler &, Ast *&, AllowDiscardedReturn, Type *expected = nullptr);
+void verify_expr2(Compiler &, Ast *&);
 
 uint64_t max_for_type(Type *t)
 {
@@ -588,8 +648,10 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (type->pointer != wanted->pointer) {
         return TypeError::PointerMismatch;
     }
-    if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
-        return TypeError::SizeMismatch;
+    if (expr_is_fully_constant(constness) && expr->type == AstType::Integer) {
+        if (get_int_literal(expr) > max_for_type(wanted)) {
+            return TypeError::SizeMismatch;
+        }
     }
 
     bool needs_cast = false;
@@ -634,7 +696,7 @@ void verify_arg(Compiler &cc, Ast *&ast, Type *expected)
 void verify_print(Compiler &cc, Ast *ast)
 {
     auto *print = static_cast<AstCall *>(ast);
-    if (print->args.size() < 1) {
+    if (print->args.empty()) {
         verification_error(print, "print needs at least one argument");
     }
     auto *fmt = print->args[0];
@@ -765,7 +827,7 @@ void verify_call(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
             arg = static_cast<AstBinary *>(arg)->right;
         }
     }
-    if (allow_discarded == AllowDiscardedReturn::Yes && !fn->returns_void()) {
+    if (allow_discarded == AllowDiscardedReturn::No && !fn->returns_void()) {
         if (!has_flag(fn->attributes, FunctionAttributes::MAY_DISCARD)) {
             verification_error(call,
                 "discarded return value for non-void function call `{}` (function not marked with "
@@ -1109,9 +1171,6 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
     auto create_offset = [&cc, binary](Ast *&offset, Type *ptr_type, Type *offset_type,
                              ExprConstness offset_constness) {
         assert(ptr_type->is_pointer());
-        if (binary->operation != Operation::Add && binary->operation != Operation::Subtract) {
-            verification_error(binary, "pointers only support addition and subtraction");
-        }
         auto size = ptr_type->real->byte_size();
         bool is_literal = expr_is_const_integral(offset, IgnoreCasts::No);
         if (is_literal) {
@@ -1152,41 +1211,55 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
     return true;
 }
 
+void convert_expr_to_boolean(Compiler &, Ast *&, Type *);
+
 void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
 {
     auto op = binary->operation;
 
+    ExprConstness lhs_constness{};
+    ExprConstness rhs_constness{};
+    auto *lhs_type = get_expression_type(cc, binary->left, &lhs_constness);
+    auto *rhs_type = get_expression_type(cc, binary->right, &rhs_constness);
+    // TODO: figure out a diag api that does not need this stuff
+    auto *lt = lhs_type;
+    auto *rt = rhs_type;
+
     if (is_logical_operation(op)) {
-        void convert_expr_to_boolean(Compiler & cc, Ast * &expr, Type * type);
+        // This check is technically not needed but produces a better diag.
+        if (lhs_type->get_kind() == TypeFlags::Void || rhs_type->get_kind() == TypeFlags::Void) {
+            verification_type_error(lhs_type->get_kind() == TypeFlags::Void
+                    ? binary->left->location
+                    : binary->right->location,
+                "void value used in logical operation");
+        }
         ExprConstness c{};
         auto *expr = static_cast<Ast *>(binary);
         convert_expr_to_boolean(cc, expr, get_binary_expression_type(cc, binary, c));
     }
 
     if (is_arithmetic_operation(op) || is_bitwise_operation(op)) {
-        ExprConstness lhs_constness{};
-        ExprConstness rhs_constness{};
-        auto *lhs_type = get_expression_type(cc, binary->left, &lhs_constness);
-        auto *rhs_type = get_expression_type(cc, binary->right, &rhs_constness);
-
+        lhs_type = get_expression_type(cc, binary->left, &lhs_constness);
+        rhs_type = get_expression_type(cc, binary->right, &rhs_constness);
         // TODO: figure out a diag api that does not need this stuff
-        auto *lt = lhs_type;
-        auto *rt = rhs_type;
+        lt = lhs_type;
+        rt = rhs_type;
         lhs_type = get_unaliased_type(lhs_type);
         rhs_type = get_unaliased_type(rhs_type);
 
-        if (is_arithmetic_operation(op)) {
-            if (check_pointer_arithmetic(
-                    cc, binary, lhs_type, lhs_constness, rhs_type, rhs_constness)) {
-                binary->flags |= AstFlags::PTR_ARITH;
-                binary->left->flags |= AstFlags::PTR_ARITH;
-                binary->right->flags |= AstFlags::PTR_ARITH;
-                return;
-            }
-            if (!lhs_type->is_int() || !rhs_type->is_int()) {
-                verification_type_error(binary->location,
-                    "invalid operator applied to types {} and {}", to_string(lt), to_string(rt));
-            }
+        if (check_pointer_arithmetic(
+                cc, binary, lhs_type, lhs_constness, rhs_type, rhs_constness)) {
+            binary->flags |= AstFlags::PTR_ARITH;
+            binary->left->flags |= AstFlags::PTR_ARITH;
+            binary->right->flags |= AstFlags::PTR_ARITH;
+            return;
+        }
+        if (!lhs_type->is_int() || !rhs_type->is_int()) {
+            verification_type_error(binary->location, "invalid operator applied to types {} and {}",
+                to_string(lt), to_string(rt));
+        }
+
+        if (!is_bitwise_operation(op)) {
             return;
         }
 
@@ -1200,9 +1273,14 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             if (!type_is_const_int(rhs_type, rhs_constness)) {
                 return;
             }
-
-            if (get_int_literal(binary->right) > U8Max) {
-                verification_error(binary->right, "rotate count exceeds maximum of {}", U8Max);
+            binary->right = try_constant_fold(cc, binary->right, rhs_type, TypeOverridable::No);
+            if (binary->right->type != AstType::Integer) {
+                return;
+            }
+            const auto rotate_count = get_int_literal(binary->right);
+            if (rotate_count > U8Max) {
+                verification_error(
+                    binary->right, "rotate count {} exceeds maximum of {}", rotate_count, U8Max);
             }
             return;
         }
@@ -1217,16 +1295,21 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             if (!type_is_const_int(rhs_type, rhs_constness)) {
                 return;
             }
-
-            if (get_int_literal(binary->right) > U8Max) {
-                verification_error(binary->right, "shift count exceeds maximum of {}", U8Max);
+            binary->right = try_constant_fold(cc, binary->right, rhs_type, TypeOverridable::No);
+            if (binary->right->type != AstType::Integer) {
+                return;
+            }
+            const auto shift_count = get_int_literal(binary->right);
+            if (shift_count > U8Max) {
+                verification_error(
+                    binary->right, "shift count {} exceeds maximum of {}", shift_count, U8Max);
             }
             // The lhs check is here so we don't warn twice (here and again in the optimizer)
             if (!type_is_const_int(lhs_type, lhs_constness)) {
-                if (get_int_literal(binary->right) >= expected->size) {
+                if (shift_count >= expected->size) {
                     const char *shift_type = op == Operation::LeftShift ? "left" : "right";
-                    diag::ast_warning(cc, binary, "{} shift overflows expected type {}", shift_type,
-                        to_string(expected));
+                    diag::ast_warning(cc, binary, "{} shift by {} overflows expected type {}",
+                        shift_type, shift_count, to_string(expected));
                 }
             }
             return;
@@ -1870,7 +1953,7 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
         }
     }
 
-    verify_expr(cc, for_stmt->change, AllowDiscardedReturn::No);
+    verify_expr2(cc, for_stmt->change);
 
     verify_ast(cc, for_stmt->body, current_function);
 }
@@ -1895,11 +1978,11 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
     }
 
     if (for_stmt->cmp) {
-        verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::No, bool_type());
+        verify_expr2(cc, for_stmt->cmp);
     }
 
     if (for_stmt->change) {
-        verify_expr(cc, for_stmt->change, AllowDiscardedReturn::No);
+        verify_expr2(cc, for_stmt->change);
     }
 
     verify_ast(cc, for_stmt->body, current_function);
@@ -1939,9 +2022,19 @@ void verify_assign(Compiler &cc, Ast *ast)
         verify_logical_chain(cc, binary->right);
     }
     verify_expr(cc, binary->left, AllowDiscardedReturn::No);
-    verify_expr(cc, binary->right, AllowDiscardedReturn::No, expected);
+    verify_expr(cc, binary->right, AllowDiscardedReturn::Yes, expected);
     if (exprs_identical(binary->left, binary->right, CheckSideEffects::Yes)) {
         diag::ast_warning(cc, binary, "self-assignment has no effect");
+    }
+}
+
+void verify_expr2(Compiler &cc, Ast *&ast)
+{
+    if (ast->operation == Operation::Assign) {
+        verify_assign(cc, ast);
+    } else {
+        ExprConstness constness{};
+        verify_expr(cc, ast, AllowDiscardedReturn::Yes, get_expression_type(cc, ast, &constness));
     }
 }
 
@@ -1996,7 +2089,7 @@ void verify_record_decl(Compiler &cc, Ast *ast)
         record_decl->size += field->var_decl->var.type->size;
     }
 
-    record_decl->size = align_up(record_decl->size, 4z * 8);
+    record_decl->size = align_up(record_decl->size, 4Z * 8);
     record_decl->record_type->size = record_decl->size;
 }
 
@@ -2044,15 +2137,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
             verify_ast(cc, stmt, current_function);
         }
     } else {
-        if (ast->operation == Operation::Assign) {
-            verify_assign(cc, ast);
-        } else if (ast->operation == Operation::Call) {
-            verify_call(cc, ast, AllowDiscardedReturn::Yes);
-        } else {
-            ExprConstness constness{};
-            verify_expr(
-                cc, ast, AllowDiscardedReturn::Yes, get_expression_type(cc, ast, &constness));
-        }
+        verify_expr2(cc, ast);
     }
 }
 

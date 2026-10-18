@@ -103,13 +103,15 @@ inline Scope *current_scope;
 enum_flags(AstFlags, uint64_t){
     // Prevent optimizer from trying to fold this tree multiple times.
     FOLDED = 1 << 0,
+    // Prevent typechecker from trying to fold this tree multiple times.
+    TYPECHECK_FOLDED = 1 << 1,
     // Tell the typechecker that this tree can mix integers and pointers in operations.
-    PTR_ARITH = 1 << 1,
+    PTR_ARITH = 1 << 2,
     // This is a function that directly calls itself.
-    RECURSIVE = 1 << 2,
+    RECURSIVE = 1 << 3,
     // This is a function that isn't main and has nested functions inside.
     // NOTE: This is a hack for inlining.
-    HAS_NESTED_FNS = 1 << 3,
+    HAS_NESTED_FNS = 1 << 4,
 };
 
 #ifdef AST_USE_ARENA
