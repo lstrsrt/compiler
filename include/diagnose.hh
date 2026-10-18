@@ -49,9 +49,10 @@ inline void print_warning_header(Compiler &cc, SourceLocation location)
         if (!diag::did_prepare_error) {
             print_error_header(cc, location);
         }
-        std::println("{}", msg);
+        std::println(stderr, "{}", msg);
         print_line(cc.lexer.string, location);
 #ifdef _DEBUG
+        fflush(stdout);
         asm volatile("ud2");
         std::unreachable();
 #else

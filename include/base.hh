@@ -110,6 +110,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
     std::println(stderr, "\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
     // This produces a SIGILL (ud2), not a SIGTRAP because it's impossible to continue after here.
+    fflush(stdout);
     asm volatile("ud2");
 #endif
     exit(EXIT_FAILURE);
@@ -119,6 +120,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 
 inline void trap()
 {
+    fflush(stdout);
     asm volatile("int $3");
 }
 

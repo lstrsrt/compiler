@@ -21,10 +21,10 @@ void print_line(std::string_view source, SourceLocation location)
             end = location.column + std::max(rest, 1U);
         }
     }
-    std::println("{}{}", line_str,
+    std::println(stderr, "{}{}", line_str,
         get_highlighted_line(source, location.position, location.column, end));
     const std::string fill(location.column + fill_width, '~');
-    std::println("{}{}^{}", fill, Yellow, Default);
+    std::println(stderr, "{}{}^{}", fill, Yellow, Default);
 }
 
 std::string make_printable(char c)
