@@ -322,6 +322,9 @@ Ast *parse_atom(Compiler &cc, AllowVarDecl allow_var_decl)
             auto *type = find_type(current_scope, token.string);
             auto ident = parse_identifier(cc);
             if (type) {
+                if (!type->has_flag(TypeFlags::ENUM)) {
+                    parser_error(token.location, "expected an enum");
+                }
                 // Enum was already declared.
                 auto *enum_decl = type->enum_decl;
                 if (auto it = enum_decl->members->map.find(std::string(ident.string));
@@ -776,12 +779,12 @@ AstVariableDecl *parse_var_decl(Compiler &cc, AllowInitExpr allow_init_expr)
     return nullptr;
 }
 
-AstIf *parse_if(Compiler &cc, AstFunction *current_function)
+AstIf *parse_if(Compiler &cc, AstFunction *current_function, SourceLocation if_loc)
 {
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
     if (!expr) {
-        parser_error(loc, "if statement must have a condition");
+        parser_error(if_loc, "if statement must have a condition");
     }
 
     if (expr->operation == Operation::Assign) {
@@ -798,7 +801,7 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
         token = lex(cc);
         if (token.kind == TokenKind::If) {
             consume(cc.lexer, token);
-            else_ = parse_if(cc, current_function);
+            else_ = parse_if(cc, current_function, token.location);
         } else {
             else_ = parse_block(cc, current_function);
         }
@@ -807,12 +810,12 @@ AstIf *parse_if(Compiler &cc, AstFunction *current_function)
     return new AstIf(expr, body, else_, loc);
 }
 
-AstWhile *parse_while(Compiler &cc, AstFunction *current_function)
+AstWhile *parse_while(Compiler &cc, AstFunction *current_function, SourceLocation while_loc)
 {
     auto loc = cc.lexer.location();
     Ast *expr = parse_expr(cc, AllowVarDecl::No);
     if (!expr) {
-        parser_error(loc, "while statement must have a condition");
+        parser_error(while_loc, "while statement must have a condition");
     }
 
     if (expr->operation == Operation::Assign) {
@@ -967,8 +970,7 @@ FunctionAttributes parse_fn_dump_attributes(Compiler &cc)
     return attrs;
 }
 
-// The attributes here affect Compiler settings, not the main function
-bool parse_main_attribute(Compiler &cc, Token &token, hash_t string_hash)
+bool parse_global_attribute(Compiler &cc, Token &token, hash_t string_hash)
 {
     switch (string_hash) {
         case hash("error"):
@@ -1043,7 +1045,7 @@ FunctionAttributes parse_fn_attributes(Compiler &cc, bool is_main)
                 attrs |= FunctionAttributes::MAY_DISCARD;
                 break;
             default:
-                if (!is_main || !parse_main_attribute(cc, token, string_hash)) {
+                if (!is_main || !parse_global_attribute(cc, token, string_hash)) {
                     parser_error(token.location, "unknown function attribute");
                 }
         }
@@ -1206,11 +1208,11 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
     if (is_group(token.kind, TokenKind::GroupKeyword)) {
         if (token.kind == TokenKind::If) {
             consume(cc.lexer, token);
-            return parse_if(cc, current_function);
+            return parse_if(cc, current_function, token.location);
         }
         if (token.kind == TokenKind::While) {
             consume(cc.lexer, token);
-            return parse_while(cc, current_function);
+            return parse_while(cc, current_function, token.location);
         }
         if (token.kind == TokenKind::For) {
             consume(cc.lexer, token);
@@ -1261,6 +1263,9 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
                 parser_error(token.location, "`break` must be inside loop");
             }
             consume(cc.lexer, token);
+            cc.lexer.ignore_newlines = false;
+            consume_newline_or_eof(cc, lex(cc));
+            cc.lexer.ignore_newlines = true;
             return new AstBreak(token.location);
         }
         if (token.kind == TokenKind::Else) {
@@ -1275,6 +1280,10 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
             return parse_record(cc, current_function);
         }
         // `true`, `false`, `null` are handled by parse_expr
+        if (token.kind != TokenKind::True && token.kind != TokenKind::False
+            && token.kind != TokenKind::Null) {
+            parser_error(token.location, "unexpected keyword");
+        }
     } else if (is_group(token.kind, TokenKind::GroupIdentifier)) {
         auto undo = make_undo_point(cc.lexer);
         cc.lexer.ignore_newlines = false;
@@ -1305,19 +1314,16 @@ Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
     auto *maybe_expr = parse_expr(cc);
     cc.lexer.ignore_newlines = true;
     if (maybe_expr) {
-        if (maybe_expr->operation != Operation::Assign
-            && maybe_expr->operation != Operation::Call) {
-            // TODO: this is not in the right location, should be at the start of the expression
-            diag::ast_warning(cc, maybe_expr, "expression result is unused");
-            if (has_side_effects(maybe_expr)) {
-                return maybe_expr;
-            }
-            free_ast(maybe_expr);
-            return nullptr;
-        }
+        // TODO: errors/warnings here are not in the right location, should be at the start of the
+        // expression
         cc.lexer.ignore_newlines = false;
         consume_newline_or_eof(cc, lex(cc));
         cc.lexer.ignore_newlines = true;
+        if (maybe_expr->operation != Operation::Assign
+            && maybe_expr->operation != Operation::Call) {
+            diag::ast_warning(cc, maybe_expr, "expression result is unused");
+            return maybe_expr;
+        }
     }
     return maybe_expr;
 }

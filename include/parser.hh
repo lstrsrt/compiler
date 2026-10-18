@@ -641,6 +641,7 @@ struct AstContinue : Ast {
 };
 
 enum_flags(FunctionAttributes, int){
+    None,
     DUMP_AST = 1 << 0,
     DUMP_IR = 1 << 1,
     DUMP_ASM = 1 << 2,
