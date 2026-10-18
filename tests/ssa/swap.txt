@@ -1,0 +1,11 @@
+#{returns(21)}
+a := 1
+b := 2
+i := 0
+while i < 3 {
+    t := a
+    a = b
+    b = t
+    i += 1
+}
+return a * 10 + b

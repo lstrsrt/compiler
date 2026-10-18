@@ -1,0 +1,13 @@
+#{returns(231)}
+a := 1
+b := 2
+c := 3
+i := 0
+while i < 4 {
+    t := a
+    a = b
+    b = c
+    c = t
+    i += 1
+}
+return a * 100 + b * 10 + c

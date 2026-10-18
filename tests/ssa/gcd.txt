@@ -1,0 +1,10 @@
+#{returns(21)}
+fn gcd(a: s32, b: s32) -> s32 {
+    while b != 0 {
+        t := b
+        b = a % b
+        a = t
+    }
+    return a
+}
+return gcd(1071, 462)

@@ -1,0 +1,12 @@
+#{returns(150)}
+x := 0
+y := 10
+while x < 10 and y > 3 {
+    x += 1
+    if x == 5 {
+        y = 100
+        break
+    }
+    y -= 1
+}
+return x * 10 + y

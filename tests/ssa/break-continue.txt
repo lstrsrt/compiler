@@ -1,0 +1,14 @@
+#{returns(87)}
+x := 0
+y := 0
+while x < 10 {
+    y = x
+    x = x + 1
+    if x == 5 {
+        continue
+    }
+    if x == 8 {
+        break
+    }
+}
+return x * 10 + y
