@@ -3,7 +3,7 @@
 #define AST_USE_ARENA
 
 #ifdef AST_USE_ARENA
-#include "arena-alloc/arena_alloc.h"
+#include "chunked-arena.hh"
 #endif
 
 #include "base.hh"
@@ -112,21 +112,16 @@ enum_flags(AstFlags, uint64_t){
     HAS_NESTED_FNS = 1 << 3,
 };
 
-constexpr uint64_t KiB(uint64_t bytes)
-{
-    return bytes * 1024;
-}
-
 #ifdef AST_USE_ARENA
 inline auto *ast_arena()
 {
-    static arena::Arena arena(KiB(1024), ARENA_FL_GROW);
+    static ChunkedArena arena(KiB(1024));
     return &arena;
 }
 
 inline auto &ast_vec_allocator()
 {
-    static arena::ArenaAllocator<void> allocator(ast_arena());
+    static ChunkedArenaAllocator<void> allocator(ast_arena());
     return allocator;
 }
 #endif
@@ -467,7 +462,7 @@ struct AstCast : AstUnary {
 struct AstFunction;
 
 #ifdef AST_USE_ARENA
-using FunctionArgs = std::vector<Ast *, arena::ArenaAllocator<Ast *>>;
+using FunctionArgs = std::vector<Ast *, ChunkedArenaAllocator<Ast *>>;
 #else
 using FunctionArgs = std::vector<Ast *>;
 #endif
@@ -559,7 +554,7 @@ struct AstVariableDecl : Ast {
 };
 
 #ifdef AST_USE_ARENA
-using StmtVec = std::vector<Ast *, arena::ArenaAllocator<Ast *>>;
+using StmtVec = std::vector<Ast *, ChunkedArenaAllocator<Ast *>>;
 #else
 using StmtVec = std::vector<Ast *>;
 #endif
@@ -650,7 +645,7 @@ enum_flags(FunctionAttributes, int){
 };
 
 #ifdef AST_USE_ARENA
-using VariableDecls = std::vector<AstVariableDecl *, arena::ArenaAllocator<AstVariableDecl *>>;
+using VariableDecls = std::vector<AstVariableDecl *, ChunkedArenaAllocator<AstVariableDecl *>>;
 #else
 using VariableDecls = std::vector<AstVariableDecl *>;
 #endif

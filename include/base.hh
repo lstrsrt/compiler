@@ -97,6 +97,16 @@ struct Timer {
 
 struct FuzzerException { };
 
+constexpr uint64_t KiB(uint64_t bytes)
+{
+    return bytes * 1024;
+}
+
+constexpr uint64_t MiB(uint64_t bytes)
+{
+    return KiB(bytes) * 1024;
+}
+
 constexpr size_t align_up(size_t value, size_t alignment)
 {
     return (value + (alignment - 1)) & ~(alignment - 1);

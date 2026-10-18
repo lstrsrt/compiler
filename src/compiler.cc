@@ -19,7 +19,7 @@ void invoke_compiler(const std::string &string, InputMode mode)
     }
 
 #ifdef AST_USE_ARENA
-    arena::ArenaAllocator<void> allocator(ast_arena());
+    ChunkedArenaAllocator<void *> allocator(ast_arena());
     StmtVec stmts(allocator);
     VariableDecls params(allocator);
 #else
