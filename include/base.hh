@@ -107,7 +107,7 @@ constexpr size_t align_up(size_t value, size_t alignment)
 #ifdef FUZZING
     throw FuzzerException();
 #endif
-    std::println("\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
+    std::println(stderr, "\n{}TODO ({}:{}){}: {}", colors::Red, file, line, colors::Default, func);
 #ifdef _DEBUG
     // This produces a SIGILL (ud2), not a SIGTRAP because it's impossible to continue after here.
     asm volatile("ud2");
@@ -125,12 +125,12 @@ inline void trap()
 template<typename... Args>
 [[noreturn]] void die(std::string_view msg, Args &&...args)
 {
-    std::print("{}error:{} ", colors::Red, colors::Default);
+    std::print(stderr, "{}error:{} ", colors::Red, colors::Default);
     if constexpr (sizeof...(args)) {
-        std::println(
-            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+        std::println(stderr, "{}",
+            std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
     } else {
-        std::println("{}", msg);
+        std::println(stderr, "{}", msg);
     }
 #ifdef _DEBUG
     trap();
@@ -142,12 +142,12 @@ template<typename... Args>
 [[noreturn]] void internal_error(std::string_view msg, const Args &...args)
 {
     cpptrace::generate_trace().print();
-    std::print("{}internal error:{} ", colors::Red, colors::Default);
+    std::print(stderr, "{}internal error:{} ", colors::Red, colors::Default);
     if constexpr (sizeof...(args)) {
-        std::println(
-            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+        std::println(stderr, "{}",
+            std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
     } else {
-        std::println("{}", msg);
+        std::println(stderr, "{}", msg);
     }
 #ifdef _DEBUG
     trap();
@@ -158,12 +158,12 @@ template<typename... Args>
 template<typename... Args>
 void print_error(std::string_view msg, Args &&...args)
 {
-    std::print("{}error:{} ", colors::Red, colors::Default);
+    std::print(stderr, "{}error:{} ", colors::Red, colors::Default);
     if constexpr (sizeof...(args)) {
-        std::println(
-            "{}", std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
+        std::println(stderr, "{}",
+            std::vformat(msg, std::make_format_args(std::forward<decltype(args)>(args)...)));
     } else {
-        std::println("{}", msg);
+        std::println(stderr, "{}", msg);
     }
 }
 

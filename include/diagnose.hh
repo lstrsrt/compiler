@@ -25,13 +25,13 @@ std::string make_printable(char);
 
 inline void print_error_header(Compiler &cc, SourceLocation location)
 {
-    std::println("{}error:{} {}({},{}):", colors::Red + colors::Bold, colors::Default,
+    std::println(stderr, "{}error:{} {}({},{}):", colors::Red + colors::Bold, colors::Default,
         cc.lexer.input.filename, location.line, location.column + 1);
 }
 
 inline void print_warning_header(Compiler &cc, SourceLocation location)
 {
-    std::println("{}warning:{} {}({},{}):", colors::Yellow + colors::Bold, colors::Default,
+    std::println(stderr, "{}warning:{} {}({},{}):", colors::Yellow + colors::Bold, colors::Default,
         cc.lexer.input.filename, location.line, location.column + 1);
 }
 
@@ -88,7 +88,7 @@ void warning_at(Compiler &cc, SourceLocation location, std::string_view fmt, aut
     }
     const auto msg
         = std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...));
-    std::println("{}", msg);
+    std::println(stderr, "{}", msg);
     print_line(cc.lexer.string, location);
 }
 
@@ -102,7 +102,7 @@ void prepare_error(Compiler &cc, SourceLocation location, std::string_view fmt, 
     diag::did_prepare_error = true;
     if (!opts.testing) {
         print_error_header(cc, location);
-        std::println("{}",
+        std::println(stderr, "{}",
             std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...)));
     }
 }
@@ -112,7 +112,7 @@ void prepare_warning(Compiler &cc, SourceLocation location, std::string_view fmt
     diag::did_prepare_last_warning = true;
     if (!opts.testing) {
         print_warning_header(cc, location);
-        std::println("{}",
+        std::println(stderr, "{}",
             std::vformat(fmt, std::make_format_args(std::forward<decltype((args))>(args)...)));
     }
 }
