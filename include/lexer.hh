@@ -149,7 +149,7 @@ struct Lexer;
 struct SourceLocation {
     uint32_t line;
     uint32_t column;
-    uint32_t end;      // End column.
+    uint32_t end;      // End column. For a multi line string this is on the line the string ends.
     uint32_t position; // This is the actual offset in the file, equivalent to
                        // Lexer::position.
 
@@ -166,6 +166,11 @@ inline bool is_group(TokenKind kind, TokenKind cmp)
     return get_group(kind) == cmp;
 }
 
+enum_flags(TokenFlags, int){
+    NONE = 0,
+    MULTILINE_STRING = 1 << 0,
+};
+
 struct Token {
     explicit constexpr Token(TokenKind _kind, SourceLocation _location)
         : kind(_kind)
@@ -180,10 +185,12 @@ struct Token {
     {
     }
 
-    explicit constexpr Token(std::string *_string, size_t _length, SourceLocation _location)
+    explicit constexpr Token(
+        std::string _string, size_t _length, bool multi_line, SourceLocation _location)
         : kind(TokenKind::GroupString)
         , location(_location)
-        , real_string(_string)
+        , flags(multi_line ? TokenFlags::MULTILINE_STRING : TokenFlags(0))
+        , real_string(std::move(_string))
         , real_length(_length)
     {
     }
@@ -204,9 +211,9 @@ struct Token {
     }
 
     static constexpr Token make_string(
-        std::string *_string, size_t length, SourceLocation _location)
+        std::string _string, size_t length, bool multi_line, SourceLocation _location)
     {
-        return Token(_string, length, _location);
+        return Token(std::move(_string), length, multi_line, _location);
     }
 
     static constexpr Token make_operator(
@@ -229,9 +236,10 @@ struct Token {
     std::string_view string; // use for AstIdentifier?
     TokenKind kind = TokenKind::GroupEmpty;
     SourceLocation location{};
+    TokenFlags flags = TokenFlags::NONE;
 
     // For strings
-    std::string *real_string = nullptr;
+    std::string real_string;
     size_t real_length{};
 };
 
@@ -302,10 +310,10 @@ inline void advance_column(Lexer &lexer, size_t count = 1)
     lexer.column += count;
 }
 
-inline void advance_line(Lexer &lexer, size_t count = 1)
+inline void advance_line(Lexer &lexer)
 {
-    lexer.line += count;
-    lexer.position += count;
+    ++lexer.line;
+    lexer.position += (lexer.get() == '\r') ? 2 : 1;
     lexer.column = 0;
 }
 

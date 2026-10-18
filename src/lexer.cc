@@ -190,69 +190,68 @@ const char *lex_operator_impl(Compiler &cc, TokenKind &kind)
             kind = DotDot;
             return "..";
         }
-    } else {
-        switch (c) {
-            case '+':
-                kind = Plus;
-                return "+";
-            case '-':
-                kind = Minus;
-                return "-";
-            case '*':
-                kind = Star;
-                return "*";
-            case '/':
-                kind = Slash;
-                return "/";
-            case '%':
-                kind = Percent;
-                return "%";
-            case '(':
-                kind = LParen;
-                return "(";
-            case ')':
-                kind = RParen;
-                return ")";
-            case '{':
-                kind = LBrace;
-                return "{";
-            case '}':
-                kind = RBrace;
-                return "}";
-            case '<':
-                kind = LAngle;
-                return "<";
-            case '>':
-                kind = RAngle;
-                return ">";
-            case ',':
-                kind = Comma;
-                return ",";
-            case '=':
-                kind = Equals;
-                return "=";
-            case '!':
-                kind = Excl;
-                return "!";
-            case ':':
-                kind = Colon;
-                return ":";
-            case '#':
-                kind = Hash;
-                return "#";
-            case '&':
-                kind = Ampersand;
-                return "&";
-            case '|':
-                kind = Bar;
-                return "|";
-            case '^':
-                kind = Caret;
-                return "^";
-            case '~':
-                kind = Tilde;
-                return "~";
-        }
+    }
+    switch (c) {
+        case '+':
+            kind = Plus;
+            return "+";
+        case '-':
+            kind = Minus;
+            return "-";
+        case '*':
+            kind = Star;
+            return "*";
+        case '/':
+            kind = Slash;
+            return "/";
+        case '%':
+            kind = Percent;
+            return "%";
+        case '(':
+            kind = LParen;
+            return "(";
+        case ')':
+            kind = RParen;
+            return ")";
+        case '{':
+            kind = LBrace;
+            return "{";
+        case '}':
+            kind = RBrace;
+            return "}";
+        case '<':
+            kind = LAngle;
+            return "<";
+        case '>':
+            kind = RAngle;
+            return ">";
+        case ',':
+            kind = Comma;
+            return ",";
+        case '=':
+            kind = Equals;
+            return "=";
+        case '!':
+            kind = Excl;
+            return "!";
+        case ':':
+            kind = Colon;
+            return ":";
+        case '#':
+            kind = Hash;
+            return "#";
+        case '&':
+            kind = Ampersand;
+            return "&";
+        case '|':
+            kind = Bar;
+            return "|";
+        case '^':
+            kind = Caret;
+            return "^";
+        case '~':
+            kind = Tilde;
+            return "~";
     }
     auto location = lexer.location();
     location.end += lexer.count_while(is_graph);
@@ -302,18 +301,25 @@ TokenKind get_keyword_or_identifier_kind(std::string_view str)
 
 enum class Utf8Result {
     Invalid,
-    OneByte,
-    TwoBytes,
-    ThreeBytes,
-    FourBytes,
+    Valid,
     End,
 };
 
-Utf8Result lex_utf8_char(const Lexer &lexer, size_t offset)
+Utf8Result lex_utf8_char(const Lexer &lexer, size_t offset, int *cp)
 {
+    if (lexer.out_of_bounds(offset)) {
+        *cp = 0;
+        return Utf8Result::End;
+    }
+    // Invalid characters are always skipped one byte at a time.
+    *cp = 1;
     const char c = lexer.get(offset);
     if (is_ascii(static_cast<unsigned char>(c))) [[likely]] {
-        return Utf8Result::OneByte;
+        // Control characters are only allowed as whitespace.
+        if (is_control_char(c) && !is_space(c) && c != '\n' && c != '\r') {
+            return Utf8Result::Invalid;
+        }
+        return Utf8Result::Valid;
     }
 
     const auto uc = static_cast<uint8_t>(c);
@@ -321,28 +327,32 @@ Utf8Result lex_utf8_char(const Lexer &lexer, size_t offset)
     const auto uc3 = static_cast<uint8_t>(lexer.get(offset + 2));
     const auto uc4 = static_cast<uint8_t>(lexer.get(offset + 3));
     if (uc >= 0xc2 && uc <= 0xdf && uc2 >= 0x80 && uc2 <= 0xbf) {
-        return Utf8Result::TwoBytes;
+        *cp = 2;
+        return Utf8Result::Valid;
     }
     if ((uc3 >= 0x80 && uc3 <= 0xbf)
         && ((uc == 0xe0 && uc2 >= 0xa0 && uc2 <= 0xbf)
             || (uc >= 0xe1 && uc <= 0xec && uc2 >= 0x80 && uc2 <= 0xbf)
             || (uc == 0xed && uc2 >= 0x80 && uc2 <= 0x9f)
             || ((uc == 0xee || uc == 0xef) && uc2 >= 0x80 && uc2 <= 0xbf))) {
-        return Utf8Result::ThreeBytes;
+        *cp = 3;
+        return Utf8Result::Valid;
     }
     if ((uc4 >= 0x80 && uc4 <= 0xbf && uc3 >= 0x80 && uc3 <= 0xbf)
         && ((uc == 0xf0 && uc2 >= 0x90 && uc2 <= 0xbf)
             || (uc >= 0xf1 && uc <= 0xf3 && uc2 >= 0x80 && uc2 <= 0xbf)
             || (uc == 0xf4 && uc2 >= 0x80 && uc2 <= 0x8f))) {
-        return Utf8Result::FourBytes;
+        *cp = 4;
+        return Utf8Result::Valid;
     }
     return Utf8Result::Invalid;
 }
 
-Utf8Result lex_utf8_identifier_char(Compiler &cc, size_t offset)
+Utf8Result lex_utf8_identifier_char(Compiler &cc, size_t offset, int *cp)
 {
-    const auto ret = lex_utf8_char(cc.lexer, offset);
-    if (ret == Utf8Result::OneByte && !is_valid_char_in_identifier(cc.lexer.get(offset))) {
+    const auto ret = lex_utf8_char(cc.lexer, offset, cp);
+    if (ret == Utf8Result::Valid && *cp == 1
+        && !is_valid_char_in_identifier(cc.lexer.get(offset))) {
         return Utf8Result::End;
     }
     return ret;
@@ -351,101 +361,129 @@ Utf8Result lex_utf8_identifier_char(Compiler &cc, size_t offset)
 Token lex_string(Compiler &cc)
 {
     Lexer &lexer = cc.lexer;
-    auto loc = lexer.location();
-    auto *str = new std::string;
-    bool new_line = false;
-    bool multi_line = lexer.get(1) == '"' && lexer.get(2) == '"';
-    for (size_t i = multi_line ? 3 : 1; (multi_line || !new_line) && !lexer.out_of_bounds(i); ++i) {
-        char c = lexer.get(i);
-        switch (lex_utf8_char(lexer, i)) {
+    const auto loc = lexer.location();
+    std::string str;
+    const bool multi_line = lexer.get(1) == '"' && lexer.get(2) == '"';
+    // Offset of the first character after the last new line inside a multi line string.
+    std::optional<size_t> line_start;
+
+    uint32_t line = loc.line;
+
+    const auto location_at = [&](size_t offset, size_t length) {
+        auto ret = loc;
+        ret.line = line;
+        if (line_start) {
+            ret.column = static_cast<uint32_t>(offset - *line_start);
+        } else {
+            ret.column += static_cast<uint32_t>(offset);
+        }
+        ret.end = ret.column + static_cast<uint32_t>(length);
+        ret.position += static_cast<uint32_t>(offset);
+        return ret;
+    };
+
+    for (size_t i = multi_line ? 3 : 1; !lexer.out_of_bounds(i); ++i) {
+        const char c = lexer.get(i);
+        int cp;
+        switch (lex_utf8_char(lexer, i, &cp)) {
             case Utf8Result::Invalid:
-                diag::warning_at(cc, loc, "invalid character `{}`", diag::make_printable(c));
-                break;
-            case Utf8Result::OneByte:
+                diag::lexer_error(
+                    cc, location_at(i, 1), "invalid character `{}`", diag::make_printable(c));
+            case Utf8Result::Valid:
+                if (cp > 1) {
+                    str.append(lexer.string.substr(lexer.position + i, cp));
+                    i += cp - 1;
+                    continue;
+                }
                 if (c == '\\') {
-                    switch (lexer.get(i + 1)) {
+                    const char c2 = lexer.get(i + 1);
+                    switch (c2) {
                         case '0':
-                            str->push_back('\0');
+                            str.push_back('\0');
                             break;
                         case 'a':
-                            str->push_back('\a');
+                            str.push_back('\a');
                             break;
                         case 'b':
-                            str->push_back('\b');
-                            break;
-                        case 'e':
-                            str->push_back('\e');
+                            str.push_back('\b');
                             break;
                         case 'f':
-                            str->push_back('\f');
+                            str.push_back('\f');
                             break;
                         case 'n':
-                            str->push_back('\n');
+                            str.push_back('\n');
                             break;
                         case 'r':
-                            str->push_back('\r');
+                            str.push_back('\r');
                             break;
                         case 't':
-                            str->push_back('\t');
+                            str.push_back('\t');
                             break;
                         case 'v':
-                            str->push_back('\v');
-                            break;
-                        case 'x':
-                            str->append("\\x");
+                            str.push_back('\v');
                             break;
                         case '\\':
-                            str->push_back('\\');
+                            str.push_back('\\');
                             break;
                         case '"':
-                            str->push_back('\"');
+                            str.push_back('\"');
                             break;
+                        case '\r':
+                        case '\n':
+                        case '\0':
+                            // Don't swallow the new line (or the end of the file), let the next
+                            // iteration deal with it.
+                            str.push_back('\\');
+                            continue;
                         default: {
-                            loc.column += i;
-                            const auto seq
-                                = diag::make_printable(std::string("\\") + lexer.get(i + 1));
-                            loc.end = loc.column + seq.size();
-                            diag::warning_at(cc, loc, "unknown escape sequence `{}`", seq);
-                            str->push_back(lexer.get(i + 1));
+                            const auto seq = diag::make_printable(std::string("\\") + c2);
+                            diag::warning_at(cc, location_at(i, seq.size()),
+                                "unknown escape sequence `{}`", seq);
+                            str.push_back('\\');
+                            str.push_back(c2);
                         }
                     }
                     ++i;
                     continue;
-                } else if (c == '"') {
-                    if (!multi_line || (lexer.get(i + 1) == '"' && lexer.get(i + 2) == '"')) {
-                        const auto len = multi_line ? i + 3 : i + 1;
-                        return Token::make_string(str, len, SourceLocation::with_lexer(lexer, len));
-                    }
-                } else if (c == '\r' || c == '\n') {
-                    new_line = true;
-                } else {
-                    str->push_back(c);
                 }
-                break;
-            case Utf8Result::TwoBytes:
-                str->push_back(c);
-                str->push_back(lexer.get(i + 1));
-                i++;
-                break;
-            case Utf8Result::ThreeBytes:
-                str->push_back(c);
-                str->push_back(lexer.get(i + 1));
-                str->push_back(lexer.get(i + 2));
-                i += 2;
-                break;
-            case Utf8Result::FourBytes:
-                str->push_back(c);
-                str->push_back(lexer.get(i + 1));
-                str->push_back(lexer.get(i + 2));
-                str->push_back(lexer.get(i + 3));
-                i += 3;
+                if (c == '"') {
+                    if (!multi_line) {
+                        const auto length = i + 1;
+                        return Token::make_string(std::move(str), length, false,
+                            SourceLocation::with_lexer(lexer, static_cast<uint32_t>(length)));
+                    }
+                    if (lexer.get(i + 1) == '"' && lexer.get(i + 2) == '"') {
+                        const auto length = i + 3;
+                        auto str_loc
+                            = SourceLocation::with_lexer(lexer, static_cast<uint32_t>(length));
+                        if (line_start) {
+                            str_loc.end = static_cast<uint32_t>(length - *line_start);
+                        }
+                        return Token::make_string(std::move(str), length, true, str_loc);
+                    }
+                    str.push_back(c);
+                } else if (c == '\r' || c == '\n') {
+                    if (!multi_line) {
+                        break;
+                    }
+                    if (c == '\r' && lexer.get(i + 1) == '\n') {
+                        ++i;
+                    }
+                    str.push_back('\n');
+                    line_start = i + 1;
+                    ++line;
+                } else {
+                    str.push_back(c);
+                }
                 break;
             case Utf8Result::End:
                 std::unreachable();
         }
+        if (!multi_line && (c == '\r' || c == '\n')) {
+            break;
+        }
     }
-    diag::error_at(cc, loc, ErrorType::Lexer, "unterminated string starting at ({},{})", loc.line,
-        loc.column + 1);
+    diag::lexer_error(cc, loc, "unterminated string starting at ({},{})", loc.line, loc.column + 1);
 }
 
 void skip_whitespace(Lexer &lexer)
@@ -541,15 +579,15 @@ void expect(Compiler &cc, const std::string &exp, const Token &tk)
 {
     if (tk.string != exp) {
         diag::lexer_error(cc, tk.location, "expected `{}`, got `{}`", diag::make_printable(exp),
-            diag::make_printable(tk.string));
+            diag::make_printable(tk));
     }
 }
 
 void expect(Compiler &cc, TokenKind kind, const Token &tk)
 {
     if (tk.kind != kind) {
-        diag::lexer_error(cc, tk.location, "expected `{}`, got `{}`", to_string(kind),
-            diag::make_printable(tk.string));
+        diag::lexer_error(
+            cc, tk.location, "expected `{}`, got `{}`", to_string(kind), diag::make_printable(tk));
     }
 }
 
@@ -569,13 +607,11 @@ void consume_newline_or_eof(Compiler &cc, const Token &tk)
 {
     if (is_group(tk.kind, TokenKind::GroupNewline)) {
         advance_line(cc.lexer);
-    } else if (is_group(tk.kind, TokenKind::GroupEmpty)) {
-        consume(cc.lexer, tk);
-    } else {
+    } else if (!is_group(tk.kind, TokenKind::GroupEmpty)) {
         diag::lexer_error(cc, tk.location,
             "expected `<new line>`, got `{}`.\n"
             "only one statement per line is allowed.",
-            diag::make_printable(tk.string));
+            diag::make_printable(tk));
     }
     assert(cc.lexer.cached_token.has_value());
     cc.lexer.cached_token = {};
@@ -619,31 +655,24 @@ Token lex_utf8_identifier(Compiler &cc)
 {
     auto &lexer = cc.lexer;
     const auto start = lexer.position;
-    size_t cp = 0;
+    size_t cp_total = 0;
     const auto count = [&] {
         size_t i = 0;
         for (;;) {
-            switch (lex_utf8_identifier_char(cc, cp)) {
-                case Utf8Result::Invalid:
-                    diag::lexer_error(
-                        cc, "invalid character `{}`", diag::make_printable(lexer.get(cp)));
-                    break;
-                case Utf8Result::OneByte:
-                    cp++;
+            int cp = 0;
+            switch (lex_utf8_identifier_char(cc, cp_total, &cp)) {
+                case Utf8Result::Valid: {
+                    cp_total += cp;
                     i++;
-                    break;
-                case Utf8Result::TwoBytes:
-                    cp += 2;
-                    i++;
-                    break;
-                case Utf8Result::ThreeBytes:
-                    cp += 3;
-                    i++;
-                    break;
-                case Utf8Result::FourBytes:
-                    cp += 4;
-                    i++;
-                    break;
+                } break;
+                case Utf8Result::Invalid: {
+                    auto loc
+                        = SourceLocation::with_lexer(lexer, static_cast<uint32_t>(cp_total + 1));
+                    loc.column += static_cast<uint32_t>(cp_total);
+                    loc.position += static_cast<uint32_t>(cp_total);
+                    diag::lexer_error(cc, loc, "invalid character `{}`",
+                        diag::make_printable(lexer.get(cp_total)));
+                }
                 case Utf8Result::End:
                     return i;
             }
@@ -654,11 +683,11 @@ Token lex_utf8_identifier(Compiler &cc)
         diag::lexer_error(cc, SourceLocation::with_lexer(lexer, 1), "invalid identifier");
     }
     if (count > MaxIdentifierLength) {
-        diag::lexer_error(cc, SourceLocation::with_lexer(lexer, cp),
+        diag::lexer_error(cc, SourceLocation::with_lexer(lexer, cp_total),
             "identifier is {} chars long, which exceeds the maximum allowed length of {}", count,
             MaxIdentifierLength);
     }
-    const auto str = lexer.string.substr(start, cp);
+    const auto str = lexer.string.substr(start, cp_total);
     const auto kind = get_keyword_or_identifier_kind(str);
     if (kind == TokenKind::GroupIdentifier) {
         return Token::make_identifier(
@@ -676,6 +705,7 @@ Token lex_impl(Compiler &cc)
     skip_comments(cc);
 
     if (lexer.out_of_bounds()) {
+        // TODO: warn if last char is not \n on linux (posix demands eol)
         auto position = lexer.string.size() - 1;
         auto last_line = get_line(lexer.string, position);
         auto end = last_line.size() + 1;
@@ -729,7 +759,23 @@ void consume(Lexer &lexer, const Token &tk)
 void consume_string(Lexer &lexer, const Token &tk)
 {
     assert(is_group(tk.kind, TokenKind::GroupString));
-    advance_column(lexer, tk.real_length);
+    if (has_flag(tk.flags, TokenFlags::MULTILINE_STRING)) {
+        size_t off = 0;
+        size_t new_lines = 0;
+        auto section = lexer.string.substr(lexer.position, tk.real_length);
+        while ((off = section.find('\n', off + 1)) != std::string_view::npos) {
+            new_lines++;
+        }
+        lexer.line += new_lines;
+        if (new_lines == 0) {
+            advance_column(lexer, tk.real_length);
+        } else {
+            lexer.column = tk.location.end;
+            lexer.position += tk.real_length;
+        }
+    } else {
+        advance_column(lexer, tk.real_length);
+    }
     assert(lexer.cached_token.has_value());
     lexer.cached_token = {};
 }
@@ -755,6 +801,7 @@ void undo_lex(Lexer &lexer, Lexer::UndoState undo_state)
 void Lexer::set_input_from_string(const std::string &string)
 {
     this->string = string;
+    input_mode = InputMode::String;
 }
 
 void Lexer::set_input_from_file(const std::string &filename)
@@ -763,6 +810,7 @@ void Lexer::set_input_from_file(const std::string &filename)
         die("unable to open or read input file '{}'", filename);
     }
     string = input.view();
+    input_mode = InputMode::File;
 }
 
 void Lexer::free_input()

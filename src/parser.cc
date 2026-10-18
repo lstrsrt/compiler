@@ -267,7 +267,7 @@ AstLiteral *parse_integer(Compiler &cc, const Token &token)
 Ast *parse_string(Compiler &cc, const Token &token)
 {
     consume_string(cc.lexer, token);
-    return new AstString(*token.real_string, token.location);
+    return new AstString(token.real_string, token.location);
 }
 
 Token parse_identifier(Compiler &cc)
@@ -275,7 +275,7 @@ Token parse_identifier(Compiler &cc)
     auto token = lex(cc);
     if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
         parser_error(
-            token.location, "expected an identifier, got `{}`", diag::make_printable(token.string));
+            token.location, "expected an identifier, got `{}`", diag::make_printable(token));
     }
     consume(cc.lexer, token);
     return token;
@@ -852,8 +852,7 @@ AstFor *parse_for_in(Compiler &cc, AstFunction *current_function, Token &token, 
     } else if (token.kind == TokenKind::Equals) {
         operation = Operation::LessEquals;
     } else [[unlikely]] {
-        parser_error(
-            token.location, "expected `<` or `=`, got `{}`", diag::make_printable(token.string));
+        parser_error(token.location, "expected `<` or `=`, got `{}`", diag::make_printable(token));
     }
     consume(cc.lexer, token);
     auto *end = parse_expr(cc);
@@ -1010,9 +1009,9 @@ bool parse_main_attribute(Compiler &cc, Token &token, hash_t string_hash)
             }
             if (cc.lexer.input_mode == InputMode::File) {
                 test_mode.reference_file
-                    = fs::path(cc.lexer.input.filename).replace_filename(*token.real_string);
+                    = fs::path(cc.lexer.input.filename).replace_filename(token.real_string);
             } else {
-                test_mode.reference_file = *token.real_string;
+                test_mode.reference_file = token.real_string;
             }
             consume_string(cc.lexer, token);
             consume_expected(cc, TokenKind::RParen, lex(cc));
@@ -1111,8 +1110,8 @@ Ast *parse_enum(Compiler &cc)
             return enum_decl;
         }
         if (!is_group(token.kind, TokenKind::GroupIdentifier)) {
-            parser_error(token.location, "expected an identifier, got `{}`",
-                diag::make_printable(token.string));
+            parser_error(
+                token.location, "expected an identifier, got `{}`", diag::make_printable(token));
         }
         auto name = token.string;
         auto location = token.location;

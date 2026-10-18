@@ -22,6 +22,7 @@ inline bool did_prepare_last_warning = false;
 void print_line(std::string_view source, SourceLocation);
 std::string make_printable(std::string_view);
 std::string make_printable(char);
+std::string make_printable(const Token &);
 
 inline void print_error_header(Compiler &cc, SourceLocation location)
 {
