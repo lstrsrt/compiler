@@ -1,8 +1,8 @@
-#include "compiler.hh"
 #include "new-ir.hh"
 #include "parser.hh"
 
 #include <ranges>
+#include <unordered_set>
 
 namespace new_ir::ssa {
 
@@ -11,6 +11,8 @@ struct IncompletePhi {
     PhiInst *phi;
     InstType type;
 };
+
+// TODO: these globals need to go
 
 static std::vector<SSAInst *> ssa_transforms;
 static std::unordered_map<Inst *, size_t> ssa_reads;
@@ -36,6 +38,14 @@ PhiInst *generate_phi(Function *fn, BasicBlock *bb, InstType type, const std::st
     return phi;
 }
 
+Inst *make_undef(Function *fn, InstType type)
+{
+    auto *undef = new Inst(Operation::None, InstKind::Undef, type, name_gen[fn].get("undef"));
+    // Put these at the function start.
+    insertion_sets[fn->blocks[0]].insert_before(0UZ, undef);
+    return undef;
+}
+
 Inst *try_remove_trivial_phi(Function *fn, Inst *phi)
 {
     Inst *same = nullptr;
@@ -52,7 +62,7 @@ Inst *try_remove_trivial_phi(Function *fn, Inst *phi)
 
     ssa_dbgln("***** {} trivial (always {})", phi->name, same ? same->name : "undef");
     if (!same) {
-        same = new Inst(Operation::None, InstKind::Undef, phi->type, name_gen[fn].get("undef"));
+        same = make_undef(fn, phi->type);
     }
 
     phi->transform_to_identity(same, name_gen[fn].get("id"));
@@ -98,7 +108,7 @@ Inst *read_variable_recursive(
         value = complete_phi(fn, key, reachable_preds, phi, inst_type);
         ssa_dbgln("read_variable inserting phi @ bb{}", bb->index_in_fn);
     } else {
-        value = new Inst(Operation::None, InstKind::Undef, key->type, name_gen[fn].get("undef"));
+        value = make_undef(fn, inst_type);
         ssa_dbgln("reachable_preds empty for sealed blk {}", bb->index_in_fn);
     }
 
@@ -193,6 +203,7 @@ void enter(IRBuilder &irb)
         incomplete_phis.clear();
         insertion_sets.execute_all();
     }
+    current_def.clear();
 }
 
 void elide_assignments(IRBuilder &irb)
@@ -304,7 +315,7 @@ void split_critical_edge(Function *fn, BasicBlock *from, BasicBlock *to)
         }
     }
     if (!split) {
-        dbgln("{0}: skipping for {1} to {2} because {2} has no phi insts", __func__, from->name,
+        ssa_dbgln("{0}: skipping for {1} to {2} because {2} has no phi insts", __func__, from->name,
             to->name);
         return;
     }
