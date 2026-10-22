@@ -732,6 +732,33 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
     return binary;
 }
 
+Ast *copy_expr_for_fold(Ast *ast)
+{
+    switch (ast->type) {
+        case AstType::Integer:
+        case AstType::Boolean:
+            return new AstLiteral(*static_cast<AstLiteral *>(ast));
+        case AstType::Binary: {
+            auto *copy = new AstBinary(*static_cast<AstBinary *>(ast));
+            copy->left = copy_expr_for_fold(copy->left);
+            copy->right = copy_expr_for_fold(copy->right);
+            return copy;
+        }
+        case AstType::Unary: {
+            if (ast->operation == Operation::Call) {
+                return ast;
+            }
+            AstUnary *copy = ast->operation == Operation::Cast
+                ? new AstCast(*static_cast<AstCast *>(ast))
+                : new AstUnary(*static_cast<AstUnary *>(ast));
+            copy->operand = copy_expr_for_fold(copy->operand);
+            return copy;
+        }
+        default:
+            return ast;
+    }
+}
+
 Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable overridable)
 {
     if (!ast) {

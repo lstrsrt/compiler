@@ -313,21 +313,34 @@ Type *merge_binary_operand_types(Compiler &cc, const std::vector<BinaryOperand> 
     return ret;
 }
 
+void mark_typecheck_folded(Ast *ast)
+{
+    if (ast->type != AstType::Binary) {
+        return;
+    }
+    ast->flags |= AstFlags::TYPECHECK_FOLDED;
+    mark_typecheck_folded(static_cast<AstBinary *>(ast)->left);
+    mark_typecheck_folded(static_cast<AstBinary *>(ast)->right);
+}
+
 // The AST is not actually overwritten because we want to verify the individual operands later.
 // `overridable` needs to always be Yes so the optimizer can properly determine `type`.
 //
 // All binary operands are integers.
 void fold_for_type_promotion(Compiler &cc, AstBinary *binary, Type *&type)
 {
+    if (binary->promoted_type) {
+        type = binary->promoted_type;
+        return;
+    }
     if (has_flag(binary->flags, AstFlags::FOLDED)
         || has_flag(binary->flags, AstFlags::TYPECHECK_FOLDED)) {
         return;
     }
-    // try_constant_fold() already recurses into the whole tree, so fold only the root. Subtrees
-    // are marked so verifying them later doesn't redo the same trial fold.
-    try_constant_fold(cc, binary, type, TypeOverridable::Yes);
-    Ast *root = binary;
-    traverse_postorder(root, [](Ast *ast) { ast->flags |= AstFlags::TYPECHECK_FOLDED; });
+    try_constant_fold(cc, copy_expr_for_fold(binary), type, TypeOverridable::Yes);
+    binary->promoted_type = type;
+    mark_typecheck_folded(binary->left);
+    mark_typecheck_folded(binary->right);
 }
 
 Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constness)

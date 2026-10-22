@@ -103,7 +103,7 @@ inline Scope *current_scope;
 enum_flags(AstFlags, uint64_t){
     // Prevent optimizer from trying to fold this tree multiple times.
     FOLDED = 1 << 0,
-    // Prevent typechecker from trying to fold this tree multiple times.
+    // This is a subtree of a typechecker trial fold.
     TYPECHECK_FOLDED = 1 << 1,
     // Tell the typechecker that this tree can mix integers and pointers in operations.
     PTR_ARITH = 1 << 2,
@@ -487,6 +487,7 @@ AstFunction *get_callee(Compiler &, AstCall *);
 struct AstBinary : Ast {
     Ast *left;
     Ast *right;
+    Type *promoted_type = nullptr; // Set by verifier
 
     explicit AstBinary(Operation _op, Ast *_left, Ast *_right, SourceLocation _location)
         : Ast(AstType::Binary, _op, _location)
