@@ -577,7 +577,7 @@ enum class AllowDiscardedReturn {
 };
 
 void verify_expr(Compiler &, Ast *&, AllowDiscardedReturn, Type *expected = nullptr);
-void verify_expr2(Compiler &, Ast *&);
+void verify_expr2(Compiler &, Ast *&, AllowDiscardedReturn);
 
 uint64_t max_for_type(Type *t)
 {
@@ -690,7 +690,7 @@ void verify_arg(Compiler &cc, Ast *&ast, Type *expected)
                 ident, "variable `{}` is not declared in this scope", ident->var->name);
         }
     }
-    verify_expr(cc, ast, AllowDiscardedReturn::No, expected);
+    verify_expr(cc, ast, AllowDiscardedReturn::Yes, expected);
 }
 
 void verify_print(Compiler &cc, Ast *ast)
@@ -699,8 +699,8 @@ void verify_print(Compiler &cc, Ast *ast)
     if (print->args.empty()) {
         verification_error(print, "print needs at least one argument");
     }
-    auto *fmt = print->args[0];
-    verify_expr(cc, fmt, AllowDiscardedReturn::No, string_type());
+    auto *&fmt = print->args[0];
+    verify_expr(cc, fmt, AllowDiscardedReturn::Yes, string_type());
 
     // Handle fmt string
     auto &str = static_cast<AstString *>(fmt)->string;
@@ -1844,7 +1844,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
             || var_decl->init_expr->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, var_decl->init_expr);
         }
-        verify_expr(cc, var_decl->init_expr, AllowDiscardedReturn::No, var.type);
+        verify_expr(cc, var_decl->init_expr, AllowDiscardedReturn::Yes, var.type);
     } else if (var_decl->init_expr) {
         // x: T = y
         resolve_type(cc, var_decl->scope, var.type);
@@ -1855,7 +1855,7 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
             || var_decl->init_expr->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, var_decl->init_expr);
         }
-        verify_expr(cc, var_decl->init_expr, AllowDiscardedReturn::No, var.type);
+        verify_expr(cc, var_decl->init_expr, AllowDiscardedReturn::Yes, var.type);
     } else {
         // x: T
         // var.type is already set and there is nothing to verify.
@@ -1889,7 +1889,7 @@ void verify_return(
         if (expr) {
             if (expr->operation == Operation::Call) {
                 auto *call = static_cast<AstCall *>(expr);
-                verify_call(cc, expr, AllowDiscardedReturn::No);
+                verify_call(cc, expr, AllowDiscardedReturn::Yes);
                 if (get_callee(cc, call)->returns_void()) {
                     // Returning f() (where f returns void) is allowed
                     return;
@@ -1909,7 +1909,7 @@ void verify_return(
 
     ExprConstness constness{};
     get_expression_type(cc, expr, &constness);
-    verify_expr(cc, expr, AllowDiscardedReturn::No, expected);
+    verify_expr(cc, expr, AllowDiscardedReturn::Yes, expected);
 }
 
 void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
@@ -1921,7 +1921,7 @@ void verify_if(Compiler &cc, AstIf *if_stmt, AstFunction *current_function)
         // The conversion has to happen on the uppermost level instead: "(x + 123) != 0".
         auto *&ast = if_stmt->expr;
         convert_expr_to_boolean(cc, ast);
-        verify_expr(cc, ast, AllowDiscardedReturn::No, bool_type());
+        verify_expr(cc, ast, AllowDiscardedReturn::Yes, bool_type());
         if (ast->operation == Operation::LogicalOr || ast->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, ast);
         }
@@ -1937,9 +1937,9 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
     auto *for_stmt = static_cast<AstFor *>(ast);
     auto *var = &for_stmt->var_decl->var;
 
-    verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::No, bool_type());
+    verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::Yes, bool_type());
     if (for_stmt->end) {
-        verify_expr(cc, for_stmt->end, AllowDiscardedReturn::No, var->type);
+        verify_expr(cc, for_stmt->end, AllowDiscardedReturn::Yes, var->type);
     }
 
     auto *start = for_stmt->var_decl->init_expr;
@@ -1953,7 +1953,7 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
         }
     }
 
-    verify_expr2(cc, for_stmt->change);
+    verify_expr2(cc, for_stmt->change, AllowDiscardedReturn::Yes);
 
     verify_ast(cc, for_stmt->body, current_function);
 }
@@ -1978,11 +1978,11 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
     }
 
     if (for_stmt->cmp) {
-        verify_expr2(cc, for_stmt->cmp);
+        verify_expr2(cc, for_stmt->cmp, AllowDiscardedReturn::Yes);
     }
 
     if (for_stmt->change) {
-        verify_expr2(cc, for_stmt->change);
+        verify_expr2(cc, for_stmt->change, AllowDiscardedReturn::Yes);
     }
 
     verify_ast(cc, for_stmt->body, current_function);
@@ -1997,7 +1997,7 @@ void verify_while(Compiler &cc, Ast *ast, AstFunction *current_function)
         || while_stmt->cmp->operation == Operation::LogicalAnd) {
         verify_logical_chain(cc, while_stmt->cmp);
     }
-    verify_expr(cc, while_stmt->cmp, AllowDiscardedReturn::No, bool_type());
+    verify_expr(cc, while_stmt->cmp, AllowDiscardedReturn::Yes, bool_type());
     verify_ast(cc, while_stmt->body, current_function);
 }
 
@@ -2028,13 +2028,13 @@ void verify_assign(Compiler &cc, Ast *ast)
     }
 }
 
-void verify_expr2(Compiler &cc, Ast *&ast)
+void verify_expr2(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
 {
     if (ast->operation == Operation::Assign) {
         verify_assign(cc, ast);
     } else {
         ExprConstness constness{};
-        verify_expr(cc, ast, AllowDiscardedReturn::Yes, get_expression_type(cc, ast, &constness));
+        verify_expr(cc, ast, allow_discarded, get_expression_type(cc, ast, &constness));
     }
 }
 
@@ -2133,11 +2133,16 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 TODO();
         }
     } else if (ast->type == AstType::Block) {
-        for (auto *stmt : static_cast<AstBlock *>(ast)->stmts) {
-            verify_ast(cc, stmt, current_function);
+        for (auto *&stmt : static_cast<AstBlock *>(ast)->stmts) {
+            if (stmt->type == AstType::Statement || stmt->type == AstType::Block) {
+                verify_ast(cc, stmt, current_function);
+            } else {
+                // Expressions may be replaced (e.g. folded), so pass the slot by reference.
+                verify_expr2(cc, stmt, AllowDiscardedReturn::No);
+            }
         }
     } else {
-        verify_expr2(cc, ast);
+        verify_expr2(cc, ast, AllowDiscardedReturn::No);
     }
 }
 
