@@ -33,8 +33,8 @@ enum class CompareType {
     Asm,
 };
 
-void run_tests(const fs::path &, bool root = true);
-void run_single_test(const fs::path &);
+bool run_tests(const fs::path &, bool root = true);
+bool run_single_test(const fs::path &);
 
 struct TestingException {
     TestingException(const char *const msg, ErrorType _type) noexcept

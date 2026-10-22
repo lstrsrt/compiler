@@ -41,13 +41,15 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char **argv)
         if (!fs::exists(dir_or_file)) {
             die("test file or directory '{}' not found", dir_or_file);
         }
+        bool passed = false;
         if (fs::is_regular_file(dir_or_file)) {
-            run_single_test(dir_or_file);
+            passed = run_single_test(dir_or_file);
         } else if (fs::is_directory(dir_or_file)) {
-            run_tests(dir_or_file);
+            passed = run_tests(dir_or_file);
         } else {
-            die("input '{}' is not a file or directory");
+            die("input '{}' is not a file or directory", dir_or_file);
         }
+        return passed ? EXIT_SUCCESS : EXIT_FAILURE;
     } else {
         auto *maybe_file = arg_parser.arguments.back();
         if (!fs::exists(maybe_file)) {

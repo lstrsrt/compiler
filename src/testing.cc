@@ -114,10 +114,7 @@ bool files_are_equal(const std::string &path1, const std::string &path2)
         return false;
     }
 
-    auto s1 = file1.view();
-    auto s2 = file2.view();
-    bool equals = std::equal(s1.begin(), s1.end(), s2.begin());
-    return equals;
+    return file1.view() == file2.view();
 }
 
 bool extensions_match(const fs::path &a, const fs::path &b)
@@ -205,7 +202,7 @@ void run_test(TestData &td, const fs::path &file)
     }
 
     // The new IR has no backend yet, so we can't check return values.
-    if (test_mode.test_type == TestType::CanCompile
+    if (test_mode.test_type == TestType::CanCompile || opts.check_only
         || (opts.new_ir && test_mode.test_type == TestType::ReturnsValue)) {
         if (run_compare_test()) {
             ++td.passed_tests;
@@ -239,10 +236,11 @@ void run_single_test(TestData &td, const fs::path &path)
     run_test(td, fs::canonical(path));
 }
 
-void run_single_test(const fs::path &path)
+bool run_single_test(const fs::path &path)
 {
     TestData td;
     run_single_test(td, path);
+    return td.passed_tests == td.total_tests;
 }
 
 void run_tests(TestData &td, const fs::path &path, bool root)
@@ -288,10 +286,11 @@ void run_tests(TestData &td, const fs::path &path, bool root)
     }
 }
 
-void run_tests(const fs::path &path, bool root)
+bool run_tests(const fs::path &path, bool root)
 {
     TestData td;
     run_tests(td, path, root);
+    return td.passed_tests == td.total_tests;
 }
 
 std::string to_string(ErrorType type)
