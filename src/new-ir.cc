@@ -326,7 +326,7 @@ void replace_identities(IRBuilder &irb)
                     // Loop because we can have nested identities
                     while (arg->kind == InstKind::Identity) {
                         identities.push_back(arg);
-                        dbgln("replacing id {} with {}", arg->name, arg->args[0]->name);
+                        // dbgln("replacing id {} with {}", arg->name, arg->args[0]->name);
                         arg = arg->args[0];
                     }
                 }
@@ -335,7 +335,7 @@ void replace_identities(IRBuilder &irb)
                     for (auto &[_, value] : phi->incoming) {
                         while (value->kind == InstKind::Identity) {
                             identities.push_back(value);
-                            dbgln("replacing id {} with {}", value->name, value->args[0]->name);
+                            // dbgln("replacing id {} with {}", value->name, value->args[0]->name);
                             value = value->args[0];
                         }
                     }
@@ -654,8 +654,9 @@ void generate_if(IRBuilder &irb, Ast *ast)
     fn->current_block = true_block;
     generate(irb, if_stmt->body);
 
+    // The body may have created new blocks, so check the block it ended in.
     bool merge_needed = false;
-    if (!true_block->terminal && !true_block->finished) {
+    if (!fn->current_block->terminal && !fn->current_block->finished) {
         generate_jump(irb, merge_block);
         merge_needed = true;
     }
@@ -664,7 +665,7 @@ void generate_if(IRBuilder &irb, Ast *ast)
         add_existing_block(irb, fn, else_block);
         fn->current_block = else_block;
         generate(irb, if_stmt->else_body);
-        if (!else_block->terminal && !else_block->finished) {
+        if (!fn->current_block->terminal && !fn->current_block->finished) {
             generate_jump(irb, merge_block);
             merge_needed = true;
         }
@@ -718,14 +719,14 @@ void generate_for(IRBuilder &irb, Ast *ast)
     fn->current_block = true_block;
     generate(irb, for_stmt->body);
     if (change_block) {
-        if (!true_block->finished) {
+        if (!fn->current_block->terminal && !fn->current_block->finished) {
             generate_jump(irb, change_block);
         }
         add_existing_block(irb, irb.current_fn, change_block);
         fn->current_block = change_block;
         generate(irb, for_stmt->change);
         generate_jump(irb, cmp_block);
-    } else if (!true_block->terminal && !true_block->finished && cmp_block) {
+    } else if (!fn->current_block->terminal && !fn->current_block->finished) {
         generate_jump(irb, cmp_block);
     }
 
@@ -752,7 +753,7 @@ void generate_while(IRBuilder &irb, Ast *ast)
     add_existing_block(irb, fn, true_block);
     fn->current_block = true_block;
     generate(irb, while_stmt->body);
-    if (!true_block->terminal && !true_block->finished) {
+    if (!fn->current_block->terminal && !fn->current_block->finished) {
         generate_jump(irb, cmp_block);
     }
 
