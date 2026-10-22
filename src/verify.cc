@@ -260,8 +260,8 @@ void traverse_postorder(Ast *&ast, auto &&callback)
         return;
     }
 
-    if (ast->operation == Operation::Cast) {
-        traverse_postorder(static_cast<AstCast *>(ast)->operand, callback);
+    if (ast->type == AstType::Unary && ast->operation != Operation::Call) {
+        traverse_postorder(static_cast<AstUnary *>(ast)->operand, callback);
     }
 
     if (ast->type == AstType::Binary) {
@@ -896,23 +896,33 @@ void verify_negate(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn
 {
     auto *unary = static_cast<AstNegate *>(ast);
 
-    auto negation_error = [&]() {
+    auto negation_error = [&](Type *type) {
         verification_type_error(unary->location,
             "negation of unsupported type {}.\n"
             "only signed integers may be negated",
-            to_string(expected));
+            to_string(type));
     };
 
     if (!expected->is_int() || expected->is_unsigned() || expected->is_pointer()) {
-        negation_error();
+        negation_error(expected);
+    }
+
+    // Check the operand before verify_expr() casts it to `expected`, which would hide an
+    // unsigned operand (e.g. `-u` with u: u32 in an s64 context). Unsigned constants are fine
+    // since they are converted to the signed type.
+    ExprConstness constness{};
+    auto *type = get_expression_type(cc, unary->operand, &constness);
+    if (!type->is_int() || type->is_pointer()
+        || (type->is_unsigned() && !expr_is_fully_constant(constness))) {
+        negation_error(type);
     }
 
     verify_expr(cc, unary->operand, allow_discarded, expected);
 
-    ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness);
+    constness = {};
+    type = get_expression_type(cc, unary->operand, &constness);
     if (!type->is_int() || type->is_unsigned()) {
-        negation_error();
+        negation_error(type);
     }
 }
 
