@@ -225,21 +225,16 @@ void elide_assignments(IRBuilder &irb)
     }
 }
 
-Inst *get_pre_terminator_inst(BasicBlock *bb)
+// Phi copies are inserted right before the terminator. Critical edges have been split at this
+// point, so the block must end on an unconditional jump to the block containing the phis.
+Inst *get_copy_insertion_point(BasicBlock *bb)
 {
     auto *last = bb->code.back();
-    if (last->operation == Operation::Return) {
-        return last;
+    if (last->operation != Operation::Branch || !last->args.empty() || size(bb->successors) != 1) {
+        internal_error(
+            "phi copies into block {} with {} successors", bb->name, size(bb->successors));
     }
-    if (last->operation == Operation::Branch) {
-        if (!last->args.empty()) {
-            // cond followed by branch, insert before cond
-            // TODO: make sure that this is immediately before `last`?
-            return last->args[0];
-        }
-        return last;
-    }
-    internal_error("block {} does not end on return or branch", bb->name);
+    return last;
 }
 
 struct Copy {
@@ -286,7 +281,7 @@ void resolve_parallel_copies(Function *)
             assigns.push_back(make_assign(dst, src, false));
         }
         for (auto *inst : assigns | std::views::reverse) {
-            insertion_sets[bb].insert_before(get_pre_terminator_inst(bb), inst);
+            insertion_sets[bb].insert_before(get_copy_insertion_point(bb), inst);
         }
         assigns.clear();
     }
