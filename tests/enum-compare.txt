@@ -1,0 +1,17 @@
+#{returns(3)}
+enum Color(s32) {
+    Red,
+    Blue,
+}
+c := Color::Blue
+x := 0
+if c == Color::Blue {
+    x += 1
+}
+if c != Color::Red {
+    x += 1
+}
+if c == Color::Red or c == Color::Blue {
+    x += 1
+}
+return x

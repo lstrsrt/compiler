@@ -1102,6 +1102,11 @@ bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
                        static_cast<AstBinary *>(right)->left, check_side_effects)
                 && exprs_identical(static_cast<AstBinary *>(left)->right,
                     static_cast<AstBinary *>(right)->right, check_side_effects);
+        case AstType::Enum: {
+            auto *l = static_cast<AstEnumMember *>(left);
+            auto *r = static_cast<AstEnumMember *>(right);
+            return l->enum_name == r->enum_name && l->name == r->name;
+        }
         case AstType::Unary:
             // `x as u8` and `x as u16` are different values.
             if (left->operation == Operation::Cast
@@ -1633,7 +1638,15 @@ void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_disca
     get_comparison_types(cc, cmp, c);
     auto *expected = get_unaliased_type(c.type);
 
-    if (!expected->is_integral()) {
+    // Pointers (including `null`) can only be checked for (in)equality.
+    // Integer based enums too (both sides must be the same enum, checked by verify_expr below).
+    const bool is_equality
+        = cmp->operation == Operation::Equals || cmp->operation == Operation::NotEquals;
+    const bool is_equality_only = is_equality
+        && (expected->is_pointer()
+            || (expected->has_flag(TypeFlags::ENUM)
+                && get_unaliased_type(expected->real)->is_int()));
+    if (!expected->is_integral() && !is_equality_only) {
         verification_type_error(cmp->location, "comparison operator does not apply to this type");
     }
 
@@ -1644,8 +1657,9 @@ void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_disca
     get_comparison_types(cc, cmp, c);
     expected = get_unaliased_type(c.type);
     cmp->operand_type = expected;
-    bool is_left_const = expr_is_const_integral(cmp->left, IgnoreCasts::Yes);
-    bool is_right_const = expr_is_const_integral(cmp->right, IgnoreCasts::Yes);
+    // `null` is an integer literal, but the constant checks below only make sense for integers.
+    bool is_left_const = !is_equality_only && expr_is_const_integral(cmp->left, IgnoreCasts::Yes);
+    bool is_right_const = !is_equality_only && expr_is_const_integral(cmp->right, IgnoreCasts::Yes);
 
     if (is_left_const || is_right_const) {
         auto constant = get_int_literal_as(is_left_const ? cmp->left : cmp->right, expected);

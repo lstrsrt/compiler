@@ -1,0 +1,18 @@
+#{returns(3)}
+// Pointers can be compared for (in)equality, including against null.
+a := 1
+b := 2
+p := &a
+q := &a
+r := &b
+x := 0
+if p == q {
+    x += 1
+}
+if p != r {
+    x += 1
+}
+if p != null {
+    x += 1
+}
+return x

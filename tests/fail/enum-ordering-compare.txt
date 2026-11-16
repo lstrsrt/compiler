@@ -1,0 +1,7 @@
+#{error(type)}
+enum Color(s32) {
+    Red,
+    Blue,
+}
+c := Color::Red
+x := c < Color::Blue
