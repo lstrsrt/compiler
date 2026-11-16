@@ -355,6 +355,60 @@ void leave_block(Function *, BasicBlock *bb, TransformedPhis &phis)
     }
 }
 
+#ifdef _DEBUG
+// Sanity checks for the IR produced by leave().
+void verify_after_leave(IRBuilder &irb)
+{
+    for (auto *fn : irb.fns) {
+        std::unordered_set<Inst *> defined;
+        for (auto *bb : fn->blocks) {
+            defined.insert(bb->code.begin(), bb->code.end());
+        }
+        for (auto *bb : fn->blocks) {
+            if (bb->code.empty() || !bb->reachable) {
+                continue;
+            }
+            for (auto *succ : bb->successors) {
+                if (std::ranges::find(succ->predecessors, bb) == succ->predecessors.end()) {
+                    internal_error("{}: {} is a successor of {} but not vice versa", fn->name,
+                        succ->name, bb->name);
+                }
+            }
+            for (auto *pred : bb->predecessors) {
+                if (std::ranges::find(pred->successors, bb) == pred->successors.end()) {
+                    internal_error("{}: {} is a predecessor of {} but not vice versa", fn->name,
+                        pred->name, bb->name);
+                }
+            }
+            auto *term = bb->code.back();
+            if (!term->is_terminator()) {
+                internal_error("{}: block {} does not end on a terminator", fn->name, bb->name);
+            }
+            if (term->operation == Operation::Branch
+                && size(bb->successors) != (term->args.empty() ? 1u : 2u)) {
+                internal_error("{}: branch in block {} has {} successors", fn->name, bb->name,
+                    size(bb->successors));
+            }
+            for (auto *inst : bb->code) {
+                if (inst->kind == InstKind::Phi) {
+                    internal_error("{}: phi {} survived SSA exit", fn->name, inst->name);
+                }
+                if (inst->operation == Operation::Assign && size(bb->successors) != 1) {
+                    internal_error("{}: assign in block {} with {} successors", fn->name, bb->name,
+                        size(bb->successors));
+                }
+                for (auto *arg : inst->args) {
+                    if (arg->kind != InstKind::Var && !defined.contains(arg)) {
+                        internal_error("{}: {} uses {} which is not defined in any block", fn->name,
+                            inst->name, arg->name);
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
+
 void leave(IRBuilder &irb)
 {
     for (auto *ssa : ssa_transforms) {
@@ -403,6 +457,10 @@ void leave(IRBuilder &irb)
 
     replace_identities(irb);
     elide_assignments(irb);
+
+#ifdef _DEBUG
+    verify_after_leave(irb);
+#endif
 
     ssa_transforms.clear();
     ssa_reads.clear();
