@@ -1103,6 +1103,13 @@ bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
                 && exprs_identical(static_cast<AstBinary *>(left)->right,
                     static_cast<AstBinary *>(right)->right, check_side_effects);
         case AstType::Unary:
+            // `x as u8` and `x as u16` are different values.
+            if (left->operation == Operation::Cast
+                && types_match(static_cast<AstCast *>(left)->cast_type,
+                       static_cast<AstCast *>(right)->cast_type)
+                    != TypeError::None) {
+                return false;
+            }
             return exprs_identical(static_cast<AstUnary *>(left)->operand,
                 static_cast<AstUnary *>(right)->operand, check_side_effects);
         default:
@@ -1654,8 +1661,12 @@ void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_disca
             }
         }
     } else if (exprs_identical(cmp->left, cmp->right, CheckSideEffects::Yes)) {
-        const char *s = cmp->operation == Operation::Equals ? "true" : "false";
-        diag::ast_warning(cc, cmp, "comparison is always {}", s);
+        if (cmp->operation == Operation::Equals || cmp->operation == Operation::LessEquals
+            || cmp->operation == Operation::GreaterEquals) {
+            diag::ast_warning(cc, cmp, "comparison is always true");
+        } else {
+            diag::ast_warning(cc, cmp, "comparison is always false");
+        }
     }
 }
 
