@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <optional>
 
 #define verification_error(ast, msg, ...) \
     diag::error_at(cc, ast->location, ErrorType::Verification, msg __VA_OPT__(, __VA_ARGS__))
@@ -216,7 +217,7 @@ bool type_is_const_int(Type *t, ExprConstness e)
 
 Type *get_expression_type(Compiler &, Ast *, ExprConstness *);
 
-Type *get_common_integer_type(Type *t1, Type *t2)
+Type *get_common_const_integer_type(Type *t1, Type *t2)
 {
     assert(t1);
     if (!t2) {
@@ -289,7 +290,7 @@ Type *merge_binary_operand_types(Compiler &cc, const std::vector<BinaryOperand> 
             // Pointer arithmetic (const offset).
             continue;
         } else if (type_is_const_int(current, expr_constness) && ret->is_int()) {
-            ret = get_common_integer_type(current, ret);
+            ret = get_common_const_integer_type(current, ret);
         } else if (types_match(ret, current) != TypeError::None) {
             if (current == s64_type() && ret->is_pointer()) {
                 // Pointer arithmetic (non const).
@@ -393,6 +394,8 @@ Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constnes
     }
     return ret;
 }
+
+std::optional<Integer> get_constant_value(Ast *);
 
 Type *make_unsigned(Type *type)
 {
@@ -1484,11 +1487,115 @@ struct ComparisonTypes {
     ExprConstness rhs_constness{};
 };
 
+Type *get_common_nonconst_integer_type(Type *t1, Type *t2)
+{
+    assert(t1 && t2);
+    if (t1->is_unsigned() != t2->is_unsigned()) {
+        auto *unsigned_type = t1->is_unsigned() ? t1 : t2;
+        auto *signed_type = t1->is_unsigned() ? t2 : t1;
+        if (unsigned_type->size < signed_type->size) {
+            return signed_type;
+        }
+        auto target_size = t1->size > t2->size ? t1->size : t2->size;
+        switch (target_size) {
+            case 8:
+                return s16_type();
+            case 16:
+                return s32_type();
+            case 32:
+                [[fallthrough]];
+            case 64:
+                return s64_type();
+            default:
+                TODO();
+        }
+    }
+    // Both signed or both unsigned.
+    return (t1->size > t2->size) ? t1 : t2;
+}
+
+// The type both sides of a comparison are converted to. verify_comparison() passes it as the
+// expected type to both operands, so an operand that can't be converted to it losslessly (see
+// maybe_cast_int()) is reported as a type error there; this function only has to pick the type.
+// The value of a constant integer expression, if it is known without folding: literals, casts and
+// negations of known values, and binary expressions whose trial fold (see
+// fold_for_type_promotion()) produced a literal. Call after the expression's type was computed.
+std::optional<Integer> get_constant_value(Ast *ast)
+{
+    switch (ast->type) {
+        case AstType::Integer:
+        case AstType::Boolean:
+            return static_cast<AstLiteral *>(ast)->value;
+        case AstType::Binary: {
+            auto *folded = static_cast<AstBinary *>(ast)->trial_fold;
+            if (folded && folded->type == AstType::Integer) {
+                return static_cast<AstLiteral *>(folded)->value;
+            }
+            return std::nullopt;
+        }
+        case AstType::Unary: {
+            if (ast->operation == Operation::Call) {
+                return std::nullopt;
+            }
+            auto value = get_constant_value(static_cast<AstUnary *>(ast)->operand);
+            if (!value) {
+                return std::nullopt;
+            }
+            if (ast->operation == Operation::Negate) {
+                return -*value;
+            }
+            if (ast->operation == Operation::Cast) {
+                auto *to = get_unaliased_type(static_cast<AstCast *>(ast)->cast_type);
+                if (to->is_int() && !to->is_pointer()) {
+                    return value->truncated(to->size, to->is_signed());
+                }
+            }
+            return std::nullopt;
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
+Type *pick_comparison_type(Type *lhs, ExprConstness lhs_constness, Ast *lhs_ast, Type *rhs,
+    ExprConstness rhs_constness, Ast *rhs_ast)
+{
+    auto *l = get_unaliased_type(lhs);
+    auto *r = get_unaliased_type(rhs);
+    if (!l->is_int() && !r->is_int()) {
+        return lhs;
+    }
+
+    // A negative constant compared with an unsigned operand, e.g. `-1 < x` with x: u32, can't take
+    // the unsigned type like other constants do (below). Widen both sides like two non-constants
+    // instead, so the comparison is exact (always true here). get_constant_value() is nullopt for
+    // non-constant sides. There is no such type for u64, so that is still rejected.
+    if (l->is_signed() != r->is_signed()) {
+        auto lhs_value = get_constant_value(lhs_ast);
+        auto rhs_value = get_constant_value(rhs_ast);
+        if ((lhs_value && lhs_value->is_negative()) || (rhs_value && rhs_value->is_negative())) {
+            return get_common_nonconst_integer_type(l, r);
+        }
+    }
+
+    if (expr_is_fully_constant(lhs_constness)) {
+        return rhs;
+    }
+    if (expr_is_fully_constant(rhs_constness)) {
+        return lhs;
+    }
+    if (l->is_signed() == r->is_signed()) {
+        return l->size > r->size ? lhs : rhs;
+    }
+    return get_common_nonconst_integer_type(l, r);
+}
+
 void get_comparison_types(Compiler &cc, AstBinary *&cmp, ComparisonTypes &c)
 {
     c.lhs_type = get_expression_type(cc, cmp->left, &c.lhs_constness);
     c.rhs_type = get_expression_type(cc, cmp->right, &c.rhs_constness);
-    c.type = expr_is_fully_constant(c.lhs_constness) ? c.rhs_type : c.lhs_type;
+    c.type = pick_comparison_type(
+        c.lhs_type, c.lhs_constness, cmp->left, c.rhs_type, c.rhs_constness, cmp->right);
 }
 
 void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)

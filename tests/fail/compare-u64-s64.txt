@@ -1,0 +1,5 @@
+#{error(type)}
+// No integer type holds every u64 and s64 value.
+a: u64 = 1
+b: s64 = 2
+x := a < b

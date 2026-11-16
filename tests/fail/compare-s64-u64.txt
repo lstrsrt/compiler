@@ -1,0 +1,4 @@
+#{error(type)}
+a: u64 = 1
+b: s64 = 2
+x := b > a

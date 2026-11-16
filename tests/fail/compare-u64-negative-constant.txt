@@ -1,0 +1,4 @@
+#{error(type)}
+// No signed type holds every u64 value.
+x: u64 = 5
+y := x >= -1

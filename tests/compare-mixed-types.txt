@@ -1,0 +1,35 @@
+#{returns(7)}
+// Comparing integers of different types converts both sides to a type that holds both,
+// independent of the operand order.
+alias A: u8
+alias B: s32
+a8: u8 = 200
+b16: s16 = -1
+w16: u16 = 40000
+w32: u32 = 0xffff_ffff
+i32: s32 = -1
+a: A = 1
+b: B = 2
+n := 0
+if b16 < a8 and a8 > b16 {
+    n += 1
+}
+if b16 < w16 and w16 > b16 {
+    n += 1
+}
+if i32 < w32 and w32 > i32 {
+    n += 1
+}
+if a < b and b > a {
+    n += 1
+}
+if a8 < i32 {
+    return 99
+}
+if i32 > a8 {
+    return 98
+}
+if 100 < a8 and a8 > 100 {
+    n += 3
+}
+return n
