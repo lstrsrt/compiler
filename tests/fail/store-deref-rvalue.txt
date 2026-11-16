@@ -1,0 +1,5 @@
+#{error(verify)}
+// The target of a store gets the same rvalue check as a load.
+a: s64 = 0
+p := &a
+*(p + 1) = 1

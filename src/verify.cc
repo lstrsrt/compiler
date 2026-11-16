@@ -2284,6 +2284,9 @@ void verify_assign(Compiler &cc, Ast *ast)
         && binary->left->operation != Operation::Dereference) {
         verification_error(ast, "assignment to invalid value");
     }
+    // Verify the target while it is still a Dereference, so it gets the same checks as a read
+    // (rvalue and pointer checks). Load is synthetic and skips them.
+    verify_expr(cc, binary->left, AllowDiscardedReturn::No);
     if (binary->left->operation == Operation::Dereference) {
         binary->operation = Operation::Store;
         binary->left->operation = Operation::Load;
@@ -2297,7 +2300,6 @@ void verify_assign(Compiler &cc, Ast *ast)
         || binary->right->operation == Operation::LogicalAnd) {
         verify_logical_chain(cc, binary->right);
     }
-    verify_expr(cc, binary->left, AllowDiscardedReturn::No);
     verify_expr(cc, binary->right, AllowDiscardedReturn::Yes, expected);
     if (exprs_identical(binary->left, binary->right, CheckSideEffects::Yes)) {
         diag::ast_warning(cc, binary, "self-assignment has no effect");
