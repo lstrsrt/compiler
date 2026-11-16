@@ -269,7 +269,7 @@ Inst *generate_store(IRBuilder &irb, Inst *ptr, Inst *value)
 ConstInst *make_const(AstLiteral *constant, const std::string &name)
 {
     auto *c = new ConstInst(to_inst_type(constant), name);
-    c->constant = constant->u.any;
+    c->constant = constant->value;
     return c;
 }
 

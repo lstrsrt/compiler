@@ -9,6 +9,8 @@
 #include "base.hh"
 #include "lexer.hh"
 
+#include <compare>
+#include <concepts>
 #include <stack>
 #include <unordered_map>
 
@@ -161,87 +163,132 @@ inline void free_ast_arena()
 
 Type *bool_type();
 
+// An exact integer, independent of any type. It can hold the value of every integer type and the
+// exact result of an arithmetic operation on two of them, so constant folding can check whether a
+// result fits a type instead of guessing from wrapped bits.
+//
+// TODO: Make this arbitrary-size. Until then, the storage is 128 bits, which is enough for the
+// operands we fold. A result that doesn't fit (in practice only u64 * u64) is marked `overflowed()`:
+// its value is wrapped to 128 bits, so it never fits any type, but its low 64 bits are still right.
 struct Integer {
-    uint64_t value;
-    bool is_signed;
+    using Storage = __int128;
 
-    explicit Integer() = default;
+    Integer() = default;
 
-    explicit Integer(uint64_t _value, bool _is_signed)
-        : value(_value)
-        , is_signed(_is_signed)
+    // The value of a 64-bit two's complement bit pattern, read as signed or unsigned.
+    explicit Integer(uint64_t bits, bool is_signed)
+        : exact(is_signed ? Storage{ static_cast<int64_t>(bits) } : Storage{ bits })
     {
     }
 
-    int64_t as_signed() const { return static_cast<int64_t>(value); }
-
-    bool is_negative() const { return is_signed && (as_signed() & (uint64_t(1) << 63)); }
-
-    bool is_nonnegative() const { return !is_negative(); }
-
-    auto operator<=>(const Integer &rhs) const
+    template<std::integral T>
+    requires(!std::same_as<T, bool>)
+    static Integer from(T v)
     {
-        // TODO: what if is_signed != rhs.is_signed?
-        // can we remove this entirely and just compare the raw values??
-        // maybe not because of type sizes?
-        if (is_signed) {
-            return as_signed() <=> rhs.as_signed();
+        Integer i;
+        i.exact = v;
+        return i;
+    }
+
+    // Smallest and largest value of a `width`-bit signed or unsigned integer.
+    static Integer min_of(int width, bool is_signed)
+    {
+        assert(width >= 1 && width <= 64);
+        return is_signed ? from(-(Storage{ 1 } << (width - 1))) : Integer{};
+    }
+
+    static Integer max_of(int width, bool is_signed)
+    {
+        assert(width >= 1 && width <= 64);
+        return from((Storage{ 1 } << (is_signed ? width - 1 : width)) - 1);
+    }
+
+    // The low 64 bits in two's complement, i.e. the value wrapped to 64 bits.
+    uint64_t bits() const { return static_cast<uint64_t>(exact); }
+
+    int64_t as_signed() const { return static_cast<int64_t>(bits()); }
+
+    bool is_negative() const { return exact < 0; }
+
+    bool is_zero() const { return exact == 0; }
+
+    bool overflowed() const { return has_overflowed; }
+
+    // Whether the value is representable as a `width`-bit signed or unsigned integer.
+    bool fits(int width, bool is_signed) const
+    {
+        return !has_overflowed && *this >= min_of(width, is_signed)
+            && *this <= max_of(width, is_signed);
+    }
+
+    // The value wrapped to a `width`-bit signed or unsigned integer.
+    Integer truncated(int width, bool is_signed) const
+    {
+        assert(width >= 1 && width <= 64);
+        const uint64_t mask = width == 64 ? ~uint64_t{ 0 } : (uint64_t{ 1 } << width) - 1;
+        uint64_t low = bits() & mask;
+        if (is_signed && width < 64 && ((low >> (width - 1)) & 1)) {
+            low |= ~mask; // Sign-extend
         }
-        return value <=> rhs.value;
+        return Integer(low, is_signed);
     }
 
-    bool operator==(const Integer &rhs) const
+    friend Integer operator+(const Integer &a, const Integer &b)
     {
-        // TODO: what if is_signed != rhs.is_signed?
-        if (is_signed) {
-            return as_signed() == rhs.as_signed();
-        }
-        return value == rhs.value;
+        Integer r;
+        r.has_overflowed = __builtin_add_overflow(a.exact, b.exact, &r.exact) || a.has_overflowed
+            || b.has_overflowed;
+        return r;
     }
 
-    auto operator-(uint64_t rhs) const
+    friend Integer operator-(const Integer &a, const Integer &b)
     {
-        Integer ret = *this;
-        ret.value -= rhs;
-        return ret;
+        Integer r;
+        r.has_overflowed = __builtin_sub_overflow(a.exact, b.exact, &r.exact) || a.has_overflowed
+            || b.has_overflowed;
+        return r;
     }
 
-    auto operator+(uint64_t rhs) const
+    friend Integer operator*(const Integer &a, const Integer &b)
     {
-        Integer ret = *this;
-        ret.value += rhs;
-        return ret;
+        Integer r;
+        r.has_overflowed = __builtin_mul_overflow(a.exact, b.exact, &r.exact) || a.has_overflowed
+            || b.has_overflowed;
+        return r;
     }
 
-    static auto min(const Integer &lhs, const Integer &rhs)
+    // Truncating division and remainder, like C. `b` must not be zero.
+    friend Integer operator/(const Integer &a, const Integer &b)
     {
-        if (lhs.is_signed) {
-            if (lhs.as_signed() < rhs.as_signed()) {
-                return lhs;
-            }
-            return rhs;
-        }
-
-        if (lhs.value < rhs.value) {
-            return lhs;
-        }
-        return rhs;
+        assert(!b.is_zero());
+        Integer r;
+        r.exact = a.exact / b.exact;
+        r.has_overflowed = a.has_overflowed || b.has_overflowed;
+        return r;
     }
 
-    static auto max(const Integer &lhs, const Integer &rhs)
+    friend Integer operator%(const Integer &a, const Integer &b)
     {
-        if (lhs.is_signed) {
-            if (lhs.as_signed() > rhs.as_signed()) {
-                return lhs;
-            }
-            return rhs;
-        }
-
-        if (lhs.value > rhs.value) {
-            return lhs;
-        }
-        return rhs;
+        assert(!b.is_zero());
+        Integer r;
+        r.exact = a.exact % b.exact;
+        r.has_overflowed = a.has_overflowed || b.has_overflowed;
+        return r;
     }
+
+    Integer operator-() const { return Integer{} - *this; }
+
+    // Exact comparisons, regardless of the signedness the values came from.
+    friend std::strong_ordering operator<=>(const Integer &a, const Integer &b)
+    {
+        return a.exact <=> b.exact;
+    }
+
+    friend bool operator==(const Integer &a, const Integer &b) { return a.exact == b.exact; }
+
+private:
+    Storage exact = 0;
+    bool has_overflowed = false;
 };
 
 enum_flags(TypeFlags, int){
@@ -383,28 +430,29 @@ struct Type {
 };
 
 struct AstLiteral : Ast {
-    union {
-        Integer any;
-        uint32_t u32;
-        uint64_t u64;
-        int32_t s32;
-        int64_t s64;
-        bool boolean;
-    } u;
+    // Integers and booleans (0 or 1). Use get_int_literal() or `value` instead of reinterpreting it.
+    Integer value;
 
-    explicit AstLiteral(Type *_type, uint64_t _literal, SourceLocation _location)
+    // `bits` is a 64-bit two's complement pattern, read according to the signedness of `_type`.
+    explicit AstLiteral(Type *_type, uint64_t bits, SourceLocation _location)
         : Ast(AstType::Integer, Operation::None, _location)
+        , value(bits, !_type->is_unsigned())
     {
         expr_type = _type;
-        u.any.value = _literal;
-        u.any.is_signed = !_type->is_unsigned();
+    }
+
+    explicit AstLiteral(Type *_type, Integer _value, SourceLocation _location)
+        : Ast(AstType::Integer, Operation::None, _location)
+        , value(_value)
+    {
+        expr_type = _type;
     }
 
     explicit AstLiteral(bool _literal, SourceLocation _location)
         : Ast(AstType::Boolean, Operation::None, _location)
+        , value(Integer::from(_literal ? 1 : 0))
     {
         expr_type = bool_type();
-        u.boolean = _literal;
     }
 };
 

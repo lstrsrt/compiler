@@ -485,25 +485,25 @@ std::string to_string(const Integer &i, new_ir::InstType type)
     using namespace new_ir;
     switch (type) {
         case InstType::Ptr:
-            return std::format("{:x}", i.value);
+            return std::format("{:x}", i.bits());
         case InstType::S1:
-            return std::format("{}", i.value != 0);
+            return std::format("{}", i.bits() != 0);
         case InstType::S8:
-            return std::format("{}", static_cast<int8_t>(i.value));
+            return std::format("{}", static_cast<int8_t>(i.bits()));
         case InstType::S16:
-            return std::format("{}", static_cast<int16_t>(i.value));
+            return std::format("{}", static_cast<int16_t>(i.bits()));
         case InstType::S32:
-            return std::format("{}", static_cast<int32_t>(i.value));
+            return std::format("{}", static_cast<int32_t>(i.bits()));
         case InstType::S64:
-            return std::format("{}", static_cast<int64_t>(i.value));
+            return std::format("{}", static_cast<int64_t>(i.bits()));
         case InstType::U8:
-            return std::format("{}", static_cast<uint8_t>(i.value));
+            return std::format("{}", static_cast<uint8_t>(i.bits()));
         case InstType::U16:
-            return std::format("{}", static_cast<uint16_t>(i.value));
+            return std::format("{}", static_cast<uint16_t>(i.bits()));
         case InstType::U32:
-            return std::format("{}", static_cast<uint32_t>(i.value));
+            return std::format("{}", static_cast<uint32_t>(i.bits()));
         case InstType::U64:
-            return std::format("{}", i.value);
+            return std::format("{}", i.bits());
         default:
             internal_error("{} is not an integer type", to_string(type));
     }

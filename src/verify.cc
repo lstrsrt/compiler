@@ -613,21 +613,33 @@ uint64_t max_for_type(Type *t)
 Integer min_for_type(Type *t)
 {
     assert(t->is_integral() || t->is_pointer());
-    if (t->is_unsigned()) {
-        return Integer(0, false);
+    if (t->is_bool()) {
+        return Integer{};
     }
-    switch (t->size) {
-        case 64:
-            return Integer(S64Min, true);
-        case 32:
-            return Integer(S32Min, true);
-        case 16:
-            return Integer(S16Min, true);
-        case 8:
-            return Integer(S8Min, true);
-        default:
-            TODO();
+    return Integer::min_of(t->size, !t->is_unsigned());
+}
+
+Integer max_for_type_exact(Type *t)
+{
+    assert(t->is_integral() || t->is_pointer());
+    if (t->is_bool()) {
+        return Integer::from(1);
     }
+    return Integer::max_of(t->size, !t->is_unsigned());
+}
+
+// The value of a constant expression (through casts) converted to `type`, like a cast would.
+Integer get_int_literal_as(Ast *ast, Type *type)
+{
+    type = get_unaliased_type(type);
+    while (ast->operation == Operation::Cast) {
+        ast = static_cast<AstCast *>(ast)->operand;
+    }
+    const auto &value = static_cast<AstLiteral *>(ast)->value;
+    if (type->is_bool()) {
+        return Integer::from(value.is_zero() ? 0 : 1);
+    }
+    return value.truncated(type->size, !type->is_unsigned());
 }
 
 bool expr_is_const_integral(Ast *ast, IgnoreCasts ignore)
@@ -644,7 +656,7 @@ uint64_t get_int_literal(Ast *ast)
         return get_int_literal(static_cast<AstCast *>(ast)->operand);
     }
     assert(expr_is_const_integral(ast, IgnoreCasts::No));
-    return static_cast<AstLiteral *>(ast)->u.u64;
+    return static_cast<AstLiteral *>(ast)->value.bits();
 }
 
 TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness constness)
@@ -1075,10 +1087,7 @@ void diagnose_tautological_comparisons(
     Compiler &cc, Ast *&cmp, Variable *var, const LogicalRange &ranges)
 {
     auto min = min_for_type(ranges.type);
-    // HACK: make max_for_type() return Integer as well
-    Integer max{};
-    max.is_signed = ranges.type->is_signed();
-    max.value = max_for_type(ranges.type);
+    auto max = max_for_type_exact(ranges.type);
 
     Ranges feasible;
     if (cmp->operation == Operation::LogicalAnd) {
@@ -1199,7 +1208,8 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
         if (is_literal) {
             // Multiply immediately instead of letting the optimizer do it.
             // We don't want warnings here.
-            static_cast<AstLiteral *>(offset)->u.u64 *= size;
+            auto &value = static_cast<AstLiteral *>(offset)->value;
+            value = value * Integer::from(size);
         } else {
             offset = new AstBinary(Operation::Multiply, offset,
                 new AstLiteral(s64_type(), size, offset->location), binary->location);
@@ -1421,31 +1431,25 @@ ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer 
 {
     assert(is_logical_operation(cmp));
 
-    if (cmp == Operation::Greater) {
-        if (constant.is_signed
-            && get_signed(type->size, constant) >= static_cast<int64_t>(max_for_type(type))) {
-            return ComparisonLogicError::AlwaysFalse;
-        }
-        if (!constant.is_signed && constant.value >= max_for_type(type)) {
-            return ComparisonLogicError::AlwaysFalse;
-        }
-    } else if (cmp == Operation::GreaterEquals) {
-        if (constant.value == min_for_type(type).value) {
-            return ComparisonLogicError::AlwaysTrue;
-        }
-    } else if (cmp == Operation::LessEquals) {
-        if (constant.value == max_for_type(type)) {
-            return ComparisonLogicError::AlwaysTrue;
-        }
-    } else if (type->is_unsigned() || type->is_bool()) {
-        if (constant.value == 0) {
-            if (cmp == Operation::Less) {
-                return ComparisonLogicError::AlwaysFalse;
-            }
-        }
+    type = get_unaliased_type(type);
+    if (!type->is_integral() || type->is_pointer()) {
+        return ComparisonLogicError::None;
     }
 
-    return ComparisonLogicError::None;
+    const auto min = min_for_type(type);
+    const auto max = max_for_type_exact(type);
+    switch (cmp) {
+        case Operation::Less:
+            return constant == min ? ComparisonLogicError::AlwaysFalse : ComparisonLogicError::None;
+        case Operation::LessEquals:
+            return constant == max ? ComparisonLogicError::AlwaysTrue : ComparisonLogicError::None;
+        case Operation::Greater:
+            return constant == max ? ComparisonLogicError::AlwaysFalse : ComparisonLogicError::None;
+        case Operation::GreaterEquals:
+            return constant == min ? ComparisonLogicError::AlwaysTrue : ComparisonLogicError::None;
+        default:
+            return ComparisonLogicError::None;
+    }
 }
 
 struct ComparisonTypes {

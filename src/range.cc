@@ -2,6 +2,8 @@
 #include "parser.hh"
 #include "verify.hh"
 
+#include <algorithm>
+
 bool union_mergeable(const Range &a, const Range &b)
 {
     if (a.hi < b.lo) {
@@ -27,8 +29,8 @@ bool range_contains(const Range &r, Integer i)
 
 bool non_empty_intersection(const Range &a, const Range &b)
 {
-    auto lo = Integer::max(a.lo, b.lo);
-    auto hi = Integer::min(a.hi, b.hi);
+    auto lo = std::max(a.lo, b.lo);
+    auto hi = std::min(a.hi, b.hi);
 
     if (lo > hi) {
         return false;
@@ -79,25 +81,9 @@ bool range_is_valid(const Range &r)
         return false;
     }
 
-    Integer eff_lo{};
-    if (r.lo_inc) {
-        eff_lo = r.lo;
-    } else {
-        if (r.lo.value == U64Max) {
-            return false;
-        }
-        eff_lo = r.lo + 1;
-    }
-
-    Integer eff_hi{};
-    if (r.hi_inc) {
-        eff_hi = r.hi;
-    } else {
-        if (r.hi.as_signed() == S64Min) {
-            return false;
-        }
-        eff_hi = r.hi - 1;
-    }
+    // Integer is exact, so this can't wrap around.
+    const auto eff_lo = r.lo_inc ? r.lo : r.lo + Integer::from(1);
+    const auto eff_hi = r.hi_inc ? r.hi : r.hi - Integer::from(1);
     return eff_lo <= eff_hi;
 }
 
@@ -219,19 +205,12 @@ Ranges create_ranges(Operation op, Integer val, Integer min, Integer max)
     return rs;
 }
 
-int64_t get_signed(int size, Integer);
-
 Ranges feasible_ranges_or(const LogicalRange &ranges, Integer min, Integer max)
 {
     Ranges feasible{};
 
     for (const auto &range : ranges.comp) {
-        Integer val{};
-        val.value = range.constant->u.u64;
-        val.is_signed = ranges.type->is_signed();
-        if (val.is_signed) {
-            val.value = static_cast<uint64_t>(get_signed(ranges.type->size, val));
-        }
+        const auto val = get_int_literal_as(range.constant, ranges.type);
         auto rs = create_ranges(range.comparison->operation, val, min, max);
         feasible = ranges_union(feasible, rs);
     }
@@ -244,12 +223,7 @@ Ranges feasible_ranges_and(const LogicalRange &ranges, Integer min, Integer max)
     Ranges feasible{ { min, max, true, true } };
 
     for (const auto &range : ranges.comp) {
-        Integer val{};
-        val.value = range.constant->u.u64;
-        val.is_signed = ranges.type->is_signed();
-        if (val.is_signed) {
-            val.value = static_cast<uint64_t>(get_signed(ranges.type->size, val));
-        }
+        const auto val = get_int_literal_as(range.constant, ranges.type);
         auto rs = create_ranges(range.comparison->operation, val, min, max);
         feasible = intersect_ranges(feasible, rs);
         if (feasible.empty()) {

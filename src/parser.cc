@@ -1334,18 +1334,15 @@ std::string extract_integer_constant(Ast *ast)
     auto *literal = static_cast<AstLiteral *>(ast);
     if (type->is_int()) {
         if (type->is_unsigned()) {
-            return std::format("{:#x}", literal->u.u64);
+            return std::format("{:#x}", literal->value.bits());
         }
-        if (type->size == 64) {
-            return std::to_string(literal->u.s64);
-        }
-        return std::to_string(literal->u.s32);
+        return std::to_string(literal->value.as_signed());
     }
     if (type->is_bool()) {
-        return std::to_string(literal->u.boolean);
+        return std::to_string(!literal->value.is_zero());
     }
     if (type->is_pointer()) {
-        return std::format("{:#x}", literal->u.u64);
+        return std::format("{:#x}", literal->value.bits());
     }
     TODO();
 }
