@@ -339,13 +339,17 @@ using TransformedPhis = std::vector<std::pair<PhiInst *, VarInst *>>;
 void leave_block(Function *, BasicBlock *bb, TransformedPhis &phis)
 {
     for (auto *insn : bb->code) {
-        if (insn->operation != Operation::Phi) {
+        if (insn->kind != InstKind::Phi) {
             continue;
         }
         auto *phi = static_cast<PhiInst *>(insn);
         auto *var = new VarInst(phi->type, phi->name);
         phis.emplace_back(phi, var);
         for (auto &[pred, value] : phi->incoming) {
+            // No need to copy garbage.
+            if (value->kind == InstKind::Undef) {
+                continue;
+            }
             copies_map[pred].emplace_back(value, phi);
         }
     }
@@ -356,7 +360,7 @@ void leave(IRBuilder &irb)
     for (auto *ssa : ssa_transforms) {
         if (!ssa_reads.contains(ssa) && !ssa->variable_name.empty() /* ignore temps */) {
             // this doesn't mean the variable is never read, just this value
-            dbgln("ssa value {} is never read", ssa->name);
+            ssa_dbgln("ssa value {} is never read", ssa->name);
         }
     }
 
@@ -369,7 +373,7 @@ void leave(IRBuilder &irb)
                 auto successors = bb->successors;
                 for (auto *succ : successors) {
                     if (size(succ->predecessors) > 1) {
-                        dbgln("critical edge from {} to {}", bb->name, succ->name);
+                        ssa_dbgln("critical edge from {} to {}", bb->name, succ->name);
                         split_critical_edge(fn, bb, succ);
                     }
                 }
@@ -399,6 +403,9 @@ void leave(IRBuilder &irb)
 
     replace_identities(irb);
     elide_assignments(irb);
+
+    ssa_transforms.clear();
+    ssa_reads.clear();
 }
 
 } // namespace new_ir::ssa
