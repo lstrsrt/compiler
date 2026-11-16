@@ -150,6 +150,11 @@ void inline_call(IRBuilder &irb, Function *fn, BasicBlock *bb, CallInst *call)
     generate(irb, call->function->body);
     irb.block_insertion_set = nullptr;
 
+    // Void functions can fall off the end without a return, so jump to the merge block manually.
+    if (auto *last = irb.current_fn->current_block; !last->terminal) {
+        generate_jump(irb, merge_block);
+    }
+
     InsertionSetMap return_stores;
 
     for (auto [_, new_block] : block_insertions.insertions) {
@@ -206,6 +211,7 @@ void inline_pass(IRBuilder &irb)
         irb.alloca_sets.pop();
     }
     replace_identities(irb);
+    block_insertions.insertions.clear();
 }
 
 } // namespace new_ir
