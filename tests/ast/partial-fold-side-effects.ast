@@ -1,0 +1,24 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [FunctionDecl f -> s32]
+            [Block]
+                [Call print (1 args)]
+                    "side effect\n" (string)
+                [Return]
+                    7 (s32)
+
+        [VariableDecl x: s32 Integer size 4]
+            7 (s32)
+        [VariableDecl a: s32 Integer size 4]
+            [And]
+                [Call f (0 args)]
+                0 (s32)
+        [VariableDecl b: s32 Integer size 4]
+            [Multiply]
+                [Call f (0 args)]
+                0 (s32)
+        [VariableDecl c: s32 Integer size 4]
+            0 (s32)
+        [VariableDecl d: s32 Integer size 4]
+            0 (s32)
+

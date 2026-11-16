@@ -1,0 +1,6 @@
+#{error(type)}
+enum Color(s32) {
+    A
+}
+x := 1
+y := (Color::B) * 0

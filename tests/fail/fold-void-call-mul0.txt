@@ -1,0 +1,5 @@
+#{error(verify)}
+fn f() {
+}
+x := 1
+y := f() * 0

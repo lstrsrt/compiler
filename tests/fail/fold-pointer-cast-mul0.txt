@@ -1,0 +1,4 @@
+#{error(type)}
+x := 1
+p: *s32 = null
+y := (p as s32) * 0 + x

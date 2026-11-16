@@ -22,12 +22,28 @@ void flatten_binary(Ast *ast, Operation operation, std::vector<Ast *> &flattened
     }
 }
 
+uint64_t truncate(Type *, uint64_t);
+
+// Combine the constants of a flattened chain of one commutative operation, e.g.
+// `x + 1 + y + 2` --> `x + y + 3`. These operations wrap, so regrouping the constants is exact
+// even if combining them overflows; the result is truncated to the type.
 Ast *partial_fold_commutative(
     AstBinary *binary, const std::vector<Ast *> &operands, Operation operation, Type *expected)
 {
     std::vector<Ast *> non_constants;
     std::vector<Ast *> constants;
-    uint64_t accumulator = operation == Operation::Multiply ? 1 : 0;
+    // Start with the operation's identity element.
+    uint64_t accumulator = 0;
+    switch (operation) {
+        case Operation::Multiply:
+            accumulator = 1;
+            break;
+        case Operation::And:
+            accumulator = ~uint64_t{ 0 };
+            break;
+        default:
+            break;
+    }
 
     for (auto *ast : operands) {
         if (ast->type == AstType::Integer) {
@@ -68,8 +84,27 @@ Ast *partial_fold_commutative(
         delete static_cast<AstLiteral *>(constant);
     }
 
-    if (accumulator != 0 || non_constants.empty()) {
-        non_constants.push_back(new AstLiteral(expected, accumulator, operands[0]->location));
+    accumulator = truncate(expected, accumulator);
+    const auto all_ones = truncate(expected, ~uint64_t{ 0 });
+    const auto location = operands[0]->location;
+
+    // x * 0, x & 0 and x | ~0 don't depend on x (but x must still be evaluated if it has side
+    // effects).
+    const bool is_absorbing = ((operation == Operation::Multiply || operation == Operation::And)
+                                  && accumulator == 0)
+        || (operation == Operation::Or && accumulator == all_ones);
+    if (is_absorbing && std::ranges::none_of(non_constants, has_side_effects)) {
+        return new AstLiteral(expected, accumulator, location);
+    }
+
+    // x + 0, x * 1, x & ~0, x | 0 and x ^ 0 are just x.
+    const bool is_identity = (operation == Operation::Multiply && accumulator == 1)
+        || (operation == Operation::And && accumulator == all_ones)
+        || ((operation == Operation::Add || operation == Operation::Or
+                || operation == Operation::Xor)
+            && accumulator == 0);
+    if (!is_identity || non_constants.empty()) {
+        non_constants.push_back(new AstLiteral(expected, accumulator, location));
     }
 
     auto *ret = non_constants[0];

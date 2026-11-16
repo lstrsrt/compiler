@@ -1,0 +1,74 @@
+#{returns(0)}
+// Constants in chains of one commutative operation are combined by partial_fold_commutative().
+// Each check returns a unique nonzero code on mismatch.
+x0 := 7
+r0: s32 = 1
+if x0 & 3 & 1 != r0 {
+    return 1
+}
+x1 := 7
+r1: s32 = 1
+if 3 & x1 & 5 != r1 {
+    return 2
+}
+x2 := 8
+r2: s32 = 11
+if x2 | 1 | 2 != r2 {
+    return 3
+}
+x3 := 8
+r3: s32 = 8
+if x3 ^ 3 ^ 3 != r3 {
+    return 4
+}
+x4 := 8
+r4: s32 = 11
+if x4 ^ 1 ^ 2 != r4 {
+    return 5
+}
+x5 := 1
+r5: s32 = 10
+if x5 + 2 + 3 + 4 != r5 {
+    return 6
+}
+x6 := 10
+r6: s32 = 3
+if x6 + -3 + -4 != r6 {
+    return 7
+}
+x7 := 2
+r7: s32 = 24
+if x7 * 3 * 4 != r7 {
+    return 8
+}
+x8 := 3
+r8: s32 = 0
+if x8 * 0x810000 * 0x810000 != r8 {
+    return 9
+}
+x9: s64 = 3
+r9: s64 = 0
+if x9 * 0x91_0000_0000 * 0x91_0000_0000 != r9 {
+    return 10
+}
+x10 := 5
+r10: s32 = 5
+if x10 + 1 + -1 != r10 {
+    return 11
+}
+x11 := 5
+r11: s32 = 10
+if x11 * 2 * 1 != r11 {
+    return 12
+}
+x12 := 6
+r12: s32 = 6
+if x12 & 7 & 6 != r12 {
+    return 13
+}
+x13 := 0
+r13: s32 = 1
+if x13 | 1 | 0 != r13 {
+    return 14
+}
+return 0

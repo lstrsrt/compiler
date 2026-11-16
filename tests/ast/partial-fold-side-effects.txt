@@ -1,0 +1,12 @@
+#{compare(ast, "partial-fold-side-effects.ast")}
+// A chain whose constants combine to an absorbing value (0 for * and &) only folds to that value if
+// the other operands have no side effects; otherwise the call must stay.
+fn f() -> s32 #{may_discard} {
+    print("side effect\n")
+    return 7
+}
+x := 7
+a := f() & 2 & 1
+b := f() * 0x10000 * 0x10000
+c := x & 2 & 1
+d := x * 0x10000 * 0x10000
