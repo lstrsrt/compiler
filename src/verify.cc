@@ -422,6 +422,7 @@ Type *make_unsigned(Type *type)
 }
 
 Type *make_pointer(Compiler &, Type *real);
+void resolve_type(Compiler &, Scope *, Type *&);
 
 // Computes the type of `ast` itself from the (cached) types of its operands.
 Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
@@ -503,9 +504,13 @@ Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                     return unaliased->is_unsigned() ? type : make_unsigned(unaliased);
                 }
                 if (ast->operation == Operation::Cast) {
+                    auto *cast = static_cast<AstCast *>(ast);
                     // Call only to get the constness.
-                    (void)get_expression_type(cc, static_cast<AstCast *>(ast)->operand, constness);
-                    return static_cast<AstCast *>(ast)->cast_type;
+                    (void)get_expression_type(cc, cast->operand, constness);
+                    // The target may be an enum or a type declared later. Resolve it here, before
+                    // anyone (e.g. an inferred variable) keeps a pointer to the unresolved type.
+                    resolve_type(cc, cast->scope, cast->cast_type);
+                    return cast->cast_type;
                 }
                 [[fallthrough]];
             default:
@@ -1793,7 +1798,9 @@ void verify_cast(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
     // self -> self: removed without warning
 
     auto *cast = static_cast<AstCast *>(ast);
-    auto *cast_type = cast->cast_type;
+    resolve_type(cc, cast->scope, cast->cast_type);
+    // Unaliased, so the checks below see the real kind and size.
+    auto *cast_type = get_unaliased_type(cast->cast_type);
 
     ExprConstness constness{};
     auto *t = get_expression_type(cc, cast->operand, &constness);
@@ -1827,7 +1834,7 @@ void verify_cast(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
         if (cast_type->pointer != type->pointer) {
             if (!cast_type->pointer && cast_type->size < 64) {
                 verification_type_error(ast->location, "cannot cast {} to {} due to precision loss",
-                    to_string(t), to_string(cast_type));
+                    to_string(t), to_string(cast->cast_type));
             }
         }
 

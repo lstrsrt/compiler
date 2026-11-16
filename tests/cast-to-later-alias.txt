@@ -1,0 +1,6 @@
+#{returns(5)}
+// The cast target is declared after the cast.
+x: s64 = 5
+y := x as int
+alias int: s32
+return y

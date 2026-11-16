@@ -1,0 +1,11 @@
+#{returns(7)}
+enum E(s32) {
+    A,
+    B,
+}
+x: s32 = 1
+y := x as E
+if y == E::B {
+    return 7
+}
+return 0
