@@ -1,0 +1,15 @@
+#{returns(0)}
+// Casts of constants are applied to the value before comparing (the folder used to strip them).
+if !((0xffff_ffff as s32) < 0) {
+    return 1
+}
+if (0xffff_ffff as s32) != -1 {
+    return 2
+}
+if (0x1_0000_0005 as u32) != 5 {
+    return 3
+}
+if (0x80 as s8) >= 0 {
+    return 4
+}
+return 0

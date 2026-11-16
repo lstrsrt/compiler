@@ -813,8 +813,23 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
 
     if (ast->type == AstType::Unary) {
         if (ast->operation == Operation::Cast) {
-            // TODO: actually cast?
-            return static_cast<AstCast *>(ast)->operand;
+            auto *cast = static_cast<AstCast *>(ast);
+            auto *cast_type = get_unaliased_type(cast->cast_type);
+            // Apply integer casts to constants, e.g. `0xffff_ffff as s32` is -1. Integer is exact,
+            // so the value must be converted, not just reinterpreted later. Casts can be nested
+            // (e.g. an explicit cast inside one inserted by the typechecker).
+            auto *operand = cast->operand;
+            if (operand->operation == Operation::Cast) {
+                Type *operand_type = static_cast<AstCast *>(operand)->cast_type;
+                operand = try_constant_fold(cc, operand, operand_type, overridable);
+            }
+            if (operand->type == AstType::Integer && cast_type->is_int()
+                && !cast_type->is_pointer()) {
+                const auto &value = static_cast<AstLiteral *>(operand)->value;
+                return new AstLiteral(cast->cast_type, truncate(cast_type, value), cast->location);
+            }
+            // TODO: fold other casts too?
+            return cast->operand;
         }
         auto *ret = try_fold_unary(cc, static_cast<AstUnary *>(ast), expected, overridable);
         ret->flags |= AstFlags::FOLDED;
