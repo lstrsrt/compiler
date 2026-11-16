@@ -1,0 +1,33 @@
+#{compare(ast, "fold-overflow.ast")}
+// Constant folding of + - * / % with overflow: the folded value and type. Overflowing cases
+// with an explicit type warn and truncate; auto-typed ones are promoted to a fitting type.
+v0 := 0 - 0xffff_ffff
+v1: u32 = 0 - 0xffff_ffff
+v2: s64 = 0 - 0xffff_ffff
+v3: s32 = 0 - 5 + 1
+v4: s32 = 0x7fff_ffff + 1
+v5: u32 = 0x7fff_ffff + 1
+v6: u32 = 0xffff_ffff + 1
+v7: u32 = 1 + 0xffff_ffff
+v8: s16 = 32767 + 1
+v9: s64 = 0x7fff_ffff_ffff_ffff + 1
+v10: s32 = 3 + (0 - 1)
+v11: u64 = 0xffff_ffff_ffff_ffff + 1
+v12 := 0x7fff_ffff + 1
+v13: s32 = (0 - 0x7fff_ffff) + (0 - 0x7fff_ffff)
+v14: s32 = -0x7fff_ffff + -0x7fff_ffff
+v15: s32 = -2 * -3
+v16: s32 = (0 - 2) * (0 - 3)
+v17: s32 = -0x10000 * 0x10000
+v18: s32 = 0x10000 * 0x10000
+v19: s32 = -0x4000_0000 + -0x4000_0000
+v20: s32 = -6 / 2
+v21: s32 = -7 % 3
+v22: s32 = 7 / -2
+v23 := 0 - 0x7fff_ffff - 0x7fff_ffff
+v24: s32 = 0x7fff_ffff - -1
+v25: s8 = 100 + 27
+v26: u64 = 0xffff_ffff * 0xffff_ffff
+v27: u64 = 0xffff_ffff_ffff_ffff * 2
+v28 := -0x7fff_ffff + -0x7fff_ffff
+v29 := (0x7fff_ffff + 1) as s64

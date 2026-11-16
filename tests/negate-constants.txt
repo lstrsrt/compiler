@@ -1,0 +1,152 @@
+#{returns(0)}
+// Folded negated/inverted constants and constant comparisons. Each value is compared at
+// runtime against a reference built from a positive variable, so the check itself isn't
+// folded. Each check returns a unique nonzero code on mismatch.
+zs: s64 = 0
+zu: u64 = 0
+v0: s8 = -1
+p0: s64 = 1
+if (v0 as s64) != zs - p0 {
+    return 1
+}
+v1: s8 = -(100 + 27)
+p1: s64 = 127
+if (v1 as s64) != zs - p1 {
+    return 2
+}
+v2: s16 = -(0x7fff)
+p2: s64 = 32767
+if (v2 as s64) != zs - p2 {
+    return 3
+}
+v3: s32 = -1
+p3: s64 = 1
+if (v3 as s64) != zs - p3 {
+    return 4
+}
+v4: s32 = -(3 + 4) * 2
+p4: s64 = 14
+if (v4 as s64) != zs - p4 {
+    return 5
+}
+v5: s32 = -5 + -6
+p5: s64 = 11
+if (v5 as s64) != zs - p5 {
+    return 6
+}
+v6: s32 = -3 - -10
+p6: s64 = 7
+if (v6 as s64) != zs + p6 {
+    return 7
+}
+v7: s32 = 10 + -3
+p7: s64 = 7
+if (v7 as s64) != zs + p7 {
+    return 8
+}
+v8: s32 = -(2 * 3) + 1
+p8: s64 = 5
+if (v8 as s64) != zs - p8 {
+    return 9
+}
+v9: s32 = -6 / 2
+p9: s64 = 3
+if (v9 as s64) != zs - p9 {
+    return 10
+}
+v10: s32 = -7 % 3
+p10: s64 = 1
+if (v10 as s64) != zs - p10 {
+    return 11
+}
+v11: s32 = 7 / -2
+p11: s64 = 3
+if (v11 as s64) != zs - p11 {
+    return 12
+}
+v12: s32 = -2 * -3
+p12: s64 = 6
+if (v12 as s64) != zs + p12 {
+    return 13
+}
+v13: s32 = -0x4000_0000 + -0x4000_0000
+p13: s64 = 2147483648
+if (v13 as s64) != zs - p13 {
+    return 14
+}
+v14: s64 = -0xffff_ffff
+p14: s64 = 4294967295
+if (v14 as s64) != zs - p14 {
+    return 15
+}
+v15: s64 = -1
+p15: s64 = 1
+if (v15 as s64) != zs - p15 {
+    return 16
+}
+v16: s64 = -0x7fff_ffff_ffff_ffff
+p16: s64 = 9223372036854775807
+if (v16 as s64) != zs - p16 {
+    return 17
+}
+v17: u8 = ~0
+p17: u64 = 255
+if (v17 as u64) != zu + p17 {
+    return 18
+}
+v18: u8 = ~0x0f
+p18: u64 = 240
+if (v18 as u64) != zu + p18 {
+    return 19
+}
+v19: u16 = ~1
+p19: u64 = 65534
+if (v19 as u64) != zu + p19 {
+    return 20
+}
+v20: u32 = ~0
+p20: u64 = 4294967295
+if (v20 as u64) != zu + p20 {
+    return 21
+}
+v21: u32 = ~5
+p21: u64 = 4294967290
+if (v21 as u64) != zu + p21 {
+    return 22
+}
+v22: u64 = ~0
+p22: u64 = 18446744073709551615
+if (v22 as u64) != zu + p22 {
+    return 23
+}
+if !(-1 < 0) {
+    return 24
+}
+if !(-2 <= -1) {
+    return 25
+}
+if !(-1 > -2) {
+    return 26
+}
+if !(-5 >= -5) {
+    return 27
+}
+if !(-1 == -1) {
+    return 28
+}
+if !(-1 != 1) {
+    return 29
+}
+if !(0 - 1 < 0) {
+    return 30
+}
+if !(-0x7fff_ffff < 0x7fff_ffff) {
+    return 31
+}
+if !(-3 + 1 < -1) {
+    return 32
+}
+if !(~0 == 0xffff_ffff) {
+    return 33
+}
+return 0

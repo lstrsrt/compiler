@@ -626,10 +626,44 @@ Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *&left, Ast *&right,
     return binary;
 }
 
+Ast *try_fold_negate(Compiler &cc, AstNegate *negate, Type *&expected, TypeOverridable overridable)
+{
+    auto *op = try_constant_fold(cc, negate->operand, expected, overridable);
+    if (op->type != AstType::Integer) {
+        return negate;
+    }
+    auto *type = get_unaliased_type(expected);
+    if (!type->is_int() || type->is_pointer()) {
+        return negate;
+    }
+    const auto &value = static_cast<AstLiteral *>(op)->value;
+    return new AstLiteral(
+        expected, fold_exact(cc, negate, -value, expected, overridable), negate->location);
+}
+
+Ast *try_fold_not(Compiler &cc, AstNot *not_, Type *&expected, TypeOverridable overridable)
+{
+    auto *op = try_constant_fold(cc, not_->operand, expected, overridable);
+    if (op->type != AstType::Integer) {
+        return not_;
+    }
+    const auto bits = ~static_cast<AstLiteral *>(op)->value.bits();
+    return new AstLiteral(expected, truncate(expected, Integer(bits, false)), not_->location);
+}
+
+Ast *try_fold_unary(Compiler &cc, AstUnary *unary, Type *&expected, TypeOverridable overridable)
+{
+    if (unary->operation == Operation::Negate) {
+        return try_fold_negate(cc, unary, expected, overridable);
+    }
+    if (unary->operation == Operation::Not) {
+        return try_fold_not(cc, unary, expected, overridable);
+    }
+    return unary;
+}
+
 Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverridable overridable)
 {
-    const auto operation = binary->operation;
-
     // We can do some simplifications on binary ops with negation.
     if (binary->left->operation == Operation::Negate
         || binary->right->operation == Operation::Negate) {
@@ -642,6 +676,7 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         }
     }
 
+    const auto operation = binary->operation;
     // Figure out which parts of the expression are constant.
     auto *left = try_constant_fold(cc, binary->left, expected, overridable);
     auto *right = try_constant_fold(cc, binary->right, expected, overridable);
@@ -746,6 +781,9 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
             // TODO: actually cast?
             return static_cast<AstCast *>(ast)->operand;
         }
+        auto *ret = try_fold_unary(cc, static_cast<AstUnary *>(ast), expected, overridable);
+        ret->flags |= AstFlags::FOLDED;
+        return ret;
     }
     return ast;
 }

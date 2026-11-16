@@ -1,0 +1,22 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [EnumDecl A]
+            X = -5 (s32)
+            Y = 5 (s32)
+            Z = 4 (s32)
+        [EnumDecl B]
+            X = 0x5 (u32)
+            Y = 0xfffffffa (u32)
+        [EnumDecl C]
+            X = -128 (s8)
+        [VariableDecl a: A enum <unknown> size 4]
+            -5 (s32)
+        [VariableDecl b: A enum <unknown> size 4]
+            5 (s32)
+        [VariableDecl c: A enum <unknown> size 4]
+            4 (s32)
+        [VariableDecl d: B enum <unknown> size 4]
+            0xfffffffa (u32)
+        [VariableDecl e: C enum <unknown> size 1]
+            -128 (s8)
+

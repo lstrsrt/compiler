@@ -1,0 +1,19 @@
+#{compare(ast, "fold-negate-not.ast")}
+// Folding of unary - and ~ on constants.
+x := 1
+a := -5
+b := x == -5
+c := x * -1
+d := -3 + x
+e: s64 = -0xffff_ffff
+f := -(5 as s64)
+g := (-5) as s64
+h := ~5
+i: u8 = ~0
+j: u64 = ~0
+k := ~1
+l := -(0 - 0x7fff_ffff - 1)
+m := -(3 + 4) + 10
+y: s64 = 1
+n := (0x7fff_ffff + 1) as s64 + y
+o := -0x7fff_ffff + -0x7fff_ffff

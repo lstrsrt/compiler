@@ -1,0 +1,64 @@
+[FunctionDecl main -> s32]
+    [Block]
+        [VariableDecl v0: s64 Integer size 8]
+            -4294967295 (s64)
+        [VariableDecl v1: u32 unsigned Integer size 4]
+            0x1 (u32)
+        [VariableDecl v2: s64 Integer size 8]
+            -4294967295 (s64)
+        [VariableDecl v3: s32 Integer size 4]
+            -4 (s32)
+        [VariableDecl v4: s32 Integer size 4]
+            -2147483648 (s32)
+        [VariableDecl v5: u32 unsigned Integer size 4]
+            0x80000000 (u32)
+        [VariableDecl v6: u32 unsigned Integer size 4]
+            0x0 (u32)
+        [VariableDecl v7: u32 unsigned Integer size 4]
+            0x0 (u32)
+        [VariableDecl v8: s16 Integer size 2]
+            -32768 (s16)
+        [VariableDecl v9: s64 Integer size 8]
+            -9223372036854775808 (s64)
+        [VariableDecl v10: s32 Integer size 4]
+            2 (s32)
+        [VariableDecl v11: u64 unsigned Integer size 8]
+            0x0 (u64)
+        [VariableDecl v12: u32 unsigned Integer size 4]
+            0x80000000 (u32)
+        [VariableDecl v13: s32 Integer size 4]
+            2 (s32)
+        [VariableDecl v14: s32 Integer size 4]
+            2 (s32)
+        [VariableDecl v15: s32 Integer size 4]
+            6 (s32)
+        [VariableDecl v16: s32 Integer size 4]
+            6 (s32)
+        [VariableDecl v17: s32 Integer size 4]
+            0 (s32)
+        [VariableDecl v18: s32 Integer size 4]
+            0 (s32)
+        [VariableDecl v19: s32 Integer size 4]
+            -2147483648 (s32)
+        [VariableDecl v20: s32 Integer size 4]
+            -3 (s32)
+        [VariableDecl v21: s32 Integer size 4]
+            -1 (s32)
+        [VariableDecl v22: s32 Integer size 4]
+            -3 (s32)
+        [VariableDecl v23: s64 Integer size 8]
+            -4294967294 (s64)
+        [VariableDecl v24: s32 Integer size 4]
+            -2147483648 (s32)
+        [VariableDecl v25: s8 Integer size 1]
+            127 (s8)
+        [VariableDecl v26: u64 unsigned Integer size 8]
+            0xfffffffe00000001 (u64)
+        [VariableDecl v27: u64 unsigned Integer size 8]
+            0xfffffffffffffffe (u64)
+        [VariableDecl v28: s64 Integer size 8]
+            -4294967294 (s64)
+        [VariableDecl v29: s64 Integer size 8]
+            [Cast s64]
+                0x80000000 (u32)
+

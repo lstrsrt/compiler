@@ -1,0 +1,19 @@
+#{compare(ast, "fold-enum-unary.ast")}
+// Enum initializers using unary - and ~ (also on other members).
+enum A(s32) {
+    X = -5,
+    Y = -X,
+    Z = -(X + 1)
+}
+enum B(u32) {
+    X = 5,
+    Y = ~X
+}
+enum C(s8) {
+    X = -128
+}
+a := A::X
+b := A::Y
+c := A::Z
+d := B::Y
+e := C::X

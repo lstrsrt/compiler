@@ -1,0 +1,302 @@
+#{returns(0)}
+// Rewrites done by try_simplify_binary_with_negate(), checked at runtime with edge values.
+// Only checks whose exact result fits in s32 are included, since the backend doesn't wrap
+// s32 arithmetic to 32 bits. Each check returns a unique nonzero code on mismatch.
+fn check0(x: s32, y: s32) -> s32 {
+    if x + -y != 2 {
+        return 1
+    }
+    if -x + y != -2 {
+        return 2
+    }
+    if -x + -y != -8 {
+        return 3
+    }
+    if x - -y != 8 {
+        return 4
+    }
+    if -x - -y != -2 {
+        return 5
+    }
+    if x + -x != 0 {
+        return 6
+    }
+    if -x - -x != 0 {
+        return 7
+    }
+    if -x - x != -10 {
+        return 8
+    }
+    if -(x + y) + -y != -11 {
+        return 9
+    }
+    if -x + -y + 10 != 2 {
+        return 10
+    }
+    if -x * -y != 15 {
+        return 11
+    }
+    if x * -1 != -5 {
+        return 12
+    }
+    if -x * 3 != -15 {
+        return 13
+    }
+    return 0
+}
+fn check1(x: s32, y: s32) -> s32 {
+    if x + -y != -9 {
+        return 14
+    }
+    if -x + y != 9 {
+        return 15
+    }
+    if -x + -y != 5 {
+        return 16
+    }
+    if x - -y != -5 {
+        return 17
+    }
+    if -x - -y != 9 {
+        return 18
+    }
+    if x + -x != 0 {
+        return 19
+    }
+    if -x - -x != 0 {
+        return 20
+    }
+    if -x - x != 14 {
+        return 21
+    }
+    if -(x + y) + -y != 3 {
+        return 22
+    }
+    if -x + -y + 10 != 15 {
+        return 23
+    }
+    if -x * -y != -14 {
+        return 24
+    }
+    if x * -1 != 7 {
+        return 25
+    }
+    if -x * 3 != 21 {
+        return 26
+    }
+    return 0
+}
+fn check2(x: s32, y: s32) -> s32 {
+    if x + -y != 2147483646 {
+        return 27
+    }
+    if -x + y != -2147483646 {
+        return 28
+    }
+    if -x + -y != (0 - 2147483647 - 1) {
+        return 29
+    }
+    if -x - -y != -2147483646 {
+        return 30
+    }
+    if x + -x != 0 {
+        return 31
+    }
+    if -x - -x != 0 {
+        return 32
+    }
+    if -x + -y + 10 != -2147483638 {
+        return 33
+    }
+    if -x * -y != 2147483647 {
+        return 34
+    }
+    if x * -1 != -2147483647 {
+        return 35
+    }
+    return 0
+}
+fn check3(x: s32, y: s32) -> s32 {
+    if -x + -y != 2147483647 {
+        return 36
+    }
+    if x - -y != -2147483647 {
+        return 37
+    }
+    if x + -x != 0 {
+        return 38
+    }
+    if -x - -x != 0 {
+        return 39
+    }
+    if -(x + y) + -y != 2147483646 {
+        return 40
+    }
+    if -x * -y != (0 - 2147483647 - 1) {
+        return 41
+    }
+    return 0
+}
+fn check4(x: s32, y: s32) -> s32 {
+    if x + -y != 0 {
+        return 42
+    }
+    if -x + y != 0 {
+        return 43
+    }
+    if -x - -y != 0 {
+        return 44
+    }
+    if x + -x != 0 {
+        return 45
+    }
+    if -x - -x != 0 {
+        return 46
+    }
+    return 0
+}
+fn check5(x: s32, y: s32) -> s32 {
+    if -x + y != (0 - 2147483647 - 1) {
+        return 47
+    }
+    if x - -y != (0 - 2147483647 - 1) {
+        return 48
+    }
+    if -x - -y != (0 - 2147483647 - 1) {
+        return 49
+    }
+    if x + -x != 0 {
+        return 50
+    }
+    if -x - -x != 0 {
+        return 51
+    }
+    if -x - x != 0 {
+        return 52
+    }
+    if -x * -y != 0 {
+        return 53
+    }
+    if x * -1 != 0 {
+        return 54
+    }
+    if -x * 3 != 0 {
+        return 55
+    }
+    return 0
+}
+fn check6(x: s32, y: s32) -> s32 {
+    if x + -y != 1111111110 {
+        return 56
+    }
+    if -x + y != -1111111110 {
+        return 57
+    }
+    if -x + -y != 864197532 {
+        return 58
+    }
+    if x - -y != -864197532 {
+        return 59
+    }
+    if -x - -y != -1111111110 {
+        return 60
+    }
+    if x + -x != 0 {
+        return 61
+    }
+    if -x - -x != 0 {
+        return 62
+    }
+    if -x - x != -246913578 {
+        return 63
+    }
+    if -(x + y) + -y != 1851851853 {
+        return 64
+    }
+    if -x + -y + 10 != 864197542 {
+        return 65
+    }
+    if x * -1 != -123456789 {
+        return 66
+    }
+    if -x * 3 != -370370367 {
+        return 67
+    }
+    return 0
+}
+fn check7(x: s32, y: s32) -> s32 {
+    if x + -y != -2147483646 {
+        return 68
+    }
+    if -x + y != 2147483646 {
+        return 69
+    }
+    if x - -y != (0 - 2147483647 - 1) {
+        return 70
+    }
+    if -x - -y != 2147483646 {
+        return 71
+    }
+    if x + -x != 0 {
+        return 72
+    }
+    if -x - -x != 0 {
+        return 73
+    }
+    if -x * -y != 2147483647 {
+        return 74
+    }
+    if x * -1 != 2147483647 {
+        return 75
+    }
+    return 0
+}
+a0: s32 = 5
+b0: s32 = 3
+r0 := check0(a0, b0)
+if r0 != 0 {
+    return r0
+}
+a1: s32 = -7
+b1: s32 = 2
+r1 := check1(a1, b1)
+if r1 != 0 {
+    return r1
+}
+a2: s32 = 2147483647
+b2: s32 = 1
+r2 := check2(a2, b2)
+if r2 != 0 {
+    return r2
+}
+a3: s32 = (0 - 2147483647 - 1)
+b3: s32 = 1
+r3 := check3(a3, b3)
+if r3 != 0 {
+    return r3
+}
+a4: s32 = (0 - 2147483647 - 1)
+b4: s32 = (0 - 2147483647 - 1)
+r4 := check4(a4, b4)
+if r4 != 0 {
+    return r4
+}
+a5: s32 = 0
+b5: s32 = (0 - 2147483647 - 1)
+r5 := check5(a5, b5)
+if r5 != 0 {
+    return r5
+}
+a6: s32 = 123456789
+b6: s32 = -987654321
+r6 := check6(a6, b6)
+if r6 != 0 {
+    return r6
+}
+a7: s32 = -2147483647
+b7: s32 = -1
+r7 := check7(a7, b7)
+if r7 != 0 {
+    return r7
+}
+return 0

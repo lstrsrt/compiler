@@ -481,7 +481,7 @@ Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                     return pointer->real;
                 }
                 if (ast->operation == Operation::Negate) {
-                    *constness |= ExprConstness::SAW_NON_CONSTANT;
+                    // Constant if the operand is: `-5` is as constant as `5`.
                     return get_expression_type(
                         cc, static_cast<AstNegate *>(ast)->operand, constness);
                 }
@@ -490,7 +490,7 @@ Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                     return bool_type();
                 }
                 if (ast->operation == Operation::Not) {
-                    *constness |= ExprConstness::SAW_NON_CONSTANT;
+                    // Constant if the operand is, like Negate.
                     auto *type
                         = get_expression_type(cc, static_cast<AstNot *>(ast)->operand, constness);
 
@@ -1865,9 +1865,11 @@ void verify_unary(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded,
             break;
         case Operation::Negate:
             verify_negate(cc, ast, expected, allow_discarded);
+            ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             break;
         case Operation::Not:
             verify_not(cc, ast, expected, allow_discarded);
+            ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
             break;
         case Operation::LogicalNot:
             verify_logical_not(cc, ast, allow_discarded);
