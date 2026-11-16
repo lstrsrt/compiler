@@ -656,7 +656,10 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
 
     if (operation == Operation::Divide || operation == Operation::Modulo) {
         if (right_is_const && right_const.is_zero()) {
-            diag::ast_warning(cc, binary->right, "trying to divide by 0");
+            // Only warn on the real fold, not on the typecheck-only fold of a copy.
+            if (overridable == TypeOverridable::No) {
+                diag::ast_warning(cc, binary->right, "trying to divide by 0");
+            }
             return binary;
         }
     }
