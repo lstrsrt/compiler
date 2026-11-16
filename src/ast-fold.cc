@@ -599,9 +599,13 @@ Ast *try_simplify_binary_with_negate(AstBinary *binary, Ast *&left, Ast *&right,
         } else if (left_negate && right_negate) {
             // -x + -x  --> -(x + x)
             // -x + -y  --> -(x + y)
-            negated = static_cast<AstNegate *>(negated)->operand;
-            other = static_cast<AstNegate *>(other)->operand;
-            return new AstUnary(Operation::Negate, binary, binary->location);
+            // Build a new node instead of stripping the negations in place: x + y alone is not
+            // equivalent, so if the caller drops the result (e.g. a typecheck-only fold), the
+            // original tree would be left with the wrong value.
+            auto *sum = new AstBinary(Operation::Add, static_cast<AstNegate *>(left)->operand,
+                static_cast<AstNegate *>(right)->operand, binary->location);
+            sum->expr_type = binary->expr_type;
+            return new AstUnary(Operation::Negate, sum, binary->location);
         }
     } else if (binary->operation == Operation::Subtract) {
         if (left_negate && right_negate) {
@@ -631,7 +635,10 @@ Ast *try_fold_binary(Compiler &cc, AstBinary *binary, Type *&expected, TypeOverr
         || binary->right->operation == Operation::Negate) {
         auto *ret = try_simplify_binary_with_negate(binary, binary->left, binary->right, expected);
         if (ret->type != AstType::Binary) {
-            return ret;
+            // e.g. -(x + y): fold the new node too, so constant operands are still folded (and
+            // overflow-checked). Otherwise the typecheck fold, which sees the negations before
+            // they are folded, would disagree with the real fold about the type.
+            return try_constant_fold(cc, ret, expected, overridable);
         }
     }
 
