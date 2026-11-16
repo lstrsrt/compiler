@@ -242,6 +242,12 @@ void generate_ir_branch(Compiler &cc, BasicBlock *bb1)
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto *bb = get_current_block(ir_fn);
+    if (bb->terminal || bb->finished) {
+        // The block already ends in a return or break/continue. Another branch after it would be
+        // dead, but successor lists are built from the last instruction, so it would replace the
+        // real edge in the CFG.
+        return;
+    }
     auto *ir = new IR;
     ir->type = AstType::Unary;
     ir->operation = Operation::Branch;
