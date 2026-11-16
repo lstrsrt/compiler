@@ -2402,7 +2402,18 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 TODO();
         }
     } else if (ast->type == AstType::Block) {
-        for (auto *&stmt : static_cast<AstBlock *>(ast)->stmts) {
+        auto &stmts = static_cast<AstBlock *>(ast)->stmts;
+        // Enums first: a member used before its enum's declaration would otherwise be resolved
+        // early and get the wrong implicit value (members are numbered as they're verified).
+        for (auto *stmt : stmts) {
+            if (stmt->operation == Operation::EnumDecl) {
+                verify_enum_decl(cc, stmt);
+            }
+        }
+        for (auto *&stmt : stmts) {
+            if (stmt->operation == Operation::EnumDecl) {
+                continue;
+            }
             if (stmt->type == AstType::Statement || stmt->type == AstType::Block) {
                 verify_ast(cc, stmt, current_function);
             } else {

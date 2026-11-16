@@ -1,0 +1,9 @@
+#{returns(10)}
+// Using a member before its enum is declared must not change the implicit values.
+x := Color::Blue
+enum Color(s32) {
+    Red,
+    Blue,
+}
+y := Color::Red
+return (x as s32) * 10 + (y as s32)
