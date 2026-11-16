@@ -537,33 +537,67 @@ bool args_identical(const IRArg &a, const IRArg &b)
     return false;
 }
 
+// Removed trivial phis (by target vreg) and the value that replaces them. There are no use lists,
+// so uses of a removed phi are rewritten by replace_removed_phis() once all blocks are sealed.
+std::unordered_map<ssize_t, IRArg> phi_replacements;
+
+IRArg resolve_removed_phi(IRArg arg)
+{
+    while (arg.arg_type == IRArgType::Vreg) {
+        auto it = phi_replacements.find(arg.u.vreg);
+        if (it == phi_replacements.end()) {
+            break;
+        }
+        arg = it->second;
+    }
+    return arg;
+}
+
 std::optional<IRArg> try_remove_trivial_phi(BasicBlock *bb, IRPhi *phi)
 {
     std::optional<IRArg> same;
     for (const auto &op : phi->phi_operands) {
-        if (op.value.arg_type == IRArgType::Vreg && op.value.u.vreg == phi->target) {
+        auto value = resolve_removed_phi(op.value);
+        if (value.arg_type == IRArgType::Vreg && value.u.vreg == phi->target) {
             continue;
         }
-        // TODO: is same.has_value() correct?
-        if (same.has_value() && args_identical(op.value, *same)) {
+        if (same.has_value() && args_identical(value, *same)) {
             continue;
         }
         if (same) {
             ssa_dbgln("***** not trivial");
             return {};
         }
-        same = op.value;
+        same = value;
     }
     ssa_dbgln("***** trivial");
     if (!same) {
         same = IRArg::make_undef();
     }
-    // The phi was inserted at the beginning, so it should be ok to just delete the first insn?
-    bb->code.erase(bb->code.begin());
+    phi_replacements[phi->target] = *same;
+    // Phis are pushed to the front of the block, so this one isn't necessarily the first insn.
+    bb->code.remove(phi);
     delete phi;
-    // We don't do the recursion from the original algorithm here because there are no use lists to
-    // look at.
+    // We don't do the recursion from the original algorithm here (removing phis that become
+    // trivial because of this one), which leaves redundant phis but is still correct.
     return same;
+}
+
+void replace_removed_phis(IRFunction &ir_fn)
+{
+    for (auto *bb : ir_fn.basic_blocks) {
+        for (auto *insn : bb->code) {
+            for (auto &op : insn->operands) {
+                op = resolve_removed_phi(op);
+            }
+            if (insn->operation == Operation::Phi) {
+                for (auto &op : static_cast<IRPhi *>(insn)->phi_operands) {
+                    op.value = resolve_removed_phi(op.value);
+                }
+            }
+        }
+    }
+    phi_replacements.clear();
 }
 
 IRArg read_variable(IRFunction &, uintptr_t, BasicBlock *);
@@ -728,6 +762,7 @@ void enter(Compiler &cc)
             seal_block(*ir_fn, bb);
         }
         incomplete_phis.clear();
+        replace_removed_phis(*ir_fn);
     }
 }
 
