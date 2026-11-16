@@ -2169,16 +2169,19 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
     auto *for_stmt = static_cast<AstFor *>(ast);
     auto *var = &for_stmt->var_decl->var;
 
+    // `end` is also the right-hand side of `cmp`, so verifying `cmp` verifies it too.
     verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::Yes, bool_type());
-    if (for_stmt->end) {
-        verify_expr(cc, for_stmt->end, AllowDiscardedReturn::Yes, var->type);
-    }
+    // If the comparison got folded away, there is no constant range left to check.
+    auto *end = for_stmt->cmp->type == AstType::Binary
+        ? static_cast<AstBinary *>(for_stmt->cmp)->right
+        : nullptr;
+    for_stmt->end = end ? end : for_stmt->end;
 
     auto *start = for_stmt->var_decl->init_expr;
-    auto *end = static_cast<AstBinary *>(for_stmt->cmp)->right;
-    if (expr_is_const_integral(start, IgnoreCasts::Yes)
+    if (end && expr_is_const_integral(start, IgnoreCasts::Yes)
         && expr_is_const_integral(end, IgnoreCasts::Yes)) {
-        auto eq = get_int_literal(start) <=> get_int_literal(end);
+        // Compare as values of the loop variable's type, so negative bounds work.
+        auto eq = get_int_literal_as(start, var->type) <=> get_int_literal_as(end, var->type);
         if (eq == std::strong_ordering::greater
             || (eq == std::strong_ordering::equal && for_stmt->cmp->operation == Operation::Less)) {
             verification_error(for_stmt->cmp, "invalid range");

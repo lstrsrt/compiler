@@ -1,0 +1,7 @@
+#{returns(6)}
+// Constant range bounds are compared as signed values of the loop variable type.
+x := 0
+for i in -3..<3 {
+    x += 1
+}
+return x
