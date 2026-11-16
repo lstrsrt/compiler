@@ -1,0 +1,6 @@
+#{error(verify)}
+enum A(s32) {
+    X = A::Y,
+    Y = A::X
+}
+return 0

@@ -1,0 +1,10 @@
+#{error(verify)}
+// A::Z is implicitly A::X + 1, so it depends on itself through B::Y.
+enum A(s32) {
+    X = B::Y,
+    Z
+}
+enum B(s32) {
+    Y = A::Z
+}
+return 0

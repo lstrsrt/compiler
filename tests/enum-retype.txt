@@ -1,0 +1,11 @@
+#{returns(0)}
+// Initializing B::Y from A::X must not change the type of A::X.
+enum A(s32) {
+    X = 300
+}
+enum B(s64) {
+    Y = A::X
+}
+a := A::X
+b := B::Y
+return (a as s32) - 300 + (b as s32) - 300

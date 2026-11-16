@@ -114,6 +114,10 @@ enum_flags(AstFlags, uint64_t){
     // This is a function that isn't main and has nested functions inside.
     // NOTE: This is a hack for inlining.
     HAS_NESTED_FNS = 1 << 4,
+    // This is an enum (member) that is being verified (detects cyclic members).
+    VERIFYING = 1 << 5,
+    // This is an enum that has been fully verified.
+    VERIFIED = 1 << 6,
 };
 
 #ifdef AST_USE_ARENA

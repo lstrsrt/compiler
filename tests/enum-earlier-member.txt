@@ -1,0 +1,10 @@
+#{returns(8)}
+// B::Y refers back to an earlier member of A while A is still being verified.
+enum A(s32) {
+    P = 3,
+    X = B::Y
+}
+enum B(s32) {
+    Y = A::P + 5
+}
+return (A::X as s32)

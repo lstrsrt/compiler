@@ -1,0 +1,17 @@
+#{returns(11)}
+// Implicit members of enums declared later must be numbered in declaration order, even when a
+// member is referenced first (B::Q = 1, so A::X = 1, A::Y = 2, B::R = 11).
+enum A(s32) {
+    X = B::Q,
+    Y,
+}
+enum B(s32) {
+    P,
+    Q,
+    R = C::N + 10
+}
+enum C(s32) {
+    M,
+    N
+}
+return (A::X as s32) + (A::Y as s32) + (B::R as s32) - 3 + (C::M as s32)

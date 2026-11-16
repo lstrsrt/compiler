@@ -1596,12 +1596,6 @@ Type *get_common_nonconst_integer_type(Type *t1, Type *t2)
     return (t1->size > t2->size) ? t1 : t2;
 }
 
-// The type both sides of a comparison are converted to. verify_comparison() passes it as the
-// expected type to both operands, so an operand that can't be converted to it losslessly (see
-// maybe_cast_int()) is reported as a type error there; this function only has to pick the type.
-// The value of a constant integer expression, if it is known without folding: literals, casts and
-// negations of known values, and binary expressions whose trial fold (see
-// fold_for_type_promotion()) produced a literal. Call after the expression's type was computed.
 std::optional<Integer> get_constant_value(Ast *ast)
 {
     switch (ast->type) {
@@ -1648,10 +1642,6 @@ Type *pick_comparison_type(Type *lhs, ExprConstness lhs_constness, Ast *lhs_ast,
         return lhs;
     }
 
-    // A negative constant compared with an unsigned operand, e.g. `-1 < x` with x: u32, can't take
-    // the unsigned type like other constants do (below). Widen both sides like two non-constants
-    // instead, so the comparison is exact (always true here). get_constant_value() is nullopt for
-    // non-constant sides. There is no such type for u64, so that is still rejected.
     if (l->is_signed() != r->is_signed()) {
         auto lhs_value = get_constant_value(lhs_ast);
         auto rhs_value = get_constant_value(rhs_ast);
@@ -1963,6 +1953,8 @@ TypeError could_implicitly_cast_int(Type *wanted, Type *type, Ast *expr, ExprCon
     return TypeError::None;
 }
 
+void verify_enum_decl(Compiler &, Ast *);
+
 void verify_enum_member(Compiler &cc, Ast *&ast)
 {
     // TODO: some of this work can be done only once.
@@ -1985,6 +1977,18 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
 
     auto *&expr = member->expr;
     auto *member_decl = get_enum_member(cc, enum_decl, member);
+    if (member != member_decl) {
+        // This is a reference to a member. Implicit values are numbered as members are verified,
+        // so verify the whole enum in declaration order first.
+        if (!has_flag(enum_decl->flags, AstFlags::VERIFYING | AstFlags::VERIFIED)) {
+            verify_enum_decl(cc, enum_decl);
+        } else if (!member_decl->expr) {
+            // The enum is being verified and hasn't reached this implicit member yet, so its value
+            // depends on the member we're currently verifying.
+            verification_error(ast, "enum member `{}::{}` depends on itself", enum_decl->name,
+                member_decl->name);
+        }
+    }
     if (!member_decl->expr) {
         if (!unaliased->is_int()) {
             verification_type_error(enum_decl->location,
@@ -1995,16 +1999,24 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
         member_decl->expr = new AstLiteral(unaliased, enum_decl->next_int, ast->location);
     } else {
         if (unaliased->is_int()) {
+            if (has_flag(member_decl->flags, AstFlags::VERIFYING)) {
+                verification_error(ast, "enum member `{}::{}` depends on itself", enum_decl->name,
+                    member_decl->name);
+            }
+            member_decl->flags |= AstFlags::VERIFYING;
             // HACK: make constant folding work by setting the enum nodes to their underlying
             // exprs... real fix is to make try_constant_fold() support enums.
-            traverse_postorder(member_decl->expr, [](Ast *&node) {
+            traverse_postorder(member_decl->expr, [&](Ast *&node) {
                 if (node->operation == Operation::EnumMember) {
-                    auto *tmp = static_cast<AstEnumMember *>(node)->expr; // decl
-                    node = static_cast<AstEnumMember *>(tmp)->expr;       // decl's expr
+                    // This sets the reference's `expr` to the referenced member's value.
+                    verify_enum_member(cc, node);
+                    // Copy so that folding and retyping this expr can't modify the other member.
+                    node = copy_expr_for_fold(static_cast<AstEnumMember *>(node)->expr);
                 }
             });
             member_decl->expr
                 = try_constant_fold(cc, member_decl->expr, unaliased, TypeOverridable::No);
+            member_decl->flags &= ~AstFlags::VERIFYING;
         }
     }
     expr = member_decl->expr;
@@ -2335,6 +2347,11 @@ void verify_function_decl(Compiler &cc, Ast *ast)
 void verify_enum_decl(Compiler &cc, Ast *ast)
 {
     auto *enum_decl = static_cast<AstEnumDecl *>(ast);
+    // May have been verified early because a member was used before the declaration.
+    if (has_flag(enum_decl->flags, AstFlags::VERIFIED)) {
+        return;
+    }
+    enum_decl->flags |= AstFlags::VERIFYING;
 
     resolve_type(cc, enum_decl->scope, enum_decl->enum_type->real);
     auto *real = get_unaliased_type(enum_decl->enum_type->real);
@@ -2354,6 +2371,8 @@ void verify_enum_decl(Compiler &cc, Ast *ast)
     for (auto *&member : enum_decl->members->vector) {
         verify_enum_member(cc, member);
     }
+    enum_decl->flags &= ~AstFlags::VERIFYING;
+    enum_decl->flags |= AstFlags::VERIFIED;
 }
 
 void verify_record_decl(Compiler &cc, Ast *ast)
@@ -2411,18 +2430,7 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 TODO();
         }
     } else if (ast->type == AstType::Block) {
-        auto &stmts = static_cast<AstBlock *>(ast)->stmts;
-        // Enums first: a member used before its enum's declaration would otherwise be resolved
-        // early and get the wrong implicit value (members are numbered as they're verified).
-        for (auto *stmt : stmts) {
-            if (stmt->operation == Operation::EnumDecl) {
-                verify_enum_decl(cc, stmt);
-            }
-        }
-        for (auto *&stmt : stmts) {
-            if (stmt->operation == Operation::EnumDecl) {
-                continue;
-            }
+        for (auto *&stmt : static_cast<AstBlock *>(ast)->stmts) {
             if (stmt->type == AstType::Statement || stmt->type == AstType::Block) {
                 verify_ast(cc, stmt, current_function);
             } else {
