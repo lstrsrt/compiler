@@ -21,9 +21,9 @@ void print_line(std::string_view source, SourceLocation location)
             end = location.column + std::max(rest, 1U);
         }
     }
-    std::println(stderr, "{}{}", line_str,
-        get_highlighted_line(source, location.position, location.column, end));
-    const std::string fill(location.column + fill_width, '~');
+    const auto highlighted = get_highlighted_line(source, location.position, location.column, end);
+    std::println(stderr, "{}{}", line_str, highlighted.text);
+    const std::string fill(highlighted.caret_column + fill_width, '~');
     std::println(stderr, "{}{}^{}", fill, Yellow, Default);
 }
 
@@ -37,6 +37,10 @@ std::string make_printable(char c)
         // Return a string instead of a hex byte for more common cases
         case '\t':
             return "<tab>";
+        case '\v':
+            return "<vertical tab>";
+        case '\f':
+            return "<form feed>";
         case '\n':
             return "<new line>";
         case '\r':

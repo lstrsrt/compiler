@@ -632,23 +632,50 @@ std::string_view get_line(std::string_view source, uint32_t position_in_source)
     return source.substr(0, end);
 }
 
-std::string get_highlighted_line(std::string_view source, uint32_t position_in_source,
+std::string make_display_line(std::string_view line, std::vector<uint32_t> &offsets)
+{
+    std::string ret;
+    ret.reserve(line.size());
+    offsets.reserve(line.size() + 1);
+    for (const char c : line) {
+        offsets.push_back(static_cast<uint32_t>(ret.size()));
+        if (is_control_char(c)) {
+            ret += diag::make_printable(c);
+        } else {
+            ret += c;
+        }
+    }
+    // EOL
+    offsets.push_back(static_cast<uint32_t>(ret.size()));
+    return ret;
+}
+
+HighlightedLine get_highlighted_line(std::string_view source, uint32_t position_in_source,
     uint32_t highlight_start, uint32_t highlight_end)
 {
-    auto str = std::string(get_line(source, position_in_source));
+    const auto line = get_line(source, position_in_source);
 
     assert(highlight_start < highlight_end);
     // The highlight might be on a newline which get_line() cuts off,
     // so add 1 to compensate for that.
-    assert(highlight_start < str.size() + 1);
+    assert(highlight_start < line.size() + 1);
+
+    std::vector<uint32_t> offsets;
+    auto str = make_display_line(line, offsets);
+    const auto start = offsets[highlight_start];
+    const auto end = offsets[std::min<size_t>(highlight_end, line.size())];
 
     // Insert at `highlight_end` first so `highlight_start` doesn't have to be fixed
-    if (highlight_end > str.size()) {
+    if (highlight_end > line.size()) {
         str += colors::Default;
     } else {
-        str.insert(highlight_end, colors::Default);
+        str.insert(end, colors::Default);
     }
-    return str.insert(highlight_start, colors::Red);
+    // Skip UTF-8 continuation bytes
+    const auto caret_column = static_cast<uint32_t>(std::ranges::count_if(
+        str.begin(), str.begin() + start, [](char c) { return (c & 0xc0) != 0x80; }));
+    str.insert(start, colors::Red);
+    return { std::move(str), caret_column };
 }
 
 Token lex_utf8_identifier(Compiler &cc)

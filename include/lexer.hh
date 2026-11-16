@@ -32,7 +32,7 @@ constexpr bool is_alpha(char c)
 
 constexpr bool is_space(char c)
 {
-    return c == ' ' || c == '\t' || c == '\f' || c == '\v';
+    return c == ' ' || c == '\t';
 }
 
 constexpr bool is_control_char(char c)
@@ -294,7 +294,13 @@ struct Lexer {
 };
 
 std::string_view get_line(std::string_view source, uint32_t position_in_source);
-std::string get_highlighted_line(std::string_view source, uint32_t position_in_source,
+
+struct HighlightedLine {
+    std::string text;
+    uint32_t caret_column;
+};
+
+HighlightedLine get_highlighted_line(std::string_view source, uint32_t position_in_source,
     uint32_t highlight_start, uint32_t highlight_end);
 
 struct Compiler;
