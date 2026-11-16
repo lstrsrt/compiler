@@ -1,0 +1,2 @@
+#{error(verify)}
+x: s32 = Foo::A

@@ -1970,6 +1970,10 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
     auto *member = static_cast<AstEnumMember *>(ast);
     if (!member->enum_decl) {
         member->enum_decl = find_enum(member->scope, member->enum_name);
+        if (!member->enum_decl) {
+            // TODO: this should be on the (non-existant) enum name
+            verification_error(ast, "type `{}` is not declared in this scope", member->enum_name);
+        }
     }
     auto *enum_decl = member->enum_decl;
 
@@ -2026,7 +2030,9 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
         }
     }
     if (unaliased->is_int()) {
-        assert(expr_is_const_integral(expr, IgnoreCasts::Yes));
+        if (!expr_is_const_integral(expr, IgnoreCasts::Yes)) {
+            verification_error(expr, "enum initializer needs to be fully constant");
+        }
         enum_decl->next_int = get_int_literal(expr) + 1;
     }
 
