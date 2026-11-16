@@ -635,7 +635,7 @@ enum class AllowDiscardedReturn {
 };
 
 void verify_expr(Compiler &, Ast *&, AllowDiscardedReturn, Type *expected = nullptr);
-void verify_expr2(Compiler &, Ast *&, AllowDiscardedReturn);
+void verify_assign(Compiler &, Ast *);
 
 uint64_t max_for_type(Type *t)
 {
@@ -1453,10 +1453,6 @@ void verify_binary(
     Compiler &cc, AstBinary *binary, Type *expected, AllowDiscardedReturn allow_discarded)
 {
     verify_binary_operation(cc, binary, expected);
-    if (!expected && binary->operation == Operation::Assign) {
-        ExprConstness c{};
-        expected = get_expression_type(cc, binary->left, &c);
-    }
     verify_expr(cc, binary->left, allow_discarded, expected);
     verify_expr(cc, binary->right, allow_discarded, expected);
 }
@@ -2055,6 +2051,20 @@ void verify_enum_member(Compiler &cc, Ast *&ast)
 
 void verify_expr(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded, Type *expected)
 {
+    if (ast->operation == Operation::Assign) {
+        // An expected type means the value is used (e.g. `x = y = 1`), but assignments are void.
+        if (expected) {
+            verification_type_error(ast->location, "assignment cannot be used as a value");
+        }
+        verify_assign(cc, ast);
+        return;
+    }
+    if (!expected) {
+        // The value isn't used (e.g. an expression statement), so expect the expression's own
+        // type. Operand checks and constant folding need a type to work with.
+        ExprConstness constness{};
+        expected = get_expression_type(cc, ast, &constness);
+    }
     Type *type;
     switch (ast->type) {
         case AstType::Integer:
@@ -2241,7 +2251,7 @@ void verify_for_in(Compiler &cc, Ast *ast, AstFunction *current_function)
         }
     }
 
-    verify_expr2(cc, for_stmt->change, AllowDiscardedReturn::Yes);
+    verify_expr(cc, for_stmt->change, AllowDiscardedReturn::Yes);
 
     verify_ast(cc, for_stmt->body, current_function);
 }
@@ -2266,11 +2276,11 @@ void verify_for(Compiler &cc, Ast *ast, AstFunction *current_function)
     }
 
     if (for_stmt->cmp) {
-        verify_expr2(cc, for_stmt->cmp, AllowDiscardedReturn::Yes);
+        verify_expr(cc, for_stmt->cmp, AllowDiscardedReturn::Yes);
     }
 
     if (for_stmt->change) {
-        verify_expr2(cc, for_stmt->change, AllowDiscardedReturn::Yes);
+        verify_expr(cc, for_stmt->change, AllowDiscardedReturn::Yes);
     }
 
     verify_ast(cc, for_stmt->body, current_function);
@@ -2315,16 +2325,6 @@ void verify_assign(Compiler &cc, Ast *ast)
     verify_expr(cc, binary->right, AllowDiscardedReturn::Yes, expected);
     if (exprs_identical(binary->left, binary->right, CheckSideEffects::Yes)) {
         diag::ast_warning(cc, binary, "self-assignment has no effect");
-    }
-}
-
-void verify_expr2(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
-{
-    if (ast->operation == Operation::Assign) {
-        verify_assign(cc, ast);
-    } else {
-        ExprConstness constness{};
-        verify_expr(cc, ast, allow_discarded, get_expression_type(cc, ast, &constness));
     }
 }
 
@@ -2435,11 +2435,11 @@ void verify_ast(Compiler &cc, Ast *ast, AstFunction *current_function)
                 verify_ast(cc, stmt, current_function);
             } else {
                 // Expressions may be replaced (e.g. folded), so pass the slot by reference.
-                verify_expr2(cc, stmt, AllowDiscardedReturn::No);
+                verify_expr(cc, stmt, AllowDiscardedReturn::No);
             }
         }
     } else {
-        verify_expr2(cc, ast, AllowDiscardedReturn::No);
+        verify_expr(cc, ast, AllowDiscardedReturn::No);
     }
 }
 
