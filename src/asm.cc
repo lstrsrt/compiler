@@ -379,22 +379,21 @@ void emit_compare(const IRFunction &ir_fn, const IRArg &arg)
 void emit_asm_comparison(const IRFunction &ir_fn, IR *ir)
 {
     const char *op = [ir, func = __func__]() {
-        auto *type = ir->ast->expr_type;
-        assert(type);
-        bool is_unsigned = type->is_unsigned();
+        // Only comparisons have an operand type; anything else hits the todo() below.
+        auto is_unsigned = [ir] { return get_comparison_operand_type(ir->ast)->is_unsigned(); };
         switch (ir->operation) {
             case Operation::Equals:
                 return "sete";
             case Operation::NotEquals:
                 return "setne";
             case Operation::Greater:
-                return is_unsigned ? "seta" : "setg";
+                return is_unsigned() ? "seta" : "setg";
             case Operation::GreaterEquals:
-                return is_unsigned ? "setae" : "setge";
+                return is_unsigned() ? "setae" : "setge";
             case Operation::Less:
-                return is_unsigned ? "setb" : "setl";
+                return is_unsigned() ? "setb" : "setl";
             case Operation::LessEquals:
-                return is_unsigned ? "setbe" : "setle";
+                return is_unsigned() ? "setbe" : "setle";
             default:
                 todo(func, __FILE__, __LINE__);
         }

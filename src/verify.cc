@@ -1489,7 +1489,6 @@ void get_comparison_types(Compiler &cc, AstBinary *&cmp, ComparisonTypes &c)
     c.lhs_type = get_expression_type(cc, cmp->left, &c.lhs_constness);
     c.rhs_type = get_expression_type(cc, cmp->right, &c.rhs_constness);
     c.type = expr_is_fully_constant(c.lhs_constness) ? c.rhs_type : c.lhs_type;
-    cmp->expr_type = c.type;
 }
 
 void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
@@ -1509,6 +1508,7 @@ void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_disca
     // verify_expr can insert casts etc so get type again
     get_comparison_types(cc, cmp, c);
     expected = get_unaliased_type(c.type);
+    cmp->operand_type = expected;
     bool is_left_const = expr_is_const_integral(cmp->left, IgnoreCasts::Yes);
     bool is_right_const = expr_is_const_integral(cmp->right, IgnoreCasts::Yes);
 
@@ -1540,7 +1540,7 @@ void verify_logical_not(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_disc
     auto *type = get_expression_type(cc, static_cast<AstLogicalNot *>(ast)->operand, &constness);
     ast = new AstBinary(Operation::Equals, static_cast<AstLogicalNot *>(ast)->operand,
         new AstLiteral(type, 0, ast->location), ast->location);
-    ast->expr_type = type;
+    ast->expr_type = bool_type();
     verify_comparison(cc, ast, allow_discarded);
 }
 
@@ -1565,7 +1565,8 @@ void convert_expr_to_boolean(Compiler &cc, Ast *&expr, Type *type)
     if (!is_logical_operation(expr->operation)) {
         expr = new AstBinary(
             Operation::NotEquals, expr, new AstLiteral(type, 0, expr->location), expr->location);
-        expr->expr_type = type;
+        expr->expr_type = bool_type();
+        static_cast<AstBinary *>(expr)->operand_type = type;
     }
 }
 

@@ -1,0 +1,22 @@
+#{returns(4)}
+// Comparisons of unsigned values must use unsigned compares (0xffff... is not -1).
+fn gt(x: u64, y: u64) -> bool {
+    return x > y
+}
+big: u64 = 0xffff_ffff_ffff_ffff
+one: u64 = 1
+n := 0
+if big > one {
+    n += 1
+}
+b := one < big
+if b {
+    n += 1
+}
+if big >= one and n == 2 {
+    n += 1
+}
+if gt(big, one) {
+    n += 1
+}
+return n

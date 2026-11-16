@@ -270,8 +270,8 @@ void generate_ir_cond_branch(
 {
     auto *ir_fn = cc.ir_builder.current_function;
     auto get_branch_type = [&, func = __func__](Operation operation) {
-        assert(ast->expr_type);
-        bool is_unsigned = ast->expr_type->is_unsigned();
+        // Only comparisons have an operand type; anything else hits the todo() below.
+        auto is_unsigned = [&] { return get_comparison_operand_type(ast)->is_unsigned(); };
         using enum Operation;
         switch (operation) {
             case Equals:
@@ -279,13 +279,13 @@ void generate_ir_cond_branch(
             case NotEquals:
                 return BranchNe;
             case Greater:
-                return is_unsigned ? BranchUGt : BranchSGt;
+                return is_unsigned() ? BranchUGt : BranchSGt;
             case GreaterEquals:
-                return is_unsigned ? BranchUGe : BranchSGe;
+                return is_unsigned() ? BranchUGe : BranchSGe;
             case Less:
-                return is_unsigned ? BranchULt : BranchSLt;
+                return is_unsigned() ? BranchULt : BranchSLt;
             case LessEquals:
-                return is_unsigned ? BranchULe : BranchSLe;
+                return is_unsigned() ? BranchULe : BranchSLe;
             default:
                 todo(func, __FILE__, __LINE__);
         }

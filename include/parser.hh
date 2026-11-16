@@ -543,6 +543,9 @@ AstFunction *get_callee(Compiler &, AstCall *);
 struct AstBinary : Ast {
     Ast *left;
     Ast *right;
+    // Comparisons only: the (unaliased) type both operands were converted to. `expr_type` is the
+    // result type (bool). Codegen needs this to pick signed or unsigned comparisons.
+    Type *operand_type = nullptr; // Set by verifier
     // Constant expressions only: the result of folding a copy of this expression while computing
     // its type (usually a literal). Parents reuse it instead of folding the whole subtree again.
     Ast *trial_fold = nullptr; // Set by verifier
@@ -554,6 +557,14 @@ struct AstBinary : Ast {
     {
     }
 };
+
+inline Type *get_comparison_operand_type(Ast *cmp)
+{
+    assert(cmp->type == AstType::Binary);
+    auto *type = static_cast<AstBinary *>(cmp)->operand_type;
+    assert(type && "comparison was not verified");
+    return type;
+}
 
 struct AstReturn : Ast {
     Ast *expr;
