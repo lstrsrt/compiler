@@ -1,0 +1,3 @@
+#{error(type)}
+// `null` has no pointee type, so it cannot be used to infer a variable type.
+p := null

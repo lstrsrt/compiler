@@ -1,5 +1,5 @@
 #{compare(ast, "pointer-add.ast")}
-px := null
+px: *s32 = null
 px2 := px + 1
 px3 := px + 4
 px4 := px + 5 + 3

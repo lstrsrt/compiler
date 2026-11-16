@@ -2106,6 +2106,11 @@ void verify_var_decl(Compiler &cc, AstVariableDecl *var_decl)
         // deleted before reassigning.
         ExprConstness constness{};
         var.type = get_expression_type(cc, var_decl->init_expr, &constness);
+        if (get_unaliased_type(var.type) == null_type()) {
+            verification_type_error(var_decl->location,
+                "cannot infer the type of `{}` from `null`; declare it with a pointer type",
+                var.name);
+        }
         if (var_decl->init_expr->operation == Operation::LogicalOr
             || var_decl->init_expr->operation == Operation::LogicalAnd) {
             verify_logical_chain(cc, var_decl->init_expr);
