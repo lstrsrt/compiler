@@ -771,6 +771,10 @@ void verify_print(Compiler &cc, Ast *ast)
         verification_error(print, "print needs at least one argument");
     }
     auto *&fmt = print->args[0];
+    if (fmt->type != AstType::String) {
+        // The format string is rewritten at compile time, so it has to be a literal.
+        verification_error(fmt, "print format must be a string literal");
+    }
     verify_expr(cc, fmt, AllowDiscardedReturn::Yes, string_type());
 
     // Handle fmt string

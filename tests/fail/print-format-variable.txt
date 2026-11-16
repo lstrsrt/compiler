@@ -1,0 +1,4 @@
+#{error(verify)}
+// The format string is rewritten at compile time, so a variable cannot be used.
+s := "hi"
+print(s)
