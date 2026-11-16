@@ -943,9 +943,9 @@ void parse_error_attribute(Compiler &cc)
     test_mode.test_type = TestType::Error;
 }
 
-FunctionAttributes parse_fn_dump_attributes(Compiler &cc)
+// `attrs` are the attributes parsed so far; returns them with the dump flags added.
+FunctionAttributes parse_fn_dump_attributes(Compiler &cc, FunctionAttributes attrs)
 {
-    FunctionAttributes attrs{};
     static const std::unordered_map<std::string_view, FunctionAttributes> dump_attr_map{
         { "ast", FunctionAttributes::DUMP_AST },
         { "ir", FunctionAttributes::DUMP_IR },
@@ -955,6 +955,10 @@ FunctionAttributes parse_fn_dump_attributes(Compiler &cc)
     for (;;) {
         auto token = lex(cc);
         if (auto it = dump_attr_map.find(token.string); it != dump_attr_map.end()) {
+            // Covers both `dump(ast, ast)` and `dump(ast), dump(ast)`.
+            if (has_flag(attrs, it->second)) {
+                diag::warning_at(cc, token.location, "duplicate dump attribute `{}`", token.string);
+            }
             attrs |= it->second;
         } else {
             parser_error(token.location, "unknown attribute");
@@ -1027,15 +1031,24 @@ bool parse_global_attribute(Compiler &cc, Token &token, hash_t string_hash)
 FunctionAttributes parse_fn_attributes(Compiler &cc, bool is_main)
 {
     FunctionAttributes attrs{};
+    // Names of the attributes seen so far, except `dump` which may be repeated with different
+    // arguments. Global attributes (e.g. `returns`) don't set any flags, so we can't use `attrs`.
+    std::vector<hash_t> seen;
     consume_expected(cc, TokenKind::LBrace, lex(cc));
     for (;;) {
         auto token = lex(cc);
-        auto old = attrs;
         auto string_hash = hash(token.string);
+        if (string_hash != hash("dump")) {
+            if (std::ranges::contains(seen, string_hash)) {
+                diag::warning_at(
+                    cc, token.location, "duplicate function attribute `{}`", token.string);
+            }
+            seen.push_back(string_hash);
+        }
         switch (string_hash) {
             case hash("dump"):
                 consume(cc.lexer, token);
-                attrs |= parse_fn_dump_attributes(cc);
+                attrs = parse_fn_dump_attributes(cc, attrs);
                 break;
             case hash("may_discard"):
                 if (is_main) {
@@ -1048,9 +1061,6 @@ FunctionAttributes parse_fn_attributes(Compiler &cc, bool is_main)
                 if (!is_main || !parse_global_attribute(cc, token, string_hash)) {
                     parser_error(token.location, "unknown function attribute");
                 }
-        }
-        if (std::to_underlying(old) != 0 && (attrs & old) == attrs) {
-            diag::warning_at(cc, token.location, "duplicate function attribute");
         }
         token = lex(cc);
         if (token.kind != TokenKind::Comma) {
