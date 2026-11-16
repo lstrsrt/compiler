@@ -1,0 +1,17 @@
+#{returns(25)}
+// Operations on alias-typed values behave like on the underlying type.
+alias uint: u32
+alias ip: *s32
+x: uint = 5
+y: uint = ~x
+hi := (y >> 28) as s32
+a := 3
+p: ip = &a
+sh: uint = x << 1
+z: A = 0
+if z > 5 and z < 3 {
+    return 99
+}
+return hi + *p + (sh as s32) - 3
+alias A: B
+alias B: s32

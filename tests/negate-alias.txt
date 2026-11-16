@@ -1,0 +1,7 @@
+#{returns(15)}
+// Negation of alias-typed values and literals.
+alias int: s32
+y: int = 5
+x: int = -y
+z: int = -10
+return (0 - x) - z

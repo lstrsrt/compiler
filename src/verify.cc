@@ -286,13 +286,18 @@ Type *merge_binary_operand_types(Compiler &cc, const std::vector<BinaryOperand> 
             // If we got a non-constant, override the type unless it has already been overwritten.
             seen_non_const = true;
             ret = current;
-        } else if (type_is_const_int(current, expr_constness) && ret->is_pointer()) {
+        } else if (type_is_const_int(get_unaliased_type(current), expr_constness)
+            && get_unaliased_type(ret)->is_pointer()) {
             // Pointer arithmetic (const offset).
             continue;
-        } else if (type_is_const_int(current, expr_constness) && ret->is_int()) {
-            ret = get_common_const_integer_type(current, ret);
+        } else if (type_is_const_int(get_unaliased_type(current), expr_constness)
+            && get_unaliased_type(ret)->is_int()) {
+            auto *common = get_common_const_integer_type(
+                get_unaliased_type(current), get_unaliased_type(ret));
+            // Keep the alias (for diagnostics) when it is the common type anyway.
+            ret = common == get_unaliased_type(ret) ? ret : common;
         } else if (types_match(ret, current) != TypeError::None) {
-            if (current == s64_type() && ret->is_pointer()) {
+            if (current == s64_type() && get_unaliased_type(ret)->is_pointer()) {
                 // Pointer arithmetic (non const).
                 continue;
             }
@@ -465,13 +470,14 @@ Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                 if (ast->operation == Operation::Dereference || ast->operation == Operation::Load) {
                     auto *type
                         = get_expression_type(cc, static_cast<AstUnary *>(ast)->operand, constness);
+                    auto *pointer = get_unaliased_type(type);
 
-                    if (!type->is_pointer()) {
+                    if (!pointer->is_pointer()) {
                         verification_error(static_cast<AstUnary *>(ast)->operand,
                             "cannot dereference non-pointer of type {}", to_string(type));
                     }
 
-                    return type->real;
+                    return pointer->real;
                 }
                 if (ast->operation == Operation::Negate) {
                     *constness |= ExprConstness::SAW_NON_CONSTANT;
@@ -487,12 +493,14 @@ Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                     auto *type
                         = get_expression_type(cc, static_cast<AstNot *>(ast)->operand, constness);
 
-                    if (!type->is_int()) {
+                    auto *unaliased = get_unaliased_type(type);
+                    if (!unaliased->is_int()) {
                         verification_error(static_cast<AstUnary *>(ast)->operand,
                             "bitwise not can only be applied to only unsigned integers");
                     }
 
-                    return make_unsigned(type);
+                    // Keep the alias if it already is unsigned.
+                    return unaliased->is_unsigned() ? type : make_unsigned(unaliased);
                 }
                 if (ast->operation == Operation::Cast) {
                     // Call only to get the constness.
@@ -570,6 +578,10 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         }
         if (resolved) {
             // c)
+            if (resolved->has_flag(TypeFlags::ALIAS)) {
+                // Resolve the alias' own underlying type (this never replaces `resolved` itself).
+                resolve_type(cc, scope, resolved);
+            }
             for (int i = 0; i < type->pointer; ++i) {
                 resolved = make_pointer(cc, resolved);
             }
@@ -586,6 +598,8 @@ void resolve_type(Compiler &cc, Scope *scope, Type *&type)
         if (resolved) {
             delete type->real;
             type->real = resolved;
+            // The underlying type may itself be an alias declared later (`alias A: B`).
+            resolve_type(cc, scope, type->real);
         } else {
             verification_type_error(type->location,
                 "invalid alias `{}`: underlying type `{}` is not declared in this scope",
@@ -924,7 +938,7 @@ void verify_dereference(Compiler &cc, Ast *&ast, Type *, AllowDiscardedReturn al
 
     ExprConstness constness{};
     auto *type = get_expression_type(cc, unary->operand, &constness);
-    if (!type->is_pointer()) {
+    if (!get_unaliased_type(type)->is_pointer()) {
         verification_error(unary, "cannot dereference non-pointer of type {}", to_string(type));
     }
 
@@ -942,7 +956,8 @@ void verify_negate(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn
             to_string(type));
     };
 
-    if (!expected->is_int() || expected->is_unsigned() || expected->is_pointer()) {
+    auto *e = get_unaliased_type(expected);
+    if (!e->is_int() || e->is_unsigned() || e->is_pointer()) {
         negation_error(expected);
     }
 
@@ -950,18 +965,20 @@ void verify_negate(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn
     // unsigned operand (e.g. `-u` with u: u32 in an s64 context). Unsigned constants are fine
     // since they are converted to the signed type.
     ExprConstness constness{};
-    auto *type = get_expression_type(cc, unary->operand, &constness);
+    auto *t = get_expression_type(cc, unary->operand, &constness);
+    auto *type = get_unaliased_type(t);
     if (!type->is_int() || type->is_pointer()
         || (type->is_unsigned() && !expr_is_fully_constant(constness))) {
-        negation_error(type);
+        negation_error(t);
     }
 
     verify_expr(cc, unary->operand, allow_discarded, expected);
 
     constness = {};
-    type = get_expression_type(cc, unary->operand, &constness);
+    t = get_expression_type(cc, unary->operand, &constness);
+    type = get_unaliased_type(t);
     if (!type->is_int() || type->is_unsigned()) {
-        negation_error(type);
+        negation_error(t);
     }
 }
 
@@ -983,6 +1000,7 @@ void verify_not(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn al
     auto *type = get_expression_type(cc, unary->operand, &constness);
     verify_expr(cc, unary->operand, allow_discarded, expected);
 
+    type = get_unaliased_type(type);
     if (!type->is_int() || !is_unsigned_or_convertible(type, constness)) {
         verification_type_error(
             unary->location, "bitwise not can only be applied to only unsigned integers");
@@ -1238,7 +1256,7 @@ void verify_logical_chain(Compiler &cc, Ast *&_cmp)
         if (!ident || !constant) {
             continue;
         }
-        ranges_map[ident->var].type = ident->var->type;
+        ranges_map[ident->var].type = get_unaliased_type(ident->var->type);
         ranges_map[ident->var].comp.emplace_back(operand, constant, operation);
     }
 
@@ -1389,7 +1407,7 @@ void verify_binary_operation(Compiler &cc, AstBinary *binary, Type *expected)
             }
             // The lhs check is here so we don't warn twice (here and again in the optimizer)
             if (!type_is_const_int(lhs_type, lhs_constness)) {
-                if (shift_count >= expected->size) {
+                if (shift_count >= get_unaliased_type(expected)->size) {
                     const char *shift_type = op == Operation::LeftShift ? "left" : "right";
                     diag::ast_warning(cc, binary, "{} shift by {} overflows expected type {}",
                         shift_type, shift_count, to_string(expected));
