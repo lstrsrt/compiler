@@ -105,8 +105,8 @@ inline Scope *current_scope;
 enum_flags(AstFlags, uint64_t){
     // Prevent optimizer from trying to fold this tree multiple times.
     FOLDED = 1 << 0,
-    // This is a subtree of a typechecker trial fold.
-    TYPECHECK_FOLDED = 1 << 1,
+    // `expr_type` and `cached_constness` are up to date (see get_expression_type()).
+    TYPE_CACHED = 1 << 1,
     // Tell the typechecker that this tree can mix integers and pointers in operations.
     PTR_ARITH = 1 << 2,
     // This is a function that directly calls itself.
@@ -130,6 +130,13 @@ inline auto &ast_vec_allocator()
 }
 #endif
 
+// Which kinds of leaves an expression contains, as computed by the type checker.
+enum_flags(ExprConstness, uint8_t){
+    Unknown = 0,
+    SAW_CONSTANT = 1 << 0,
+    SAW_NON_CONSTANT = 1 << 1,
+};
+
 struct Ast {
     Scope *scope;
     AstType type;
@@ -137,6 +144,7 @@ struct Ast {
     SourceLocation location;
     Type *expr_type = nullptr; // Set during verification.
     AstFlags flags{};
+    ExprConstness cached_constness{}; // Valid if flags has TYPE_CACHED.
 
     explicit Ast(
         AstType _type, Operation _operation = Operation::None, SourceLocation _location = {})
@@ -535,7 +543,9 @@ AstFunction *get_callee(Compiler &, AstCall *);
 struct AstBinary : Ast {
     Ast *left;
     Ast *right;
-    Type *promoted_type = nullptr; // Set by verifier
+    // Constant expressions only: the result of folding a copy of this expression while computing
+    // its type (usually a literal). Parents reuse it instead of folding the whole subtree again.
+    Ast *trial_fold = nullptr; // Set by verifier
 
     explicit AstBinary(Operation _op, Ast *_left, Ast *_right, SourceLocation _location)
         : Ast(AstType::Binary, _op, _location)

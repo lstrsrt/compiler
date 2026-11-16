@@ -199,17 +199,6 @@ void type_error(Compiler &cc, Ast *ast, Type *lhs_type, Type *rhs_type, TypeErro
     }
 }
 
-enum_flags(ExprConstness, uint8_t){
-    Unknown = 0,
-    SAW_CONSTANT = 1 << 0,
-    SAW_NON_CONSTANT = 1 << 1,
-};
-
-bool expr_has_no_constants(ExprConstness e)
-{
-    return e == ExprConstness::SAW_NON_CONSTANT;
-}
-
 bool expr_is_fully_constant(ExprConstness e)
 {
     return e == ExprConstness::SAW_CONSTANT;
@@ -287,11 +276,12 @@ Type *merge_binary_operand_types(Compiler &cc, const std::vector<BinaryOperand> 
     Type *ret = nullptr;
 
     for (const auto &[ast, current, expr_constness] : operands) {
+        // A partly constant operand (e.g. `x + 1`) has the type of its non-constant part.
         if (!ret) {
             // First time, just set it to whatever we got.
             ret = current;
-            seen_non_const = expr_has_no_constants(expr_constness);
-        } else if (!seen_non_const && expr_has_no_constants(expr_constness)) {
+            seen_non_const = !expr_is_fully_constant(expr_constness);
+        } else if (!seen_non_const && !expr_is_fully_constant(expr_constness)) {
             // If we got a non-constant, override the type unless it has already been overwritten.
             seen_non_const = true;
             ret = current;
@@ -313,34 +303,33 @@ Type *merge_binary_operand_types(Compiler &cc, const std::vector<BinaryOperand> 
     return ret;
 }
 
-void mark_typecheck_folded(Ast *ast)
-{
-    if (ast->type != AstType::Binary) {
-        return;
-    }
-    ast->flags |= AstFlags::TYPECHECK_FOLDED;
-    mark_typecheck_folded(static_cast<AstBinary *>(ast)->left);
-    mark_typecheck_folded(static_cast<AstBinary *>(ast)->right);
-}
-
-// The AST is not actually overwritten because we want to verify the individual operands later.
-// `overridable` needs to always be Yes so the optimizer can properly determine `type`.
+// Fold a copy (the operands are verified individually later) of a constant expression to see if it
+// overflows `type`, and promote `type` if it does. `overridable` needs to always be Yes so the
+// optimizer can properly determine `type`. This runs once per node since the result is cached.
 //
 // All binary operands are integers.
 void fold_for_type_promotion(Compiler &cc, AstBinary *binary, Type *&type)
 {
-    if (binary->promoted_type) {
-        type = binary->promoted_type;
+    binary->trial_fold = nullptr;
+    if (has_flag(binary->flags, AstFlags::FOLDED)) {
         return;
     }
-    if (has_flag(binary->flags, AstFlags::FOLDED)
-        || has_flag(binary->flags, AstFlags::TYPECHECK_FOLDED)) {
-        return;
-    }
-    try_constant_fold(cc, copy_expr_for_fold(binary), type, TypeOverridable::Yes);
-    binary->promoted_type = type;
-    mark_typecheck_folded(binary->left);
-    mark_typecheck_folded(binary->right);
+    // The operands' types were computed first, so constant binary operands have been trial folded
+    // already. Reuse their results instead of copying the whole subtree, which would make long
+    // constant chains quadratic in time and memory. Copies are needed since folding may delete
+    // literals.
+    auto copy_operand = [](Ast *operand) {
+        if (operand->type == AstType::Binary) {
+            if (auto *folded = static_cast<AstBinary *>(operand)->trial_fold) {
+                return copy_expr_for_fold(folded);
+            }
+        }
+        return copy_expr_for_fold(operand);
+    };
+    auto *copy = new AstBinary(binary->operation, copy_operand(binary->left),
+        copy_operand(binary->right), binary->location);
+    copy->expr_type = binary->expr_type;
+    binary->trial_fold = try_constant_fold(cc, copy, type, TypeOverridable::Yes);
 }
 
 Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constness)
@@ -349,6 +338,7 @@ Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constnes
 
     switch (binary->operation) {
         case Operation::Assign:
+        case Operation::Store:
             return void_type();
         case Operation::Equals:
         case Operation::NotEquals:
@@ -364,15 +354,12 @@ Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constnes
             break;
     }
 
-    std::vector<Ast *> flattened;
-    flatten_binary(binary, flattened);
-
+    // Only look at the direct operands: their types are cached, so this is O(1) per node.
     std::vector<BinaryOperand> operands;
-    operands.reserve(flattened.size());
-    for (auto *ast : flattened) {
-        ExprConstness constness{};
-        auto *type = get_expression_type(cc, ast, &constness);
-        operands.emplace_back(ast, type, constness);
+    for (auto *child : { binary->left, binary->right }) {
+        ExprConstness child_constness{};
+        auto *type = get_expression_type(cc, child, &child_constness);
+        operands.emplace_back(child, type, child_constness);
     }
 
     for (const auto &operand : operands) {
@@ -397,10 +384,11 @@ Type *get_binary_expression_type(Compiler &cc, Ast *ast, ExprConstness &constnes
 
     auto *ret = merge_binary_operand_types(cc, operands);
     if (get_unaliased_type(ret)->is_int() && !ret->is_pointer()
-        && !expr_has_no_constants(constness)) {
+        && expr_is_fully_constant(constness)) {
         // Fold a copy of the expression to detect if a constant expr overflows the detected type,
         // and promote it if needed. This allows us to resolve `x := 0xffffffff+1` to an s64 instead
-        // of a u32 with an overflowing add.
+        // of a u32 with an overflowing add. Partly constant expressions only fold their constant
+        // parts, which were already promoted as operands of their own.
         fold_for_type_promotion(cc, binary, ret);
     }
     return ret;
@@ -427,14 +415,10 @@ Type *make_unsigned(Type *type)
 
 Type *make_pointer(Compiler &, Type *real);
 
-Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
+// Computes the type of `ast` itself from the (cached) types of its operands.
+Type *compute_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
 {
-    if (!ast) {
-        return nullptr;
-    }
-    assert(constness);
-
-    ast->expr_type = [&, func = __func__]() -> Type * {
+    return [&, func = __func__]() -> Type * {
         switch (ast->type) {
             case AstType::Integer:
                 *constness |= ExprConstness::SAW_CONSTANT;
@@ -518,6 +502,45 @@ Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
                 return nullptr;
         }
     }();
+}
+
+// Only operators are cached. Leaves are O(1) anyway, and identifier types still change while
+// verifying (inferred and resolved variable types). Enum members are shared by all uses of the
+// member, and their constness depends on whether the enum has been verified yet.
+bool is_type_cacheable(Ast *ast)
+{
+    return ast->type == AstType::Binary || ast->type == AstType::Unary;
+}
+
+// Forget the cached type of `ast` itself (not of its operands). Needed whenever its operands were
+// replaced or changed, which only happens while `ast` is being verified (see verify_expr()).
+void invalidate_type(Ast *ast)
+{
+    ast->flags &= ~AstFlags::TYPE_CACHED;
+}
+
+// The type of `ast` and, OR'd into `constness`, which kinds of leaves it contains.
+// Cached per node: each node is computed from its operands' cached types, so verifying an
+// expression is linear in its size.
+Type *get_expression_type(Compiler &cc, Ast *ast, ExprConstness *constness)
+{
+    if (!ast) {
+        return nullptr;
+    }
+    assert(constness);
+
+    if (has_flag(ast->flags, AstFlags::TYPE_CACHED)) {
+        *constness |= ast->cached_constness;
+        return ast->expr_type;
+    }
+
+    ExprConstness own{};
+    ast->expr_type = compute_expression_type(cc, ast, &own);
+    *constness |= own;
+    if (is_type_cacheable(ast)) {
+        ast->cached_constness = own;
+        ast->flags |= AstFlags::TYPE_CACHED;
+    }
     return ast->expr_type;
 }
 
@@ -1852,9 +1875,12 @@ void verify_expr(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded, 
             TODO();
             return;
     }
+    // Verifying may have cast, folded or replaced the operands, so recompute this node's type from
+    // them. The operands were refreshed the same way when their own verify_expr() finished.
+    invalidate_type(ast);
+    ExprConstness constness{};
+    type = get_expression_type(cc, ast, &constness);
     if (expected) {
-        ExprConstness constness{};
-        type = get_expression_type(cc, ast, &constness);
         match_type_or_cast(cc, ast, constness, type, expected);
     }
 }

@@ -1,0 +1,3 @@
+#{error(type)}
+x: s32 = 1
+y: s64 = -(x as u32)
