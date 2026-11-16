@@ -211,7 +211,7 @@ Ranges feasible_ranges_or(const LogicalRange &ranges, Integer min, Integer max)
 
     for (const auto &range : ranges.comp) {
         const auto val = get_int_literal_as(range.constant, ranges.type);
-        auto rs = create_ranges(range.comparison->operation, val, min, max);
+        auto rs = create_ranges(range.operation, val, min, max);
         feasible = ranges_union(feasible, rs);
     }
 
@@ -224,7 +224,7 @@ Ranges feasible_ranges_and(const LogicalRange &ranges, Integer min, Integer max)
 
     for (const auto &range : ranges.comp) {
         const auto val = get_int_literal_as(range.constant, ranges.type);
-        auto rs = create_ranges(range.comparison->operation, val, min, max);
+        auto rs = create_ranges(range.operation, val, min, max);
         feasible = intersect_ranges(feasible, rs);
         if (feasible.empty()) {
             return {};

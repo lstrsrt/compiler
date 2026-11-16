@@ -1166,21 +1166,32 @@ void verify_logical_chain_components(Compiler &cc, Ast *cmp)
     }
 }
 
+Operation invert_comparison(Operation);
+
+struct IdentAndConst {
+    AstIdentifier *ident = nullptr;
+    AstLiteral *constant = nullptr;
+    // The comparison as `ident operation constant`.
+    Operation operation = Operation::None;
+};
+
+// Split `x op constant` or `constant op x`. For the latter, the operator is mirrored.
 // TODO: less terrible name
-std::pair<AstIdentifier *, AstLiteral *> split_binary_to_ident_and_const(AstBinary *ast)
+IdentAndConst split_binary_to_ident_and_const(AstBinary *ast)
 {
     if (ast->left->type == AstType::Identifier) {
         if (expr_is_const_integral(ast->right, IgnoreCasts::Yes)) {
             return { static_cast<AstIdentifier *>(ast->left),
-                static_cast<AstLiteral *>(uncasted_expr(ast->right)) };
+                static_cast<AstLiteral *>(uncasted_expr(ast->right)), ast->operation };
         }
     } else if (ast->right->type == AstType::Identifier) {
         if (expr_is_const_integral(ast->left, IgnoreCasts::Yes)) {
             return { static_cast<AstIdentifier *>(ast->right),
-                static_cast<AstLiteral *>(uncasted_expr(ast->left)) };
+                static_cast<AstLiteral *>(uncasted_expr(ast->left)),
+                invert_comparison(ast->operation) };
         }
     }
-    return { nullptr, nullptr };
+    return {};
 }
 
 void verify_logical_chain(Compiler &cc, Ast *&_cmp)
@@ -1211,12 +1222,12 @@ void verify_logical_chain(Compiler &cc, Ast *&_cmp)
             continue;
         }
         auto *operand = static_cast<AstBinary *>(ast);
-        auto [ident, constant] = split_binary_to_ident_and_const(operand);
+        auto [ident, constant, operation] = split_binary_to_ident_and_const(operand);
         if (!ident || !constant) {
             continue;
         }
         ranges_map[ident->var].type = ident->var->type;
-        ranges_map[ident->var].comp.emplace_back(operand, constant);
+        ranges_map[ident->var].comp.emplace_back(operand, constant, operation);
     }
 
     for (auto &[var, ranges] : ranges_map) {
@@ -1439,28 +1450,38 @@ enum class ComparisonLogicError {
     AlwaysTrue,
 };
 
-int64_t get_signed(int size, Integer integer)
+// The operator with its operands swapped: `a op b` is `b mirror_comparison(op) a`.
+Operation invert_comparison(Operation op)
 {
-    switch (size) {
-        case 64:
-            return integer.as_signed();
-        case 32:
-            return static_cast<int64_t>(static_cast<int32_t>(integer.as_signed()));
-        case 16:
-            return static_cast<int64_t>(static_cast<int16_t>(integer.as_signed()));
-        case 8:
-            return static_cast<int64_t>(static_cast<int8_t>(integer.as_signed()));
+    switch (op) {
+        case Operation::Less:
+            return Operation::Greater;
+        case Operation::LessEquals:
+            return Operation::GreaterEquals;
+        case Operation::Greater:
+            return Operation::Less;
+        case Operation::GreaterEquals:
+            return Operation::LessEquals;
+        default:
+            return op;
     }
-    TODO();
 }
 
-ComparisonLogicError is_illogical_comparison(Type *type, Operation cmp, Integer constant)
+// Is `x cmp constant` the same for every value of x's type? That's the case if the constant is
+// the type's minimum or maximum, e.g. `x < 0` for unsigned x. A constant on the left
+// (`constant cmp x`) is handled by mirroring the operator.
+ComparisonLogicError is_illogical_comparison(
+    Type *type, Operation cmp, Integer constant, bool left_const)
 {
     assert(is_logical_operation(cmp));
 
     type = get_unaliased_type(type);
     if (!type->is_integral() || type->is_pointer()) {
         return ComparisonLogicError::None;
+    }
+
+    if (left_const) {
+        cmp = invert_comparison(cmp);
     }
 
     const auto min = min_for_type(type);
@@ -1620,10 +1641,8 @@ void verify_comparison(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_disca
     bool is_right_const = expr_is_const_integral(cmp->right, IgnoreCasts::Yes);
 
     if (is_left_const || is_right_const) {
-        auto constant
-            = Integer(is_left_const ? get_int_literal(cmp->left) : get_int_literal(cmp->right),
-                expected->is_signed());
-        if (auto err = is_illogical_comparison(expected, cmp->operation, constant);
+        auto constant = get_int_literal_as(is_left_const ? cmp->left : cmp->right, expected);
+        if (auto err = is_illogical_comparison(expected, cmp->operation, constant, is_left_const);
             err != ComparisonLogicError::None) {
             const char *s = err == ComparisonLogicError::AlwaysFalse ? "false" : "true";
             diag::ast_warning(cc, cmp, "comparison is always {}", s);

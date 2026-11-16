@@ -14,6 +14,9 @@ using Ranges = std::vector<Range>;
 struct Comparison {
     AstBinary *comparison;
     AstLiteral *constant;
+    // The comparison as `variable operation constant`, i.e. mirrored if the constant is on the
+    // left (`5 < x` is `x > 5`).
+    Operation operation;
 };
 
 struct LogicalRange {
