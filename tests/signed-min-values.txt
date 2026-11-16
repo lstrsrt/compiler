@@ -1,0 +1,20 @@
+#{returns(4)}
+// The minimum value of each signed type can be written as a negative literal.
+a: s8 = -128
+b: s16 = -32768
+c: s32 = -2147483648
+d: s64 = -0x8000_0000_0000_0000
+n := 0
+if (a as s32) + 128 == 0 {
+    n += 1
+}
+if (b as s32) + 32768 == 0 {
+    n += 1
+}
+if c < 0 and c + 1 == -2147483647 {
+    n += 1
+}
+if d < 0 {
+    n += 1
+}
+return n

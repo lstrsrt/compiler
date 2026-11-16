@@ -962,8 +962,37 @@ void verify_negate(Compiler &cc, Ast *&ast, Type *expected, AllowDiscardedReturn
     };
 
     auto *e = get_unaliased_type(expected);
+    if (e->is_int() && e->is_unsigned() && !e->is_pointer()) {
+        // `-constant` where an unsigned value is expected, e.g. `x: u8 = -1` or `f(-1)` with a u32
+        // parameter. The problem is the value, not the negation, so say that.
+        ExprConstness operand_constness{};
+        (void)get_expression_type(cc, unary->operand, &operand_constness);
+        if (expr_is_fully_constant(operand_constness)) {
+            if (auto value = get_constant_value(unary->operand)) {
+                auto negated = -*value;
+                if (negated.fits(e->size, false)) {
+                    // e.g. `-0` or `-(0 - 1)`
+                    ast = new AstLiteral(expected, negated, unary->location);
+                    return;
+                }
+                verification_type_error(unary->location,
+                    "negative constant {} cannot be converted to unsigned type {}",
+                    negated.as_signed(), to_string(expected));
+            }
+        }
+    }
     if (!e->is_int() || e->is_unsigned() || e->is_pointer()) {
         negation_error(expected);
+    }
+
+    // `-literal`: fold right away if the negated value fits. The operand alone may not fit, e.g.
+    // `x: s8 = -128`, where checking 128 against s8 first would reject a valid value.
+    if (unary->operand->type == AstType::Integer) {
+        auto negated = -static_cast<AstLiteral *>(unary->operand)->value;
+        if (negated.fits(e->size, true)) {
+            ast = new AstLiteral(expected, negated, unary->location);
+            return;
+        }
     }
 
     // Check the operand before verify_expr() casts it to `expected`, which would hide an

@@ -1,0 +1,5 @@
+#{error(type)}
+// A negative constant reported by value, not as a negation of an unsigned type.
+fn f(a: u32) {
+}
+f(-1)

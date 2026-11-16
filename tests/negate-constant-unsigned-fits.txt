@@ -1,0 +1,5 @@
+#{returns(3)}
+// Negated constants are fine in unsigned contexts if the result is not negative.
+a: u8 = -0
+b: u8 = -(0 - 3)
+return (a + b) as s32
