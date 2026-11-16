@@ -846,61 +846,50 @@ void verify_call(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
         verification_error(call, "function `{}` takes {} argument{} but was called with {}",
             fn->name, fn->params.size(), plural, call->args.size());
     }
-    std::vector<bool> filled(call->args.size());
     auto is_named_param = [](Ast *ast) {
         return ast->operation == Operation::Assign;
     };
 
     bool named_call = !call->args.empty() && is_named_param(call->args[0]);
-    for (size_t arg_idx = 0; arg_idx < call->args.size(); ++arg_idx) {
-        auto *&arg = call->args[arg_idx];
-        bool named_param = is_named_param(arg);
-        if (named_param != named_call) {
-            auto *p = named_param ? static_cast<AstBinary *>(arg)->left : arg;
+    for (auto *arg : call->args) {
+        if (is_named_param(arg) != named_call) {
+            auto *p = is_named_param(arg) ? static_cast<AstBinary *>(arg)->left : arg;
             verification_error(p, "either no or all parameters must be named");
         }
-        if (named_param) {
+    }
+
+    if (named_call) {
+        // Put the right-hand expressions of the named "assignments" in parameter order.
+        // The arg count was checked above, so with no repeats every parameter gets filled.
+        std::vector<Ast *> ordered(fn->params.size(), nullptr);
+        for (auto *arg : call->args) {
             auto *named_param = static_cast<AstBinary *>(arg);
             if (named_param->left->type != AstType::Identifier) {
                 verification_error(
                     named_param, "named parameter needs a valid parameter name on the left");
             }
-            // At this point, the identifier's type is still unresolved, but it will be set and
-            // checked by verify_expr. Here we only check that the call expr itself is valid.
             auto *ident = static_cast<AstIdentifier *>(named_param->left);
-            int param_idx = -1;
-            for (auto *param : fn->params) {
-                if (param->var.name == ident->var->name) {
-                    param_idx = param->var.param_index;
-                    if (std::cmp_not_equal(arg_idx, param_idx) && filled[param_idx]) {
-                        verification_error(ident, "repeated named parameter `{}`", param->var.name);
-                    }
-                    filled[param_idx] = true;
-                    break;
-                }
-            }
-            if (param_idx == -1) {
+            auto it = std::ranges::find_if(fn->params,
+                [ident](AstVariableDecl *param) { return param->var.name == ident->var->name; });
+            if (it == fn->params.end()) {
                 diag::prepare_error(cc, ident->location,
                     "named parameter doesn't match any function parameter name");
                 diag::print_line(cc.lexer.string, ident->location);
                 verification_error(fn, "function definition:");
             }
-            if (std::cmp_not_equal(arg_idx, param_idx)) {
-                std::swap(call->args[arg_idx], call->args[param_idx]);
-                --arg_idx;
+            const auto param_idx = static_cast<size_t>((*it)->var.param_index);
+            if (ordered[param_idx]) {
+                verification_error(ident, "repeated named parameter `{}`", (*it)->var.name);
             }
-            auto *expected = fn->params[param_idx]->var.type;
-            verify_arg(cc, named_param->right, expected);
-        } else {
-            auto *wanted_type = fn->params[arg_idx]->var.type;
-            verify_arg(cc, arg, wanted_type);
+            ordered[param_idx] = named_param->right;
+        }
+        for (size_t i = 0; i < ordered.size(); ++i) {
+            call->args[i] = ordered[i];
         }
     }
-    if (named_call) {
-        // Replace "assignments" with right-hand expression
-        for (auto *&arg : call->args) {
-            arg = static_cast<AstBinary *>(arg)->right;
-        }
+
+    for (size_t i = 0; i < call->args.size(); ++i) {
+        verify_arg(cc, call->args[i], fn->params[i]->var.type);
     }
     if (allow_discarded == AllowDiscardedReturn::No && !fn->returns_void()) {
         if (!has_flag(fn->attributes, FunctionAttributes::MAY_DISCARD)) {

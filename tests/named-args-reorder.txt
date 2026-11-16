@@ -1,0 +1,6 @@
+#{returns(21)}
+// Named arguments in a different order than the parameters.
+fn f(a: s32, b: s32) -> s32 {
+    return a * 10 + b
+}
+return f(b = 1, a = 2)
