@@ -323,11 +323,13 @@ void split_critical_edge(Function *fn, BasicBlock *from, BasicBlock *to)
     if (auto it = std::ranges::find(from->successors, to); it != from->successors.end()) {
         split->reachable = from->reachable;
         *it = split;
-        if (auto it2 = std::ranges::find(to->predecessors, from); it2 != to->successors.end()) {
+        if (auto it2 = std::ranges::find(to->predecessors, from); it2 != to->predecessors.end()) {
             *it2 = split;
         } else {
             internal_error("{}: {} not found in predecessor list", __func__, from->name);
         }
+        split->predecessors.push_back(from);
+        split->successors.push_back(to);
         auto *jmp
             = new Inst(Operation::Branch, InstKind::Unary, InstType::Void, name_gen[fn].get("j"));
         split->code.push_back(jmp);
@@ -364,16 +366,23 @@ void leave(IRBuilder &irb)
     }
 
     for (auto *fn : irb.fns) {
-        TransformedPhis phis_to_transform;
+        // Split all critical edges before collecting any copies, so that the phi
+        // predecessors are final regardless of block order.
         for (auto *bb : fn->blocks) {
             if (size(bb->successors) > 1) {
-                for (auto *succ : bb->successors) {
+                // split_critical_edge() modifies bb->successors.
+                auto successors = bb->successors;
+                for (auto *succ : successors) {
                     if (size(succ->predecessors) > 1) {
                         dbgln("critical edge from {} to {}", bb->name, succ->name);
                         split_critical_edge(fn, bb, succ);
                     }
                 }
             }
+        }
+        // Split blocks are not in fn->blocks yet, but they never contain phis.
+        TransformedPhis phis_to_transform;
+        for (auto *bb : fn->blocks) {
             if (!bb->code.empty()) {
                 leave_block(fn, bb, phis_to_transform);
             }
