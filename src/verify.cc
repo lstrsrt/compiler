@@ -2154,7 +2154,7 @@ void verify_ast(Compiler &, Ast *, AstFunction *);
 void verify_return(
     Compiler &cc, AstReturn *return_stmt, AstFunction *current_function, Type *expected)
 {
-    auto *expr = return_stmt->expr;
+    auto *&expr = return_stmt->expr;
 
     if (current_function->returns_void()) {
         if (expr) {
@@ -2178,8 +2178,10 @@ void verify_return(
             current_function->name, current_function->return_type->get_name());
     }
 
-    ExprConstness constness{};
-    get_expression_type(cc, expr, &constness);
+    // Same as `x: bool = expr`: an integer result is converted with `!= 0`.
+    if (get_unaliased_type(expected)->is_bool()) {
+        convert_expr_to_boolean(cc, expr);
+    }
     verify_expr(cc, expr, AllowDiscardedReturn::Yes, expected);
 }
 

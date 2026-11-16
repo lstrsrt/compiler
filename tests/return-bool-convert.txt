@@ -1,0 +1,9 @@
+#{returns(1)}
+// An integer returned from a bool function is converted with != 0, like `x: bool = y`.
+fn f(x: s32) -> bool {
+    return x
+}
+if f(5) {
+    return 1
+}
+return 0
