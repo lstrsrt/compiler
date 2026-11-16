@@ -673,8 +673,9 @@ TypeError maybe_cast_int(Type *wanted, Type *type, Ast *&expr, ExprConstness con
     if (type->pointer != wanted->pointer) {
         return TypeError::PointerMismatch;
     }
+    // Compare exact values, not 64-bit patterns: -1 is not "bigger" than S64Max.
     if (expr_is_fully_constant(constness) && expr->type == AstType::Integer) {
-        if (get_int_literal(expr) > max_for_type(wanted)) {
+        if (!static_cast<AstLiteral *>(expr)->value.fits(wanted->size, wanted->is_signed())) {
             return TypeError::SizeMismatch;
         }
     }
@@ -1709,7 +1710,8 @@ TypeError could_implicitly_cast_int(Type *wanted, Type *type, Ast *expr, ExprCon
     if (type->pointer != wanted->pointer) {
         return TypeError::PointerMismatch;
     }
-    if (expr_is_fully_constant(constness) && get_int_literal(expr) > max_for_type(wanted)) {
+    if (expr_is_fully_constant(constness)
+        && !get_int_literal_as(expr, type).fits(wanted->size, wanted->is_signed())) {
         return TypeError::SizeMismatch;
     }
 
