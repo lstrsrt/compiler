@@ -1,0 +1,4 @@
+#{error(type)}
+a := 1
+p := &a
+q := 5 - p

@@ -1321,7 +1321,8 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
 
     if (lhs_type->is_pointer()) {
         if (rhs_type->is_pointer()) {
-            verification_type_error(binary->location, "cannot add two pointers");
+            verification_type_error(binary->location, "cannot {} two pointers",
+                binary->operation == Operation::Subtract ? "subtract" : "add");
         }
         if (!rhs_type->is_int()) {
             return false;
@@ -1330,6 +1331,9 @@ bool check_pointer_arithmetic(Compiler &cc, AstBinary *binary, Type *lhs_type,
     } else if (rhs_type->is_pointer()) {
         if (!lhs_type->is_int()) {
             return false;
+        }
+        if (binary->operation == Operation::Subtract) {
+            verification_type_error(binary->location, "cannot subtract a pointer from an integer");
         }
         create_offset(binary->left, rhs_type, lhs_type, lhs_constness);
     } else {
