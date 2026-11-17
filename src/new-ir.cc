@@ -793,8 +793,14 @@ Inst *generate_identifier(IRBuilder &irb, Variable *var)
 Inst *generate_unary(IRBuilder &irb, Ast *ast)
 {
     if (ast->operation == Operation::Cast) {
+        auto *operand = generate(irb, static_cast<AstCast *>(ast)->operand);
+        // Enums and aliases lower to their underlying type, so e.g. an enum to underlying cast
+        // doesn't change anything here.
+        if (operand->type == to_inst_type(ast)) {
+            return operand;
+        }
         auto *inst = new CastInst(to_inst_type(ast), name_gen[irb.current_fn].get("cast"));
-        inst->add_arg(generate(irb, static_cast<AstCast *>(ast)->operand));
+        inst->add_arg(operand);
         inst->cast = to_inst_type(ast);
         irb.add(inst);
         return inst;
