@@ -143,13 +143,17 @@ void Compiler::initialize(AstFunction *main)
 
 File &stdout_file()
 {
+    static auto s_stdout_file = [] {
 #ifdef __linux__
-    static auto s_stdout_file
-        = File::from_handle(STDOUT_FILENO, OpenFlags::WRITE, File::Owning::No);
+        auto file = File::from_handle(STDOUT_FILENO, OpenFlags::WRITE, File::Owning::No);
 #else
-    static auto s_stdout_file
-        = File::from_handle(GetStdHandle(STD_OUTPUT_HANDLE), OpenFlags::WRITE, File::Owning::No);
+        auto file = File::from_handle(
+            GetStdHandle(STD_OUTPUT_HANDLE), OpenFlags::WRITE, File::Owning::No);
 #endif
+        // Unbuffered, so output is in order with diagnostics on stderr and isn't lost on a crash.
+        file.buffered = File::Buffered::No;
+        return file;
+    }();
     return s_stdout_file;
 }
 
