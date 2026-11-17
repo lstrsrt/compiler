@@ -164,6 +164,10 @@ Ast *try_partial_fold_commutative(
     }
     std::vector<Ast *> flattened;
     flatten_binary(binary, binary->operation, flattened);
+    // Constants added to a pointer are byte offsets (already scaled), so combine them as s64.
+    if (get_unaliased_type(expected)->is_pointer()) {
+        expected = s64_type();
+    }
     return partial_fold_commutative(binary, flattened, binary->operation, expected);
 }
 
@@ -828,8 +832,8 @@ Ast *try_constant_fold(Compiler &cc, Ast *ast, Type *&expected, TypeOverridable 
                 const auto &value = static_cast<AstLiteral *>(operand)->value;
                 return new AstLiteral(cast->cast_type, truncate(cast_type, value), cast->location);
             }
-            // TODO: fold other casts too?
-            return cast->operand;
+            // Not foldable. Keep the cast: dropping it would change the expression's type.
+            return cast;
         }
         auto *ret = try_fold_unary(cc, static_cast<AstUnary *>(ast), expected, overridable);
         ret->flags |= AstFlags::FOLDED;

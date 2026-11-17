@@ -1,0 +1,9 @@
+#{returns(0)}
+// Constant offsets added to a pointer in any order are combined into one scaled s64 offset.
+arr: s32 = 0
+p := &arr
+q := p + 5 + 3
+r := 3 + p + 5
+s := p + 2 + 2 + 4
+t := (p + 8) as s64
+return ((q as s64) - t + (r as s64) - t + (s as s64) - t) as s32

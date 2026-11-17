@@ -5,21 +5,15 @@
         [VariableDecl px2: *s32 <unknown> size 8]
             [Add]
                 px (*s32)
-                [Cast s64]
-                    4 (s32)
+                4 (s64)
         [VariableDecl px3: *s32 <unknown> size 8]
             [Add]
                 px (*s32)
-                [Cast s64]
-                    16 (s32)
+                16 (s64)
         [VariableDecl px4: *s32 <unknown> size 8]
             [Add]
-                [Add]
-                    px (*s32)
-                    [Cast s64]
-                        20 (s32)
-                [Cast s64]
-                    12 (s32)
+                px (*s32)
+                32 (s64)
         [VariableDecl tmp: s64 Integer size 8]
             [Cast s64]
                 1 (s32)
@@ -30,6 +24,5 @@
                     [Multiply]
                         tmp (s64)
                         4 (s64)
-                [Cast s64]
-                    8 (s32)
+                8 (s64)
 

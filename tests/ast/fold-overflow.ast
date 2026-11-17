@@ -59,6 +59,5 @@
         [VariableDecl v28: s64 Integer size 8]
             -4294967294 (s64)
         [VariableDecl v29: s64 Integer size 8]
-            [Cast s64]
-                0x80000000 (u32)
+            2147483648 (s64)
 

@@ -1825,8 +1825,6 @@ void verify_cast(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
         return;
     }
 
-    // TODO: can remove_cast when casting enum to underlying
-
     // Enums are checked as their underlying type.
     if (type->has_flag(TypeFlags::ENUM)) {
         t = t->real;
@@ -1849,6 +1847,15 @@ void verify_cast(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
     }
 
     verify_expr(cc, cast->operand, allow_discarded);
+    // Verifying may have turned the operand into a literal (e.g. an enum member or `3 + 4`), which
+    // the check above saw with its original type. Apply the cast to it now.
+    if (cast->operand->type == AstType::Integer) {
+        // The s64 cast of a pointer offset is marked as such, and the literal replaces it.
+        auto ptr_arith = cast->flags & AstFlags::PTR_ARITH;
+        auto *expected = cast->cast_type;
+        ast = try_constant_fold(cc, ast, expected, TypeOverridable::No);
+        ast->flags |= ptr_arith;
+    }
 }
 
 void verify_unary(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded, Type *expected)

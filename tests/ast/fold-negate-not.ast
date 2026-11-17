@@ -21,8 +21,7 @@
         [VariableDecl f: s64 Integer size 8]
             -5 (s64)
         [VariableDecl g: s64 Integer size 8]
-            [Cast s64]
-                -5 (s32)
+            -5 (s64)
         [VariableDecl h: u32 unsigned Integer size 4]
             0xfffffffa (u32)
         [VariableDecl i: u8 unsigned Integer size 1]
@@ -40,8 +39,7 @@
                 1 (s32)
         [VariableDecl n: s64 Integer size 8]
             [Add]
-                [Cast s64]
-                    0x80000000 (u32)
+                2147483648 (s64)
                 y (s64)
         [VariableDecl o: s64 Integer size 8]
             -4294967294 (s64)
