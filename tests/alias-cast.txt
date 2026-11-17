@@ -1,0 +1,13 @@
+#{returns(0)}
+// Casts to and from aliases, including no-op casts that get removed and folded operands.
+alias Byte: u8
+alias Word: s32
+x: Word = 300
+a := (x as Word)
+b := (-x as Word)
+c := ((x + 1) as u8)
+d: Byte = 7
+e := (d as Byte) + (~d as Byte)
+f := ((-5 as Word) as s64)
+g := ((3 + 4) as Byte)
+return (a as s32) - 300 + (b as s32) + 300 + (c as s32) - 45 + (e as s32) - 255 + (f as s32) + 5 + (g as s32) - 7

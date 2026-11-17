@@ -1821,46 +1821,34 @@ void verify_cast(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded)
     auto err = types_match(cast_type, type);
     if (err == TypeError::None) {
         remove_cast(ast);
-        verify_expr(cc, ast /* this is the operand now */, allow_discarded, type);
+        verify_expr(cc, ast /* this is the operand now */, allow_discarded);
         return;
     }
 
     // TODO: can remove_cast when casting enum to underlying
 
-    {
-        auto *type2 = type;
-        auto *t2 = t;
-        if (type->has_flag(TypeFlags::ENUM)) {
-            t = t->real;
-            type = get_unaliased_type(t);
-        }
-
-        if (cast_type->is_string() != type->is_string()) {
-            verification_type_error(ast->location, "cannot cast to or from string");
-        }
-
-        if (cast_type->is_bool() && !type->is_bool()) {
-            verification_type_error(ast->location, "cannot cast {} to `bool`", to_string(t));
-        }
-
-        if (cast_type->pointer != type->pointer) {
-            if (!cast_type->pointer && cast_type->size < 64) {
-                verification_type_error(ast->location, "cannot cast {} to {} due to precision loss",
-                    to_string(t), to_string(cast->cast_type));
-            }
-        }
-
-        type = type2;
-        t = t2;
+    // Enums are checked as their underlying type.
+    if (type->has_flag(TypeFlags::ENUM)) {
+        t = t->real;
+        type = get_unaliased_type(t);
     }
 
-    // We don't pass anything for `expected` because verify_expr uses get_expression_type
-    // so passing `type` would always succeed, and passing the type we're casting to would
-    // always fail.
-    // ^ ^ ^ ^ ^
-    // This is false now that pointer arithmetic checking inserts a cast to s64.
-    // Pass `type` so we don't crash in constant folding.
-    verify_expr(cc, cast->operand, allow_discarded, type);
+    if (cast_type->is_string() != type->is_string()) {
+        verification_type_error(ast->location, "cannot cast to or from string");
+    }
+
+    if (cast_type->is_bool() && !type->is_bool()) {
+        verification_type_error(ast->location, "cannot cast {} to `bool`", to_string(t));
+    }
+
+    if (cast_type->pointer != type->pointer) {
+        if (!cast_type->pointer && cast_type->size < 64) {
+            verification_type_error(ast->location, "cannot cast {} to {} due to precision loss",
+                to_string(t), to_string(cast->cast_type));
+        }
+    }
+
+    verify_expr(cc, cast->operand, allow_discarded);
 }
 
 void verify_unary(Compiler &cc, Ast *&ast, AllowDiscardedReturn allow_discarded, Type *expected)
