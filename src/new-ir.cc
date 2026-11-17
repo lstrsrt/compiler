@@ -1037,6 +1037,16 @@ void generate(Compiler &cc, AstFunction *fn)
     for (auto *fn : cc.new_ir_builder.fns) {
         dom::SemiNCAState state{};
         dom::compute_dominator_tree(state, fn->blocks);
+
+#ifdef GENERATE_GRAPHVIZ_FULL
+        // Write the final CFG of each function to <name>.dot.
+        void write_graphviz_file(File &, Function *);
+        File file;
+        if (file.open(fn->name + ".dot",
+                OpenFlags::OpenOrCreate | OpenFlags::TRUNCATE | OpenFlags::WRITE)) {
+            write_graphviz_file(file, fn);
+        }
+#endif
     }
 
 #ifdef FUZZING
