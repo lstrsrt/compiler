@@ -712,7 +712,7 @@ void create_executable(const std::string &asm_file, const std::string &output_na
 {
 #ifdef __linux__
     if (spawn_blocking_process(
-            "/usr/bin/nasm", { "-felf64", "-o", output_name + ".o", asm_file })) {
+            "/usr/bin/nasm", { "-g", "-felf64", "-o", output_name + ".o", asm_file })) {
         internal_error("nasm failure");
     }
     if (spawn_blocking_process("/usr/bin/gcc", { output_name + ".o", "-o", output_name })) {
@@ -720,7 +720,7 @@ void create_executable(const std::string &asm_file, const std::string &output_na
     }
 #else
     if (spawn_blocking_process("\"C:\\Program Files\\NASM\\nasm.exe\"",
-            { "-fwin64", "-o", output_name + ".obj", asm_file })) {
+            { "-g", "-fwin64", "-o", output_name + ".obj", asm_file })) {
         internal_error("nasm failure");
     }
     if (spawn_blocking_process("\"C:\\Program Files\\Microsoft Visual "
