@@ -1199,8 +1199,6 @@ Ast *parse_record(Compiler &cc, AstFunction *current_function)
 
 Ast *parse_stmt(Compiler &cc, AstFunction *current_function)
 {
-    bool has_side_effects(Ast *);
-
     auto token = lex(cc);
 
     while (token.kind == TokenKind::Hash) {

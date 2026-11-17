@@ -1130,6 +1130,8 @@ bool exprs_identical(Ast *left, Ast *right, CheckSideEffects check_side_effects)
         && (has_side_effects(left) || has_side_effects(right))) {
         return false;
     }
+    // That covered both subtrees, so don't check again at every level below.
+    check_side_effects = CheckSideEffects::No;
 
     switch (left->type) {
         case AstType::Integer:
